@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/invocation-record.schema.json",
+  "title": "One line of state/invocations.jsonl (FR-004, FR-033, research R-13)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "seq",
+    "session_id",
+    "loop",
+    "step",
+    "prompt_path",
+    "started_at",
+    "ended_at",
+    "tokens",
+    "cost_usd",
+    "is_error",
+    "subtype",
+    "permission_denials"
+  ],
+  "properties": {
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "session_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "loop": {
+      "enum": [
+        "backend-dev",
+        "frontend-dev"
+      ]
+    },
+    "step": {
+      "enum": [
+        "plan",
+        "replan",
+        "implement",
+        "fix",
+        "author-checks",
+        "validate-ui"
+      ]
+    },
+    "milestone_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trial": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "prompt_path": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_ms": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "num_turns": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input",
+        "output",
+        "cache_creation",
+        "cache_read"
+      ],
+      "properties": {
+        "input": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "output": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_creation": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_read": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "description": "null values = unavailable (Edge Case)"
+    },
+    "cost_usd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "is_error": {
+      "type": "boolean"
+    },
+    "subtype": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "permission_denials": {
+      "type": "array"
+    },
+    "timed_out": {
+      "type": "boolean",
+      "default": false
+    },
+    "api_error_status": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "failure_class": {
+      "enum": [
+        "none",
+        "work",
+        "service"
+      ],
+      "description": "research R-19; service failures void the trial (FR-067)"
+    },
+    "redacted": {
+      "type": "boolean",
+      "description": "true if any secret values were replaced (FR-070)"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "max_trials": 3,
+  "max_invocations_per_run": 60,
+  "invocation_timeout_seconds": 1800,
+  "max_budget_usd_per_invocation": null,
+  "model": null,
+  "implement_tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+  "unit_tests": {
+    "enabled": false,
+    "command": null
+  },
+  "runtime": {
+    "ready_timeout_seconds": 120
+  },
+  "backend": {},
+  "playwright": {
+    "mcp_command": ["npx", "@playwright/mcp@latest", "--headless"]
+  },
+  "git": {
+    "commit_per_milestone": false
+  },
+  "secrets": {
+    "env": [],
+    "literals": []
+  },
+  "boundary": {
+    "allowed_extra": []
+  }
+}

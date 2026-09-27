@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/plan.schema.json",
+  "title": "Plan returned by the plan/replan step (structured output)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requirements_inventory",
+    "stack",
+    "runtime",
+    "milestones",
+    "open_questions",
+    "assumptions"
+  ],
+  "properties": {
+    "requirements_inventory": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "summary"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "source",
+        "conflicts"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "existing-code",
+            "requirements",
+            "configuration",
+            "proposed"
+          ]
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_command",
+        "cwd",
+        "base_url",
+        "ready_url"
+      ],
+      "properties": {
+        "install_command": {
+          "type": "string"
+        },
+        "start_command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Relative to target_dir"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "ready_url": {
+          "type": "string"
+        },
+        "unit_test_command": {
+          "type": "string"
+        },
+        "openapi_path": {
+          "type": "string",
+          "description": "Required for backend-dev (checked by driver); relative to target_dir"
+        }
+      }
+    },
+    "milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "goal",
+          "depends_on",
+          "tasks",
+          "acceptance_criteria"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^M[0-9]{2}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^M[0-9]{2}$"
+            }
+          },
+          "tasks": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "title",
+                "description",
+                "requirement_refs"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^M[0-9]{2}-T[0-9]{2}$"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "requirement_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "text",
+                "requirement_refs"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^M[0-9]{2}-AC[0-9]+$"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "Observable behavior, not 'compiles' or 'starts' (FR-018/023)"
+                },
+                "requirement_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "question",
+          "context",
+          "affects"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^OQ[0-9]+$"
+          },
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "affects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

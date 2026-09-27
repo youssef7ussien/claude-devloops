@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/validation-result.schema.json",
+  "title": "Validation result for one trial (driver-computed; model supplies only 'criteria'/'network_requests' for playwright)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "passed",
+    "criteria",
+    "contract",
+    "unit_tests",
+    "boundary"
+  ],
+  "properties": {
+    "kind": {
+      "enum": [
+        "curl",
+        "playwright"
+      ]
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "Computed by driver only; a criterion with no entry counts as failed (FR-068)"
+    },
+    "ui_url": {
+      "type": "string",
+      "description": "playwright only (D-2)"
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "criterion_id",
+          "passed",
+          "observed",
+          "evidence"
+        ],
+        "properties": {
+          "criterion_id": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observed": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths relative to trial dir; must exist; playwright requires at least one (FR-023)"
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "check_id",
+          "passed",
+          "command",
+          "response",
+          "failures"
+        ],
+        "properties": {
+          "check_id": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "command": {
+            "type": "string"
+          },
+          "response": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "integer"
+              },
+              "headers_path": {
+                "type": "string"
+              },
+              "body_path": {
+                "type": "string"
+              }
+            }
+          },
+          "failures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "network_requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "method",
+          "url"
+        ],
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "unmatched_operations"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "unmatched_operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "unit_tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "command": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "log_path": {
+          "type": "string"
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "violations"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

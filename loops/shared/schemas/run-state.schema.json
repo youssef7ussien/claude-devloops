@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/run-state.schema.json",
+  "title": "state/run.json for one loop run",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "loop",
+    "status",
+    "inputs",
+    "target_dir",
+    "effective_config",
+    "invocation_count"
+  ],
+  "properties": {
+    "loop": {
+      "enum": [
+        "backend-dev",
+        "frontend-dev"
+      ]
+    },
+    "status": {
+      "enum": [
+        "planning",
+        "awaiting-approval",
+        "implementing",
+        "completed",
+        "stopped-on-failure",
+        "stopped-on-input-error",
+        "stopped-on-service-error"
+      ]
+    },
+    "status_reason": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "trials-exhausted",
+            "planning-trials-exhausted",
+            "invocation-cap",
+            "needs-input",
+            "missing-input",
+            "story-not-found",
+            "invalid-api-spec",
+            "missing-tool",
+            "input-changed",
+            "workspace-mismatch",
+            "target-unwritable",
+            "service-unavailable",
+            "rate-limited",
+            "auth-failed"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "milestone_id": {
+          "type": "string"
+        },
+        "input": {
+          "enum": [
+            "requirements",
+            "api-spec",
+            "answers"
+          ],
+          "description": "For input-changed (FR-051a)"
+        },
+        "tool": {
+          "type": "string",
+          "description": "For missing-tool (FR-013b)"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "required": [
+        "requirements"
+      ],
+      "properties": {
+        "requirements": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256",
+            "mode"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "prd",
+                "story-file",
+                "prd-story"
+              ]
+            },
+            "story_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "api_spec": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "target_dir": {
+      "type": "string"
+    },
+    "effective_config": {
+      "$ref": "config.schema.json"
+    },
+    "approval": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "approved_at": {
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "approve",
+            "replan"
+          ]
+        },
+        "answers_path": {
+          "type": "string"
+        },
+        "answers_sha256": {
+          "type": "string"
+        }
+      }
+    },
+    "milestones": {
+      "type": "object",
+      "description": "id -> {status: pending|in-progress|achieved|failed, tasks: {id: pending|implemented|achieved|failed}, trials: [{n, status: in-progress|passed|failed|void, reason?}], started_at, ended_at}"
+    },
+    "invocation_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ui_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "openapi_artifact": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "resume_status": {
+      "enum": [
+        "planning",
+        "implementing",
+        null
+      ],
+      "description": "For stopped-on-service-error: state restored on the next run (FR-067)"
+    },
+    "grants": {
+      "type": "array",
+      "description": "FR-063 trial-budget grants",
+      "items": {
+        "type": "object",
+        "required": [
+          "milestone_id",
+          "granted_at",
+          "reason",
+          "extra_trials"
+        ],
+        "properties": {
+          "milestone_id": {
+            "type": "string"
+          },
+          "granted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "extra_trials": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

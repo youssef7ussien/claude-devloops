@@ -1,0 +1,60 @@
+# --- Devloops runtime ---------------------------------------------------------
+# Workspaces are committed (spec A-4); only per-process run locks are not.
+workspaces/*/*/state/lock
+# Leftovers from an atomic write interrupted before os.replace
+*.tmp
+
+# --- Python ---------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+/build/
+/dist/
+
+# Test, coverage, and linter caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Node / Playwright MCP (npx caches, browser output) ---------------------------
+node_modules/
+npm-debug.log*
+.playwright-mcp/
+
+# --- Secrets and local environment (never commit; see FR-070) -------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Claude Code: personal, per-machine settings --------------------------------
+.claude/settings.local.json
+CLAUDE.local.md
+
+# --- Logs -------------------------------------------------------------------------
+*.log
+
+# --- Editors and OS ----------------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Office lock files (LibreOffice, Microsoft Office)
+.~lock.*#
+~$*

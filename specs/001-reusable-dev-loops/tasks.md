@@ -48,21 +48,21 @@ implemented and tested on its own.
 
 **Purpose**: Repository skeleton, the entry point, and the test harness
 
-- [ ] T001 Create the directory skeleton: `bin/`, `loops/shared/devloops/validators/`, `loops/shared/hooks/`, `loops/shared/prompts/steps/`, `loops/shared/schemas/`, `loops/shared/config/`, `loops/shared/tests/fixtures/`, `loops/backend-dev/`, `loops/frontend-dev/`, `loops/orchestrator/`, `workspaces/`. Add `workspaces/.gitkeep`, and create empty `loops/shared/devloops/__init__.py` and `loops/shared/devloops/validators/__init__.py`.
-- [ ] T002 Create the executable entry point `bin/devloops`:
+- [X] T001 Create the directory skeleton: `bin/`, `loops/shared/devloops/validators/`, `loops/shared/hooks/`, `loops/shared/prompts/steps/`, `loops/shared/schemas/`, `loops/shared/config/`, `loops/shared/tests/fixtures/`, `loops/backend-dev/`, `loops/frontend-dev/`, `loops/orchestrator/`, `workspaces/`. Add `workspaces/.gitkeep`, and create empty `loops/shared/devloops/__init__.py` and `loops/shared/devloops/validators/__init__.py`.
+- [X] T002 Create the executable entry point `bin/devloops`:
   - Use the shebang `#!/usr/bin/env python3`.
   - Exit with code 2 and a clear message if `sys.version_info < (3, 10)`.
   - Insert `<repo>/loops/shared` into `sys.path`, resolved from `__file__`, and call `devloops.cli.main(sys.argv[1:])`.
   - Run `chmod +x bin/devloops`.
   - Set `__version__ = "0.1.0"` in `loops/shared/devloops/__init__.py`.
-- [ ] T003 [P] Copy the six schemas from `specs/001-reusable-dev-loops/contracts/` into `loops/shared/schemas/`: `config`, `plan`, `checks`, `validation-result`, `invocation-record`, and `run-state` `.schema.json`. Add `loops/shared/tests/test_schemas_sync.py`, which asserts that each pair is byte-identical (constitution IX).
-- [ ] T004 [P] Create `loops/shared/config/defaults.json` with every default from `config.schema.json`: `max_trials: 3`, `max_invocations_per_run: 60`, `invocation_timeout_seconds: 1800`, `max_budget_usd_per_invocation: null`, `model: null`, `implement_tools: ["Read","Edit","Write","Glob","Grep","Bash"]`, `unit_tests: {enabled: false, command: null}`, `runtime: {ready_timeout_seconds: 120}`, `backend: {}`, `playwright: {mcp_command: ["npx","@playwright/mcp@latest","--headless"]}`, `git: {commit_per_milestone: false}`, `secrets: {env: [], literals: []}`, `boundary: {allowed_extra: []}`. It must contain **no** stack-specific commands (FR-059).
-- [ ] T005 [P] Create a root `.gitignore` that ignores `__pycache__/`, `*.pyc`, and `workspaces/*/*/state/lock`. Workspaces themselves are committed (spec A-4).
-- [ ] T006 [P] Create the test harness in `loops/shared/tests/helpers.py`:
+- [X] T003 [P] Copy the six schemas from `specs/001-reusable-dev-loops/contracts/` into `loops/shared/schemas/`: `config`, `plan`, `checks`, `validation-result`, `invocation-record`, and `run-state` `.schema.json`. Add `loops/shared/tests/test_schemas_sync.py`, which asserts that each pair is byte-identical (constitution IX).
+- [X] T004 [P] Create `loops/shared/config/defaults.json` with every default from `config.schema.json`: `max_trials: 3`, `max_invocations_per_run: 60`, `invocation_timeout_seconds: 1800`, `max_budget_usd_per_invocation: null`, `model: null`, `implement_tools: ["Read","Edit","Write","Glob","Grep","Bash"]`, `unit_tests: {enabled: false, command: null}`, `runtime: {ready_timeout_seconds: 120}`, `backend: {}`, `playwright: {mcp_command: ["npx","@playwright/mcp@latest","--headless"]}`, `git: {commit_per_milestone: false}`, `secrets: {env: [], literals: []}`, `boundary: {allowed_extra: []}`. It must contain **no** stack-specific commands (FR-059).
+- [X] T005 [P] Create a root `.gitignore` that ignores `__pycache__/`, `*.pyc`, and `workspaces/*/*/state/lock`. Workspaces themselves are committed (spec A-4).
+- [X] T006 [P] Create the test harness in `loops/shared/tests/helpers.py`:
   - `TempEnv`, a context manager that creates a temp repo root holding a copy or symlink of `loops/` and `bin/`, plus a temp target dir and a workspace dir.
   - `run_cli(args, env)`, which runs `bin/devloops` as a subprocess and returns `(exit_code, stdout, stderr)`.
   - `write_scenario(dict)`, which writes a fake-Claude scenario file and sets `DEVLOOPS_FAKE_SCENARIO`.
-- [ ] T007 [P] Create the fake Claude binary `loops/shared/tests/fake_claude.py` (executable). It must:
+- [X] T007 [P] Create the fake Claude binary `loops/shared/tests/fake_claude.py` (executable). It must:
   - Accept the same flags as real `claude -p` and identify the step from the prompt's first line, `<!-- step: <name> -->`.
   - Read a scenario JSON from `$DEVLOOPS_FAKE_SCENARIO`. For each step, and optionally for each call number, the scenario gives: a `structured_output` object; file writes (`[{path, content}]`, which may use Bash-style writes outside `cwd` to exercise the audit); `api_error_status`; `is_error`; `sleep_seconds`; an exit code; and `tool_uses` (a list of tool names emitted as stream-json `tool_use` events).
   - Print the same JSON shape that real Claude Code 2.1.283 prints (research, Environment facts): `session_id` (taken from `--session-id`), `usage` with the four token counters, `total_cost_usd`, `num_turns`, `duration_ms`, `is_error`, `subtype`, `api_error_status`, `permission_denials`, `result`, and `structured_output`.
