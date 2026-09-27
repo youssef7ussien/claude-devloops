@@ -1,11 +1,15 @@
 """Input checks and byte-level fingerprints (FR-009, FR-012, FR-013, FR-051a).
 
-This module covers the PRD mode; story modes and the API spec are added later (T060, T044).
+This module covers the PRD mode and the API spec; story modes are added later (T060).
 """
 import hashlib
 import os
+import shutil
 
+from . import openapi
 from .state import input_error
+
+API_SPEC_COPY = "api-spec.json"  # under the loop's state/: the frozen copy validation uses
 
 # The order in which inputs are compared; the first difference is reported.
 FINGERPRINT_INPUTS = ("requirements", "api-spec", "answers")
@@ -39,6 +43,35 @@ def check_requirements(path):
         raise input_error("missing-input", f"requirements file {path} is empty",
                           input="requirements")
     return path
+
+
+def check_api_spec(path, loop):
+    """Return `{path, sha256}` for a parseable OpenAPI 3 document (FR-011, FR-013a).
+
+    No path is `missing-input`; an unreadable file is `missing-input` and anything that is not an
+    OpenAPI 3 JSON document is `invalid-api-spec` (both from `openapi.load_spec`).
+    """
+    if not path:
+        raise input_error("missing-input", f"{loop} requires --api-spec (the backend's OpenAPI "
+                          "document)", input="api-spec")
+    path = os.path.abspath(path)
+    if not os.path.isfile(path):
+        raise input_error("missing-input", f"API spec {path} does not exist", input="api-spec")
+    openapi.load_spec(path)
+    return {"path": path, "sha256": sha256_file(path)}
+
+
+def freeze_api_spec(api_spec, state_dir):
+    """Copy the recorded API spec to `state/api-spec.json` and return the copy's path.
+
+    Call only after the fingerprints matched, so the copy is byte-identical to what was recorded.
+    """
+    dest = os.path.join(state_dir, API_SPEC_COPY)
+    os.makedirs(state_dir, exist_ok=True)
+    tmp = dest + ".tmp"
+    shutil.copyfile(api_spec["path"], tmp)
+    os.replace(tmp, dest)
+    return dest
 
 
 def _hash_or_none(path):

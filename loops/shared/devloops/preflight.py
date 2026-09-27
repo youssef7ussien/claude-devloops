@@ -31,9 +31,10 @@ def _resolve(cmd, env):
 def check_tools(loop_def, config, env=None):
     """Raise `stopped-on-input-error` / `missing-tool`, naming the first missing tool.
 
-    Always checks the Claude Code CLI. `loop.json` `required_tools` may add `"curl"` or
-    `"playwright-mcp"` (the first element of `playwright.mcp_command` must be on PATH); any
-    other name must be an executable on PATH.
+    Always checks the Claude Code CLI, whether or not `"claude"` is listed in `required_tools`
+    (listing it is a no-op, so `loop.json` can name it for documentation). `required_tools` may
+    also add `"curl"` or `"playwright-mcp"` (the first element of `playwright.mcp_command` must
+    be on PATH); any other name must be an executable on PATH.
     """
     env = dict(os.environ if env is None else env)
     claude = claude_bin(env)
@@ -42,6 +43,8 @@ def check_tools(loop_def, config, env=None):
                           f"Claude Code CLI not available: '{claude} --version' failed",
                           tool="claude")
     for tool in loop_def.get("required_tools", []):
+        if tool == "claude":
+            continue  # already checked above, honoring DEVLOOPS_CLAUDE_BIN
         if tool == "curl":
             if not _runs([_resolve("curl", env), "--version"], env):
                 raise input_error("missing-tool", "curl not available: 'curl --version' failed",

@@ -112,6 +112,16 @@ def classify_stderr(stderr):
     return None
 
 
+class CallFailed(Exception):
+    """A validator's own Claude call failed (or its output broke a rule); the trial fails with
+    `reason` (e.g. `timeout`, `invalid-output`, a void reason) instead of a generic driver error.
+    `failure_class` is kept for the service-error path (T052)."""
+
+    def __init__(self, reason, detail, failure_class="work"):
+        super().__init__(f"{reason}: {detail}")
+        self.reason, self.detail, self.failure_class = reason, detail, failure_class
+
+
 @dataclass
 class CallResult:
     record: dict

@@ -1,0 +1,8 @@
+{
+  "name": "backend-dev",
+  "required_inputs": ["requirements"],
+  "required_tools": ["claude", "curl"],
+  "validator": "curl",
+  "requires_openapi_path": true,
+  "artifacts": ["openapi"]
+}

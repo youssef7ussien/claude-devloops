@@ -9,12 +9,18 @@ from devloops import schema, state
 
 WS = "core"
 
-STUB = '''"""Test-only validator: every criterion passes unless DEVLOOPS_STUB=fail."""
+STUB = '''"""Test-only validator: every criterion passes unless DEVLOOPS_STUB says otherwise."""
 import os
 
 
 def validate(ctx):
-    passed = os.environ.get("DEVLOOPS_STUB", "pass") == "pass"
+    mode = os.environ.get("DEVLOOPS_STUB", "pass")
+    if mode == "decode-error":  # an exception with an unrelated `.reason` attribute
+        b"\\xff".decode("utf-8")
+    if mode == "call-failed":
+        from devloops.claude import CallFailed
+        raise CallFailed("timeout", "no result within invocation_timeout_seconds=1")
+    passed = mode == "pass"
     os.makedirs(ctx.evidence_dir, exist_ok=True)
     with open(os.path.join(ctx.evidence_dir, "stub.txt"), "w") as f:
         f.write("stub evidence")
@@ -226,6 +232,21 @@ class EngineCoreTest(unittest.TestCase):
         self.assertIn("the call also failed: invalid-output", second["detail"])
         events = state.read_jsonl(os.path.join(self.loop_dir, "state", "events.jsonl"))
         self.assertEqual([e["type"] for e in events].count("boundary-violation"), 2)
+
+    def failed_trial_after(self, stub_mode):
+        self.assertEqual(self.first_run(), 10)
+        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.cli("run", "backend-dev", "--max-trials", "1", env={"DEVLOOPS_STUB": stub_mode})
+        return self.trial("M01", 1)["failure"]
+
+    def test_a_validator_call_failure_keeps_its_own_reason(self):
+        failure = self.failed_trial_after("call-failed")
+        self.assertEqual(failure["reason"], "timeout")
+
+    def test_other_exceptions_with_a_reason_attribute_are_driver_errors(self):
+        failure = self.failed_trial_after("decode-error")
+        self.assertEqual(failure["reason"], "validation-failed")
+        self.assertIn("driver error: UnicodeDecodeError", failure["detail"])
 
     def test_failed_call_without_violation_keeps_its_own_reason(self):
         self.assertEqual(self.first_run("--max-trials", "1"), 10)

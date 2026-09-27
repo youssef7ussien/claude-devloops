@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+from urllib.parse import urlsplit
 
 from . import schema, state
 
@@ -110,3 +111,18 @@ def _lookup(config, dotted):
     for part in dotted.split("."):
         value = value.get(part) if isinstance(value, dict) else None
     return value
+
+
+def backend_base_url(config):
+    """The backend address frontend-dev validates against (FR-039, R-12), or None.
+
+    `backend.base_url` if set; else, with a `backend.start_command`, the origin of
+    `backend.ready_url`. None means no backend: backend-dependent criteria must fail.
+    """
+    backend = config.get("backend") or {}
+    if backend.get("base_url"):
+        return backend["base_url"]
+    if backend.get("start_command") and backend.get("ready_url"):
+        parts = urlsplit(backend["ready_url"])
+        return f"{parts.scheme}://{parts.netloc}"
+    return None

@@ -1,0 +1,8 @@
+{
+  "name": "frontend-dev",
+  "required_inputs": ["requirements", "api_spec"],
+  "required_tools": ["claude", "playwright-mcp"],
+  "validator": "playwright",
+  "requires_openapi_path": false,
+  "artifacts": ["ui-url"]
+}

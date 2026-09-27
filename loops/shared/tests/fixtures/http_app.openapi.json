@@ -1,0 +1,48 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Fixture items API",
+    "version": "1.0.0",
+    "description": "Matches loops/shared/tests/fixtures/http_app.py; a test fixture, not a loop application."
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {"description": "Service status"}
+        }
+      }
+    },
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "responses": {
+          "200": {"description": "The items in creation order"}
+        }
+      },
+      "post": {
+        "operationId": "createItem",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object"}}}
+        },
+        "responses": {
+          "201": {"description": "The created item"}
+        }
+      }
+    },
+    "/items/{id}": {
+      "get": {
+        "operationId": "getItem",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "The item"},
+          "404": {"description": "No item with this id"}
+        }
+      }
+    }
+  }
+}

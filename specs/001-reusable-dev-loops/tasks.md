@@ -215,9 +215,9 @@ exist for every milestone, and the tasks are `[x]`.
 
 ### Tests for User Story 1
 
-- [ ] T028 [P] [US1] Create a local fixture API server `loops/shared/tests/fixtures/http_app.py`: a stdlib `http.server` on a port given by argv, with a small in-memory JSON resource (`GET/POST /items`, `GET /items/{id}`) and `GET /health`. It is a test fixture only, not an application of the loops. Add a matching fixture `loops/shared/tests/fixtures/http_app.openapi.json` in OpenAPI 3.0.
-- [ ] T029 [P] [US1] Write `loops/shared/tests/test_validator_curl.py` against the fixture server. Cover: status, `body_contains`, and dotted-path `json_equals`; `capture` with `${var}` substitution in a later check's path and body; evidence files (command line, headers, body) under `trials/<n>/evidence/`; a failing expectation → `passed: false` with failure text; a check on an operation missing from the OpenAPI file → `contract.passed: false`; checks frozen after trial 1, so author-checks is not called on trial 2.
-- [ ] T030 [P] [US1] Write `loops/shared/tests/test_backend_loop.py`, a full `backend-dev` flow with fake Claude. The plan has two milestones. `implement` writes `openapi.json` into the target and uses `runtime.start_command = "python3 <abs>/fixtures/http_app.py 8765"`. Cover:
+- [X] T028 [P] [US1] Create a local fixture API server `loops/shared/tests/fixtures/http_app.py`: a stdlib `http.server` on a port given by argv, with a small in-memory JSON resource (`GET/POST /items`, `GET /items/{id}`) and `GET /health`. It is a test fixture only, not an application of the loops. Add a matching fixture `loops/shared/tests/fixtures/http_app.openapi.json` in OpenAPI 3.0.
+- [X] T029 [P] [US1] Write `loops/shared/tests/test_validator_curl.py` against the fixture server. Cover: status, `body_contains`, and dotted-path `json_equals`; `capture` with `${var}` substitution in a later check's path and body; evidence files (command line, headers, body) under `trials/<n>/evidence/`; a failing expectation → `passed: false` with failure text; a check on an operation missing from the OpenAPI file → `contract.passed: false`; checks frozen after trial 1, so author-checks is not called on trial 2.
+- [X] T030 [P] [US1] Write `loops/shared/tests/test_backend_loop.py`, a full `backend-dev` flow with fake Claude. The plan has two milestones. `implement` writes `openapi.json` into the target and uses `runtime.start_command = "python3 <abs>/fixtures/http_app.py 8765"`. Cover:
   - `outputs/openapi.json` is copied only after a milestone is achieved (FR-019);
   - an OpenAPI document with an operation not exercised by this milestone's or an earlier achieved milestone's checks → that milestone's validation fails with `validation-failed` naming the operation, the milestone is not achieved, and `outputs/openapi.json` is not updated (FR-019);
   - a missing `runtime.openapi_path` in the plan is rejected;
@@ -225,8 +225,8 @@ exist for every milestone, and the tasks are `[x]`.
 
 ### Implementation for User Story 1
 
-- [ ] T031 [US1] Create `loops/backend-dev/loop.json`: `{"name": "backend-dev", "required_inputs": ["requirements"], "required_tools": ["claude", "curl"], "validator": "curl", "requires_openapi_path": true, "artifacts": ["openapi"]}`.
-- [ ] T032 [P] [US1] Write `loops/backend-dev/Loop-instructions.md`, the authoritative backend instructions (FR-046):
+- [X] T031 [US1] Create `loops/backend-dev/loop.json`: `{"name": "backend-dev", "required_inputs": ["requirements"], "required_tools": ["claude", "curl"], "validator": "curl", "requires_openapi_path": true, "artifacts": ["openapi"]}`.
+- [X] T032 [P] [US1] Write `loops/backend-dev/Loop-instructions.md`, the authoritative backend instructions (FR-046):
   - Role: a backend developer working only in the target.
   - Plan milestones API-first, with dependency order and observable acceptance criteria phrased as HTTP behaviors (method, path, expected status and content; FR-018).
   - Declare `runtime` (install, start, `cwd`, `base_url`, `ready_url`, optional `unit_test_command`, and `openapi_path`).
@@ -234,18 +234,18 @@ exist for every milestone, and the tasks are `[x]`.
   - A Swagger UI is optional.
   - Apply the stack priority order (FR-057).
   - No application-specific content and no default stack (FR-037, FR-059).
-- [ ] T033 [P] [US1] Write `loops/backend-dev/task.md`, the standing-assignment template (research R-14). It has the loop's purpose, inputs, and outputs taken from the task description, and the placeholders listed in T022.
-- [ ] T034 [P] [US1] Write `loops/shared/prompts/steps/author-checks.md`. It turns the milestone's acceptance criteria and the current OpenAPI document into a checks file per `checks.schema.json`, where every criterion ID appears in at least one check's `criteria`. It must be read-only, and it must derive checks from the criteria, never from the implementation's claims.
-- [ ] T035 [US1] Implement `loops/shared/devloops/validators/curl.py` (research R-8):
+- [X] T033 [P] [US1] Write `loops/backend-dev/task.md`, the standing-assignment template (research R-14). It has the loop's purpose, inputs, and outputs taken from the task description, and the placeholders listed in T022.
+- [X] T034 [P] [US1] Write `loops/shared/prompts/steps/author-checks.md`. It turns the milestone's acceptance criteria and the current OpenAPI document into a checks file per `checks.schema.json`, where every criterion ID appears in at least one check's `criteria`. It must be read-only, and it must derive checks from the criteria, never from the implementation's claims.
+- [X] T035 [US1] Implement `loops/shared/devloops/validators/curl.py` (research R-8):
   - On the first trial only, call `author-checks` and validate the result against `checks.schema.json` plus the coverage rule (a missing criterion → `invalid-output`), then freeze it to `state/milestones/<id>/checks.json`. On later trials, load the frozen file (FR-069).
   - Start the runtime through `runtime.py` using the plan runtime merged with the config `runtime` overrides.
   - For each check, in order, substitute `${var}`, then run `curl -sS -X <METHOD> <base_url><path> -H ... --data-binary @<body file> -D <headers file> -o <body file> -w '%{http_code}'` as a subprocess. Evaluate `status`, `body_contains`, and `json_equals`, and apply `capture`. Save the redacted command line and files to `evidence/`.
   - Run the contract check with `openapi.match`, run unit tests through T021, always stop the runtime, and return the validation dict.
-- [ ] T036 [US1] Add backend `on_complete` and artifact publication to `loops/shared/devloops/validators/curl.py`:
+- [X] T036 [US1] Add backend `on_complete` and artifact publication to `loops/shared/devloops/validators/curl.py`:
   - After each achieved milestone, copy `<target>/<runtime.openapi_path>` to `workspaces/<ws>/backend-dev/outputs/openapi.json` and record `openapi_artifact: {path, sha256}` in `run.json`.
   - **At every publication**, as part of the milestone's validation (so before it is marked achieved), the contract check also requires that every operation in the target's OpenAPI document is exercised by a check of this milestone or of an earlier achieved milestone. Otherwise the contract fails, the trial fails with `validation-failed` naming the unverified operations, and nothing is published (FR-019). So `outputs/openapi.json` never lists an unverified endpoint.
   - `on_complete` repeats the same check against the final document as a last safeguard. A failure is recorded as a failed trial of the last milestone with reason `validation-failed`.
-- [ ] T037 [US1] Connect `curl` adapter loading in `engine.py` and the backend context block: stack, runtime, and OpenAPI path. Then run `test_validator_curl.py` and `test_backend_loop.py` until they pass.
+- [X] T037 [US1] Connect `curl` adapter loading in `engine.py` and the backend context block: stack, runtime, and OpenAPI path. Then run `test_validator_curl.py` and `test_backend_loop.py` until they pass.
 
 **Checkpoint**: `backend-dev` works on its own (User Story 1).
 
@@ -263,7 +263,7 @@ results with evidence, and the contract check has run.
 
 ### Tests for User Story 2
 
-- [ ] T038 [P] [US2] Write `loops/shared/tests/test_validator_playwright.py`, where fake Claude `validate-ui` returns stream-json with `mcp__playwright__browser_navigate` and `browser_snapshot` `tool_use` events plus structured `criteria[]` and `network_requests[]`. Cover:
+- [X] T038 [P] [US2] Write `loops/shared/tests/test_validator_playwright.py`, where fake Claude `validate-ui` returns stream-json with `mcp__playwright__browser_navigate` and `browser_snapshot` `tool_use` events plus structured `criteria[]` and `network_requests[]`. Cover:
   - all criteria pass with evidence files → pass;
   - one criterion missing → fail (FR-068);
   - a criterion with empty `evidence` or `observed` → fail (FR-023);
@@ -271,7 +271,7 @@ results with evidence, and the contract check has run.
   - a network request not in the OpenAPI → `contract.passed: false` (FR-024);
   - no `backend.base_url` or `backend.start_command` → criteria that need the backend fail and never pass (FR-039);
   - the argv has only `Read` and `mcp__playwright__*` allowed, write tools and Bash disallowed, and `--strict-mcp-config --mcp-config`.
-- [ ] T039 [P] [US2] Write `loops/shared/tests/test_frontend_loop.py`: a full flow with a runtime of `python3 -m http.server <port>` serving a static `index.html` written by fake `implement`. Cover:
+- [X] T039 [P] [US2] Write `loops/shared/tests/test_frontend_loop.py`: a full flow with a runtime of `python3 -m http.server <port>` serving a static `index.html` written by fake `implement`. Cover:
   - missing `--api-spec` → exit 30 `missing-input`;
   - a non-OpenAPI JSON → exit 30 `invalid-api-spec`;
   - the API spec edited after planning → exit 30 `input-changed` with input `api-spec`;
@@ -279,19 +279,19 @@ results with evidence, and the contract check has run.
 
 ### Implementation for User Story 2
 
-- [ ] T040 [US2] Create `loops/frontend-dev/loop.json`: `{"name": "frontend-dev", "required_inputs": ["requirements", "api_spec"], "required_tools": ["claude", "playwright-mcp"], "validator": "playwright", "requires_openapi_path": false, "artifacts": ["ui-url"]}`.
-- [ ] T041 [P] [US2] Write `loops/frontend-dev/Loop-instructions.md`, the authoritative frontend instructions:
+- [X] T040 [US2] Create `loops/frontend-dev/loop.json`: `{"name": "frontend-dev", "required_inputs": ["requirements", "api_spec"], "required_tools": ["claude", "playwright-mcp"], "validator": "playwright", "requires_openapi_path": false, "artifacts": ["ui-url"]}`.
+- [X] T041 [P] [US2] Write `loops/frontend-dev/Loop-instructions.md`, the authoritative frontend instructions:
   - Plan milestones by feature or page, with acceptance criteria phrased as observable UI behavior (content, interactions, and results; FR-023).
   - Call the backend only through operations in the supplied OpenAPI document (FR-024).
   - Declare `runtime` (start, `cwd`, `base_url`, `ready_url`).
   - Apply the stack priority order.
   - No application-specific content and no default stack.
-- [ ] T042 [P] [US2] Write `loops/frontend-dev/task.md`, the standing-assignment template, with the same placeholders as T033 plus `{{api_spec_path}}`.
-- [ ] T043 [P] [US2] Write `loops/shared/prompts/steps/validate-ui.md`: use only the Playwright MCP tools; for each acceptance criterion, list the steps taken, what was observed, pass or fail, and evidence (save screenshots into the given evidence directory and cite the relative paths); also return the `network_requests` from the browser network log; never modify files.
-- [ ] T044 [US2] Extend `loops/shared/devloops/inputs.py` for the API spec (FR-011, FR-013a, FR-051a).
+- [X] T042 [P] [US2] Write `loops/frontend-dev/task.md`, the standing-assignment template, with the same placeholders as T033 plus `{{api_spec_path}}`.
+- [X] T043 [P] [US2] Write `loops/shared/prompts/steps/validate-ui.md`: use only the Playwright MCP tools; for each acceptance criterion, list the steps taken, what was observed, pass or fail, and evidence (save screenshots into the given evidence directory and cite the relative paths); also return the `network_requests` from the browser network log; never modify files.
+- [X] T044 [US2] Extend `loops/shared/devloops/inputs.py` for the API spec (FR-011, FR-013a, FR-051a).
   - `--api-spec` is required for `frontend-dev` (missing → `missing-input`) and is checked with `openapi.load_spec` (→ `invalid-api-spec`).
   - Copy it to `state/api-spec.json`, record `inputs.api_spec = {path, sha256}`, and compare the original path's sha256 on every start.
-- [ ] T045 [US2] Implement `loops/shared/devloops/validators/playwright.py` (research R-10/R-12):
+- [X] T045 [US2] Implement `loops/shared/devloops/validators/playwright.py` (research R-10/R-12):
   - Write `trials/<n>/mcp.json` as `{"mcpServers": {"playwright": {"command": cmd[0], "args": cmd[1:] + ["--output-dir", <abs evidence dir>]}}}`.
   - Start the backend if `config.backend.start_command` is set (with `backend.cwd` and `backend.ready_url`), otherwise use `config.backend.base_url` if set. Start the frontend runtime.
   - Record `ui_url` in `run.json` and write `outputs/ui-url.txt` (D-2).
@@ -299,7 +299,7 @@ results with evidence, and the contract check has run.
   - Checks: coverage of every criterion; for each criterion, a non-empty `observed` and ≥ 1 existing evidence path; ≥ 1 `mcp__playwright__` tool use; every network request to the backend base URL matching `openapi.match` against `state/api-spec.json`.
   - Pass the backend base URL into the context. When no backend is configured, context `backend: null` tells the validator to mark backend-dependent criteria as failed.
   - Always stop the runtimes.
-- [ ] T046 [US2] Add the frontend context block in `engine.py`: API spec path, backend base URL, and the rule to use only documented operations. Then run `test_validator_playwright.py` and `test_frontend_loop.py` until they pass.
+- [X] T046 [US2] Add the frontend context block in `engine.py`: API spec path, backend base URL, and the rule to use only documented operations. Then run `test_validator_playwright.py` and `test_frontend_loop.py` until they pass.
 
 **Checkpoint**: `frontend-dev` works on its own (User Story 2).
 

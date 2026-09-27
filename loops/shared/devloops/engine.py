@@ -13,9 +13,9 @@ import re
 import types
 from dataclasses import dataclass, field
 
-from . import boundary, config, inputs, openapi, preflight, render, schema, selector, state
+from . import boundary, config, inputs, preflight, render, schema, selector, state
 from . import plan as plan_mod
-from .claude import ClaudeRunner
+from .claude import CallFailed, ClaudeRunner
 from .redact import Redactor
 from .runtime import RuntimeStartFailed
 from .state import EXIT_CODES, TERMINAL_STATUSES, StopRun, input_error
@@ -174,12 +174,7 @@ class Engine:
                         "story_id": None}
         api_spec = None
         if "api_spec" in self.loop_def.get("required_inputs", []) or self.opts.api_spec:
-            if not self.opts.api_spec:
-                raise input_error("missing-input", f"{self.loop} requires --api-spec",
-                                  input="api-spec")
-            spec_path = os.path.abspath(self.opts.api_spec)
-            openapi.load_spec(spec_path)
-            api_spec = {"path": spec_path, "sha256": inputs.sha256_file(spec_path)}
+            api_spec = inputs.check_api_spec(self.opts.api_spec, self.loop)
         self.ws.attach_requirements(requirements)
         if not self.opts.target:
             raise input_error("target-unwritable",
@@ -194,8 +189,11 @@ class Engine:
             "resume_status": None, "grants": [],
         }
         self._save()
+        if api_spec:
+            inputs.freeze_api_spec(api_spec, self.state_dir)
         self._event("input-check", f"requirements {req_path} (sha256 {requirements['sha256']}), "
-                                   f"target {target}")
+                                   + (f"API spec {api_spec['path']} (sha256 {api_spec['sha256']}), "
+                                      if api_spec else "") + f"target {target}")
         self._render()
         return self._advance()
 
@@ -215,6 +213,10 @@ class Engine:
             return EXIT_CODES[status]
         self._check_fingerprints()
         self._check_given_inputs()
+        if self.rs["inputs"].get("api_spec"):
+            # Byte-identical to the recorded spec (the fingerprints just matched); restores a
+            # copy lost since the first start.
+            inputs.freeze_api_spec(self.rs["inputs"]["api_spec"], self.state_dir)
         self._restore_after_service_error()
         self._recover_interrupted()
         self._event("run-started", f"resumed in status {self.rs['status']}")
@@ -358,6 +360,9 @@ class Engine:
             "configuration": {"runtime": self.config.get("runtime"),
                               "backend": self.config.get("backend")},
         }
+        if self.loop_def.get("requires_openapi_path"):
+            ctx["requires_openapi_path"] = True
+        self._add_frontend_block(ctx)
         failed = [t for t in counted_trials if t["status"] == "failed"]
         if failed and failed[-1] is counted_trials[-1]:
             ctx["previous_attempt"] = {"trial": failed[-1]["n"], **failed[-1]["failure"]}
@@ -411,6 +416,13 @@ class Engine:
 
         phase = "claude-error"
         try:
+            adapter = self._adapter()
+            if hasattr(adapter, "prepare"):
+                # Runs before the implement/fix call, so whatever it freezes (e.g. the curl
+                # checks) cannot be shaped by this trial's implementation (FR-069).
+                phase = "invalid-output"
+                adapter.prepare(self._adapter_context(milestone, n, trial_dir))
+                phase = "claude-error"
             out = self._runner().call(kind, self._milestone_context(milestone, n),
                                       self.rs["target_dir"], milestone_id=mid, trial=n,
                                       trial_dir=trial_dir, snapshot=self._snapshot,
@@ -442,6 +454,8 @@ class Engine:
                 raise  # the trial was already closed; this is not a trial failure
             if isinstance(e, RuntimeStartFailed):
                 self._finish(milestone, trial, "runtime-start-failed", str(e))
+            elif isinstance(e, CallFailed):  # a validator's own call, e.g. a validate-ui timeout
+                self._finish(milestone, trial, e.reason, str(e))
             else:
                 self._finish(milestone, trial, phase, f"driver error: {type(e).__name__}: {e}")
 
@@ -584,7 +598,22 @@ class Engine:
         guidance = [g["reason"] for g in self.rs.get("grants") or [] if g.get("milestone_id") == mid]
         if guidance:
             ctx["developer_guidance"] = guidance
+        self._add_frontend_block(ctx)
         return ctx
+
+    def _add_frontend_block(self, ctx):
+        """The backend contract, for loops that take an API spec (FR-011, FR-024, FR-039)."""
+        api_spec = self.rs["inputs"].get("api_spec")
+        if not api_spec:
+            return
+        ctx["frontend"] = {
+            "api_spec_path": api_spec["path"],
+            "backend_base_url": config.backend_base_url(self.config),
+            "rule": "Call the backend only through the operations declared in the API spec at "
+                    "api_spec_path, with the methods and paths it declares. Never call an "
+                    "undocumented endpoint; raise a missing operation as a question. "
+                    "backend_base_url is null when no backend is configured.",
+        }
 
     def _adapter_context(self, milestone, n, trial_dir):
         return types.SimpleNamespace(
