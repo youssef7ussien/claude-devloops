@@ -374,8 +374,8 @@ task and criterion cites `US-2`. A plan citing another story is rejected. An unk
 
 ### Tests for User Story 4
 
-- [ ] T057 [P] [US4] Create fixtures `loops/shared/tests/fixtures/stories/prd.md`, a generic two-story PRD with stories `US-1` and `US-2` and a shared "Rules" section, and `loops/shared/tests/fixtures/stories/single-story.md`.
-- [ ] T058 [P] [US4] Write `loops/shared/tests/test_story_input.py`:
+- [X] T057 [P] [US4] Create fixtures `loops/shared/tests/fixtures/stories/prd.md`, a generic two-story PRD with stories `US-1` and `US-2` and a shared "Rules" section, and `loops/shared/tests/fixtures/stories/single-story.md`.
+- [X] T058 [P] [US4] Write `loops/shared/tests/test_story_input.py`:
   - `--story-file` → mode `story-file`;
   - `--story-id US-2` → mode `prd-story` with `story_id` recorded;
   - `--story-id US-9` → exit 30 `story-not-found`, naming `US-9`;
@@ -385,10 +385,10 @@ task and criterion cites `US-2`. A plan citing another story is rejected. An unk
 
 ### Implementation for User Story 4
 
-- [ ] T059 [US4] Add the `--story-id` and `--story-file` options to `cli.py` (they are mutually exclusive, exit 2 otherwise). Pass the mode through to the workspace and run state, as `requirements.mode` = `"prd" | "story-file" | "prd-story"` and `story_id`.
-- [ ] T060 [US4] Add story modes to `inputs.py`. For `prd-story`, the story ID must appear literally, case-sensitive, in the file text; otherwise the result is `story-not-found`, with the ID in the message (FR-010b). Record the mode and ID in `workspace.json` and `run.json`.
-- [ ] T061 [US4] Add story-scope rules to `plan.py`: in `story-file` and `prd-story` modes, every task and acceptance criterion `requirement_refs` must include the story ID (FR-010, FR-010a).
-- [ ] T062 [US4] Add a story-scope block to the engine context and a matching section in `loops/shared/prompts/common.md`: "Plan and implement only story `<id>`. Other PRD sections are context only. If the story depends on another story that is not implemented, raise an open question; never implement the other story." Run T058 until it passes.
+- [X] T059 [US4] Add the `--story-id` and `--story-file` options to `cli.py` (they are mutually exclusive, exit 2 otherwise). Pass the mode through to the workspace and run state, as `requirements.mode` = `"prd" | "story-file" | "prd-story"` and `story_id`.
+- [X] T060 [US4] Add story modes to `inputs.py`. For `prd-story`, the story ID must appear literally, case-sensitive, in the file text; otherwise the result is `story-not-found`, with the ID in the message (FR-010b). Record the mode and ID in `workspace.json` and `run.json`.
+- [X] T061 [US4] Add story-scope rules to `plan.py`: in `story-file` and `prd-story` modes, every task and acceptance criterion `requirement_refs` must include the story ID (FR-010, FR-010a).
+- [X] T062 [US4] Add a story-scope block to the engine context and a matching section in `loops/shared/prompts/common.md`: "Plan and implement only story `<id>`. Other PRD sections are context only. If the story depends on another story that is not implemented, raise an open question; never implement the other story." Run T058 until it passes.
 
 **Checkpoint**: Single-story input works for both loops (User Story 4).
 
@@ -405,7 +405,7 @@ completion, `orchestrator/state.json` records the handoff with the OpenAPI sha25
 
 ### Tests for User Story 5
 
-- [ ] T063 [P] [US5] Write `loops/shared/tests/test_orchestrator.py`:
+- [X] T063 [P] [US5] Write `loops/shared/tests/test_orchestrator.py`:
   - backend `awaiting-approval` → exit 10, and there is no `frontend-dev/state/` directory;
   - backend `stopped-on-failure` → exit 20, and the orchestrator step records the loop and reason;
   - backend `completed` → frontend runs with `--api-spec workspaces/<ws>/backend-dev/outputs/openapi.json` and `backend.start_command`, `cwd`, and `ready_url` taken from the backend plan runtime;
@@ -414,13 +414,13 @@ completion, `orchestrator/state.json` records the handoff with the OpenAPI sha25
 
 ### Implementation for User Story 5
 
-- [ ] T064 [US5] Implement `loops/shared/devloops/orchestrator.py` (plan, "Optional orchestration"; research R-15). Write `workspaces/<ws>/orchestrator/state.json` = `{status: running|paused|completed|stopped, steps: [{loop, status, reason, started_at, ended_at}], handoff: {api_spec: {path, sha256}, backend_runtime: {start_command, cwd, base_url, ready_url}}}`.
+- [X] T064 [US5] Implement `loops/shared/devloops/orchestrator.py` (plan, "Optional orchestration"; research R-15). Write `workspaces/<ws>/orchestrator/state.json` = `{status: running|paused|completed|stopped, steps: [{loop, status, reason, started_at, ended_at}], handoff: {api_spec: {path, sha256}, backend_runtime: {start_command, cwd, base_url, ready_url}}}`.
   - Run the backend-dev Engine. If the result is not exit 0, record it and return the same exit code.
   - Build the handoff from `backend-dev/outputs/openapi.json` and `state/plan.json` runtime, with `cwd` resolved against the backend target.
   - Run the frontend-dev Engine with those inputs and config overrides, then record completion.
   - The loops contain no orchestrator-specific code.
-- [ ] T065 [US5] Add `orchestrate` to `cli.py`, with `--workspace`, `--requirements`, `--story-id`/`--story-file`, `--target-root` (default targets `<root>/backend` and `<root>/frontend`), `--backend-target`, `--frontend-target`, `--config`, and `--json`. Exit codes: 10, 20, 30, 50, or 0 (contracts/cli.md).
-- [ ] T066 [P] [US5] Render `workspaces/<ws>/orchestrator/progress.md` from `orchestrator/state.json` in `render.py`, and write `loops/orchestrator/README.md`, which describes the orchestration behavior and points to `devloops/orchestrator.py`. Run T063 until it passes.
+- [X] T065 [US5] Add `orchestrate` to `cli.py`, with `--workspace`, `--requirements`, `--story-id`/`--story-file`, `--target-root` (default targets `<root>/backend` and `<root>/frontend`), `--backend-target`, `--frontend-target`, `--config`, and `--json`. Exit codes: 10, 20, 30, 50, or 0 (contracts/cli.md).
+- [X] T066 [P] [US5] Render `workspaces/<ws>/orchestrator/progress.md` from `orchestrator/state.json` in `render.py`, and write `loops/orchestrator/README.md`, which describes the orchestration behavior and points to `devloops/orchestrator.py`. Run T063 until it passes.
 
 **Checkpoint**: Orchestrated and direct runs behave identically (User Story 5).
 

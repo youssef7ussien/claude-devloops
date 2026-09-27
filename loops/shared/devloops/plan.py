@@ -1,11 +1,15 @@
 """Plan validation: schema plus semantic rules (research R-5, data-model.md "Plan")."""
 from . import schema
 
+STORY_MODES = ("story-file", "prd-story")
+
 
 def validate_plan(plan, loop_def, mode="prd", story_id=None):
     """Return a list of problems; empty means the plan is valid.
 
-    Story-scope rules (`mode`, `story_id`) are added in T061.
+    In a story mode with a story ID, every task and acceptance criterion must cite that ID, so no
+    planned work falls outside the story (FR-010, FR-010a). Other refs, such as shared rules, may
+    be cited alongside it.
     """
     errors = schema.validate(plan, "plan.schema.json")
     if errors:
@@ -41,6 +45,9 @@ def validate_plan(plan, loop_def, mode="prd", story_id=None):
                     if ref not in known_refs:
                         errors.append(f"{kind} {item['id']} cites {ref!r}, which is not in "
                                       "requirements_inventory")
+                if mode in STORY_MODES and story_id and story_id not in item["requirement_refs"]:
+                    errors.append(f"{kind} {item['id']} does not cite story {story_id!r}; in "
+                                  "single-story mode all planned work must belong to that story")
 
     if plan["stack"]["conflicts"] and not plan["open_questions"]:
         errors.append("stack.conflicts is not empty, so at least one open question is required")

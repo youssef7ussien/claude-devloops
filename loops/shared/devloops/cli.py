@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from . import __version__, engine, state, workspace
+from . import __version__, engine, orchestrator, state, workspace
 from .state import EXIT_USAGE, DevloopsError
 
 LOOPS = ("backend-dev", "frontend-dev")
@@ -26,6 +26,13 @@ def _positive_int(text):
     return value
 
 
+def _add_story_options(cmd):
+    story = cmd.add_mutually_exclusive_group()
+    story.add_argument("--story-id", help="implement only this story of --requirements (a PRD)")
+    story.add_argument("--story-file", action="store_true",
+                       help="--requirements is a standalone story file")
+
+
 def build_parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workspace", required=True,
@@ -41,10 +48,21 @@ def build_parser():
     run = sub.add_parser("run", parents=[common], help="start or resume one loop")
     run.add_argument("loop", choices=LOOPS)
     run.add_argument("--requirements", help="PRD or story Markdown file (required on the first run)")
+    _add_story_options(run)
     run.add_argument("--target", help="directory for this loop's application code (first run)")
     run.add_argument("--api-spec", help="OpenAPI JSON document (required for frontend-dev)")
     run.add_argument("--max-trials", type=_positive_int, help="override max_trials")
     run.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
+
+    orch = sub.add_parser("orchestrate", parents=[common],
+                          help="run backend-dev, then frontend-dev, in one workspace")
+    orch.add_argument("--requirements", help="PRD or story Markdown file, passed to both loops")
+    _add_story_options(orch)
+    orch.add_argument("--target-root",
+                      help="default targets: <dir>/backend and <dir>/frontend (first run)")
+    orch.add_argument("--backend-target", help="backend-dev's target (overrides --target-root)")
+    orch.add_argument("--frontend-target", help="frontend-dev's target (overrides --target-root)")
+    orch.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     for name, text in (("approve", "accept the stored plan and the answers"),
                        ("replan", "plan again with the answers, then pause again")):
@@ -109,6 +127,33 @@ def _emit(args, ws, loop, message, code):
         _print_status(obj, message)
 
 
+def _orchestrate(args, repo_root):
+    for loop in orchestrator.LOOP_ORDER:
+        engine.load_loop_def(repo_root, loop)  # before a workspace is created
+    root = os.path.abspath(args.target_root) if args.target_root else None
+    targets = {"backend": args.backend_target, "frontend": args.frontend_target}
+    for name, given in targets.items():
+        targets[name] = os.path.abspath(given) if given else \
+            (os.path.join(root, name) if root else None)
+    ws = workspace.open_workspace(args.workspace, repo_root, create=True)
+    orch = orchestrator.Orchestrator(ws, orchestrator.OrchestrateOptions(
+        requirements=args.requirements, story_id=args.story_id, story_file=args.story_file,
+        backend_target=targets["backend"], frontend_target=targets["frontend"],
+        config_path=args.config, force_unlock=args.force_unlock), repo_root=repo_root)
+    code = orch.run()
+    loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
+    if args.json:
+        print(json.dumps({"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
+                          "exit_code": code, "message": orch.message}, indent=2))
+    else:
+        if orch.message:
+            print(orch.message)
+        print(f"orchestrator: {orch.state['status']}")
+        for obj in loops.values():
+            _print_status(obj)
+    return code
+
+
 def main(argv=None, repo_root=None):
     args = build_parser().parse_args(argv)
     repo_root = repo_root or _repo_root()
@@ -125,10 +170,15 @@ def main(argv=None, repo_root=None):
                     _print_status(engine.status_object(ws, loop))
             return 0
 
+        if args.command == "orchestrate":
+            return _orchestrate(args, repo_root)
+
         engine.load_loop_def(repo_root, args.loop)  # before a workspace is created
         ws = workspace.open_workspace(args.workspace, repo_root, create=args.command == "run")
         options = engine.Options(
             requirements=getattr(args, "requirements", None),
+            story_id=getattr(args, "story_id", None),
+            story_file=getattr(args, "story_file", False),
             target=getattr(args, "target", None),
             api_spec=getattr(args, "api_spec", None),
             config_path=args.config,

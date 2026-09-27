@@ -17,6 +17,17 @@ done: only the driver's own validation can mark a milestone achieved.
   target are blocked or detected, and they fail the trial.
 - Never edit, move, or delete the requirements or any input file.
 
+## Single-story scope
+
+When the Context block has a `story_scope` block, the run covers one user story only:
+
+- With a `story_id`: plan and implement only story `<story_id>`. Other PRD sections are context
+  only. Every `requirement_refs` list must include the story ID; a plan that cites work outside
+  the story is rejected.
+- Without a `story_id`: the requirements file is the story; plan and implement only what it asks.
+- If the story depends on another story that is not implemented, raise an open question; never
+  implement the other story.
+
 ## Requirements and ambiguity
 
 - The requirements are the source of truth. Cite their own identifiers (for example a

@@ -1,13 +1,15 @@
 """Input checks and byte-level fingerprints (FR-009, FR-012, FR-013, FR-051a).
 
-This module covers the PRD mode and the API spec; story modes are added later (T060).
+The requirements mode is `prd` (the whole file), `story-file` (the file is one story), or
+`prd-story` (one story, selected by ID, within a PRD; FR-010, D-6).
 """
 import hashlib
 import os
+import re
 import shutil
 
 from . import openapi
-from .state import input_error
+from .state import UsageError, input_error
 
 API_SPEC_COPY = "api-spec.json"  # under the loop's state/: the frozen copy validation uses
 
@@ -43,6 +45,47 @@ def check_requirements(path):
         raise input_error("missing-input", f"requirements file {path} is empty",
                           input="requirements")
     return path
+
+
+def story_selection(story_id=None, story_file=False):
+    """Return `(mode, story_id)` for the story options; a usage error if they are unusable.
+
+    An empty or blank `story_id` (for example from an unset shell variable) is refused rather
+    than read as "no story", which would plan the whole PRD.
+    """
+    if story_id is not None and not story_id.strip():
+        raise UsageError("--story-id is empty; pass the story's identifier")
+    if story_id is not None and story_file:
+        raise UsageError("--story-id and --story-file are mutually exclusive")
+    if story_id is not None:
+        return "prd-story", story_id
+    return ("story-file" if story_file else "prd"), None
+
+
+def _occurs_as_id(story_id, text):
+    """Whether `story_id` occurs with no ID character touching it, so `US-1` is not found in
+    `US-10`. Markdown and punctuation around it (`**US-1**`, `(US-1)`, `US-1:`) still match."""
+    return re.search(rf"(?<![A-Za-z0-9_-]){re.escape(story_id)}(?![A-Za-z0-9_-])", text) \
+        is not None
+
+
+def requirements_input(path, story_id=None, story_file=False):
+    """Check the requirements and return `{path, sha256, mode, story_id}` (FR-009, FR-010).
+
+    With `story_id`, the ID must occur literally (case-sensitive) in the file text as a whole ID,
+    or the result is `story-not-found` naming it (FR-010b). Understanding the story is left to
+    the plan step.
+    """
+    mode, story_id = story_selection(story_id, story_file)
+    path = check_requirements(path)
+    if story_id is not None:
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8", errors="replace")
+        if not _occurs_as_id(story_id, text):
+            raise input_error("story-not-found", f"story {story_id!r} does not occur in the "
+                              f"requirements file {path} (the match is literal, case-sensitive, "
+                              "and of the whole ID)", input="requirements")
+    return {"path": path, "sha256": sha256_file(path), "mode": mode, "story_id": story_id}
 
 
 def check_api_spec(path, loop):

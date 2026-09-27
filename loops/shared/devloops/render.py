@@ -403,3 +403,38 @@ def render_all(loop_dir, loop, workspace_name, repo_root, final=False, questions
         state.write_text_atomic(os.path.join(outputs, "final-report.md"),
                                 render_final_report(loop, workspace_name, run, plan, trials,
                                                     load_validations(loop_dir, run)))
+
+
+# --- Orchestrator progress -----------------------------------------------------------------------------
+
+def render_orchestrator_progress(workspace_name, orch):
+    """`orchestrator/progress.md` from `orchestrator/state.json` (T066; R-15)."""
+    lines = [f"# Orchestrator progress: {workspace_name}", "",
+             f"**Status:** {orch['status']}", "",
+             "Order: `backend-dev`, then `frontend-dev`. The frontend starts only after the "
+             "backend is completed. Run `devloops orchestrate` again to resume.", "",
+             "## Steps", ""]
+    steps = orch.get("steps") or []
+    if steps:
+        lines.append(_table(["Loop", "Status", "Reason", "Started", "Ended"],
+                            [(s["loop"], s["status"], s.get("reason"), s.get("started_at"),
+                              s.get("ended_at")) for s in steps]))
+    else:
+        lines.append("No loop has started yet.")
+    lines += ["", "## Handoff", ""]
+    handoff = orch.get("handoff")
+    if handoff:
+        spec, runtime = handoff["api_spec"], handoff["backend_runtime"]
+        lines += [f"- API spec: `{spec['path']}` (sha256 {spec.get('sha256') or 'missing'})"]
+        lines += [f"- Backend {key}: `{runtime[key]}`"
+                  for key in ("start_command", "cwd", "base_url", "ready_url") if runtime.get(key)]
+    else:
+        lines.append("Not built yet: it is built once `backend-dev` is completed.")
+    for s in steps:
+        if s["status"] == "awaiting-approval":
+            lines += ["", f"**Action:** review `{s['loop']}/outputs/`, then run `devloops approve "
+                          f"{s['loop']}` and `devloops orchestrate` again."]
+        elif s["status"] in STOPPED:
+            lines += ["", f"**Action:** `{s['loop']}` stopped ({s.get('reason')}); see "
+                          f"`{s['loop']}/progress.md`."]
+    return "\n".join(lines) + "\n"

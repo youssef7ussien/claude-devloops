@@ -39,6 +39,8 @@ class Options:
     """What the CLI passes to a run. `None` means the flag was not given."""
 
     requirements: str = None
+    story_id: str = None
+    story_file: bool = False
     target: str = None
     api_spec: str = None
     config_path: str = None
@@ -242,9 +244,9 @@ class Engine:
                                     self.opts.cli_overrides)
         self._use_config(cfg)
         preflight.check_tools(self.loop_def, cfg, self.env)
-        req_path = inputs.check_requirements(self.opts.requirements)
-        requirements = {"path": req_path, "sha256": inputs.sha256_file(req_path), "mode": "prd",
-                        "story_id": None}
+        requirements = inputs.requirements_input(self.opts.requirements, self.opts.story_id,
+                                                 self.opts.story_file)
+        req_path = requirements["path"]
         api_spec = None
         if "api_spec" in self.loop_def.get("required_inputs", []) or self.opts.api_spec:
             api_spec = inputs.check_api_spec(self.opts.api_spec, self.loop)
@@ -264,7 +266,10 @@ class Engine:
         self._save()
         if api_spec:
             inputs.freeze_api_spec(api_spec, self.state_dir)
-        self._event("input-check", f"requirements {req_path} (sha256 {requirements['sha256']}), "
+        self._event("input-check", f"requirements {req_path} (sha256 {requirements['sha256']}, "
+                                   f"mode {requirements['mode']}"
+                                   + (f", story {requirements['story_id']}"
+                                      if requirements["story_id"] else "") + "), "
                                    + (f"API spec {api_spec['path']} (sha256 {api_spec['sha256']}), "
                                       if api_spec else "") + f"target {target}")
         self._render()
@@ -306,9 +311,21 @@ class Engine:
     def _check_given_inputs(self):
         """Inputs passed again on a later start must match the recorded ones (D-8)."""
         recorded = self.rs["inputs"]
+        req = recorded["requirements"]
+        if self.opts.story_id is not None or self.opts.story_file:
+            # A different selection is a mistyped command, not changed input: refuse it before
+            # anything is recorded, so the run stays resumable. Omitting the flags keeps the
+            # recorded selection.
+            mode, story_id = inputs.story_selection(self.opts.story_id, self.opts.story_file)
+            if (mode, story_id) != (req["mode"], req.get("story_id")):
+                raise state.UsageError(
+                    f"this run was started with mode={req['mode']} story_id="
+                    f"{req.get('story_id')}, not mode={mode} story_id={story_id}; repeat the "
+                    "original story options or omit them (a different story needs a new "
+                    "workspace)")
         if self.opts.requirements:
             path = inputs.check_requirements(self.opts.requirements)
-            if inputs.sha256_file(path) != recorded["requirements"]["sha256"]:
+            if inputs.sha256_file(path) != req["sha256"]:
                 raise input_error("input-changed", f"--requirements {path} differs from the "
                                   "recorded requirements", input="requirements")
         if self.opts.api_spec and recorded.get("api_spec"):
@@ -465,6 +482,7 @@ class Engine:
         }
         if self.loop_def.get("requires_openapi_path"):
             ctx["requires_openapi_path"] = True
+        self._add_story_scope(ctx)
         self._add_frontend_block(ctx)
         failed = [t for t in counted_trials if t["status"] == "failed"]
         if failed and failed[-1] is counted_trials[-1]:
@@ -756,8 +774,26 @@ class Engine:
         guidance = [g["reason"] for g in self.rs.get("grants") or [] if g.get("milestone_id") == mid]
         if guidance:
             ctx["developer_guidance"] = guidance
+        self._add_story_scope(ctx)
         self._add_frontend_block(ctx)
         return ctx
+
+    def _add_story_scope(self, ctx):
+        """The single-story rule, in story modes (FR-010, FR-010a; common.md "Single-story scope")."""
+        req = self.rs["inputs"]["requirements"]
+        if req["mode"] == "prd":
+            return
+        story_id = req.get("story_id")
+        if story_id:
+            rule = (f"Plan and implement only story `{story_id}`. Other PRD sections are context "
+                    "only. If the story depends on another story that is not implemented, raise "
+                    "an open question; never implement the other story. Every requirement_refs "
+                    f"list must include `{story_id}`.")
+        else:
+            rule = ("The requirements file is one standalone story: plan and implement only that "
+                    "story. If it depends on another story that is not implemented, raise an "
+                    "open question; never implement the other story.")
+        ctx["story_scope"] = {"mode": req["mode"], "story_id": story_id, "rule": rule}
 
     def _add_frontend_block(self, ctx):
         """The backend contract, for loops that take an API spec (FR-011, FR-024, FR-039)."""
