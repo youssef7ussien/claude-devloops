@@ -11,6 +11,7 @@ once (T053), and `retry` grants a failed milestone more trials (T056).
 import importlib
 import os
 import re
+import subprocess
 import types
 from dataclasses import dataclass, field
 
@@ -656,6 +657,40 @@ class Engine:
             adapter.on_achieved(ctx)
             self._save()
             self._render()
+        if (self.config.get("git") or {}).get("commit_per_milestone"):
+            self._commit_milestone(milestone)
+
+    def _commit_milestone(self, milestone):
+        """Commit the target's changes after an achieved milestone (A-6; off by default).
+
+        Only paths under the target are staged and committed (`git commit -- .` from the target),
+        so anything else in the repository, staged or not, is left alone. A failure, including git
+        that cannot be run at all, is recorded and never fails the achieved milestone.
+        """
+        mid = milestone["id"]
+        try:
+            outcome = self._git_commit(f"feat({self.loop}): complete {mid} {milestone['title']}")
+        except OSError as e:  # git missing from PATH, or the target gone
+            outcome = f"failed: git could not be run: {e}"
+        self._event("git-commit", outcome, milestone=mid)
+
+    def _git_commit(self, message):
+        """Commit the target's changes as `message`; return the outcome text for the event."""
+        target = self.rs["target_dir"]
+
+        def git(*args):
+            return subprocess.run(["git", "-C", target, *args], capture_output=True, text=True,
+                                  env=self.env)
+
+        if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
+            return f"skipped: target {target} is not in a git repository"
+        if not git("status", "--porcelain", "--", ".").stdout.strip():
+            return "skipped: the target has no changes"
+        for args in (("add", "-A", "--", "."), ("commit", "-q", "-m", message, "--", ".")):
+            proc = git(*args)
+            if proc.returncode != 0:
+                return f"failed: git {args[0]}: {(proc.stderr or proc.stdout).strip()[:500]}"
+        return f"{git('rev-parse', '--short', 'HEAD').stdout.strip()} {message}"
 
     def _void(self, milestone, trial, reason, detail):
         """Close a trial as `void` (not counted; its number is reused) and stop resumably."""

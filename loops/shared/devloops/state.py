@@ -26,7 +26,7 @@ EVENT_TYPES = {
     "run-started", "input-check", "config-override", "lock-cleared", "plan-stored", "paused",
     "approved", "trial-started", "trial-voided", "task-implemented", "validation-passed",
     "validation-failed", "needs-input", "retry-granted", "service-error", "boundary-violation",
-    "milestone-achieved", "stopped", "completed",
+    "milestone-achieved", "git-commit", "stopped", "completed",
 }
 
 

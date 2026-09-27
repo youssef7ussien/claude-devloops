@@ -224,9 +224,10 @@ The `type` values are `run-started`, `input-check`, `config-override`, `lock-cle
 `plan-stored`, `paused`, `approved`,
 `trial-started`, `trial-voided`, `task-implemented`, `validation-passed`, `validation-failed`,
 `needs-input`, `retry-granted`, `service-error`,
-`boundary-violation`, `milestone-achieved`, `stopped`, and `completed`. `config-override` records a
-CLI override applied over the frozen `effective_config`; `lock-cleared` records a stale lock removed
-by `--force-unlock`. Events are rendered into the action-item section of `progress.md` (FR-004).
+`boundary-violation`, `milestone-achieved`, `git-commit`, `stopped`, and `completed`.
+`config-override` records a CLI override applied over the frozen `effective_config`; `lock-cleared`
+records a stale lock removed by `--force-unlock`; `git-commit` records the outcome of the optional
+per-milestone commit (`git.commit_per_milestone`, A-6). Events are rendered into the action-item section of `progress.md` (FR-004).
 
 ## OrchestratorRun
 

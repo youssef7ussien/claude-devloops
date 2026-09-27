@@ -1,5 +1,6 @@
 """`devloops` command line (contracts/cli.md)."""
 import argparse
+import csv
 import json
 import os
 import sys
@@ -80,9 +81,85 @@ def build_parser():
                        help="trials to grant (default: max_trials)")
     retry.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
+    export = sub.add_parser("export-sessions", parents=[common],
+                            help="write every Claude invocation as CSV (FR-033)")
+    export.add_argument("--csv", metavar="FILE", help="output file (default: standard output)")
+
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
     return parser
+
+
+LARGE_EVIDENCE_BYTES = 1024 * 1024
+
+
+def large_evidence(ws, loops=LOOPS):
+    """Evidence files over 1 MB, the likeliest place for a secret to hide (research R-21).
+
+    `[{path, bytes}]`, largest first, with paths relative to the workspace. Read-only.
+    """
+    found = []
+    for loop in loops:
+        milestones = os.path.join(ws.loop_dir(loop), "state", "milestones")
+        for dirpath, _, names in os.walk(milestones):
+            if "evidence" not in os.path.relpath(dirpath, milestones).split(os.sep):
+                continue
+            for name in names:
+                path = os.path.join(dirpath, name)
+                try:
+                    size = os.path.getsize(path)
+                except OSError:
+                    continue
+                if size > LARGE_EVIDENCE_BYTES:
+                    found.append({"path": os.path.relpath(path, ws.path), "bytes": size})
+    return sorted(found, key=lambda item: (-item["bytes"], item["path"]))
+
+
+SESSION_COLUMNS = ("workspace", "loop", "step", "milestone", "trial", "session_id",
+                   "prompt_path", "input_tokens", "output_tokens", "cache_creation_tokens",
+                   "cache_read_tokens", "cost_usd", "started_at", "ended_at")
+
+
+def session_rows(ws):
+    """One row per invocation in every loop's `state/invocations.jsonl`, in loop then call order.
+
+    `prompt_path` is relative to the workspace. A token count or cost Claude did not report is
+    left empty.
+    """
+    for loop in LOOPS:
+        loop_dir = ws.loop_dir(loop)
+        records = state.read_jsonl(os.path.join(loop_dir, "state", "invocations.jsonl"))
+        for rec in sorted(records, key=lambda r: r.get("seq") or 0):
+            tokens = rec.get("tokens") or {}
+            prompt = rec.get("prompt_path")
+            yield {
+                "workspace": ws.name, "loop": rec.get("loop") or loop, "step": rec.get("step"),
+                "milestone": rec.get("milestone_id"), "trial": rec.get("trial"),
+                "session_id": rec.get("session_id"),
+                "prompt_path": os.path.join(loop, prompt) if prompt else None,
+                "input_tokens": tokens.get("input"), "output_tokens": tokens.get("output"),
+                "cache_creation_tokens": tokens.get("cache_creation"),
+                "cache_read_tokens": tokens.get("cache_read"), "cost_usd": rec.get("cost_usd"),
+                "started_at": rec.get("started_at"), "ended_at": rec.get("ended_at"),
+            }
+
+
+def _export_sessions(args, ws):
+    rows = list(session_rows(ws))
+    out = open(args.csv, "w", encoding="utf-8", newline="") if args.csv else sys.stdout
+    try:
+        writer = csv.DictWriter(out, fieldnames=SESSION_COLUMNS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+    finally:
+        if args.csv:
+            out.close()
+    if args.csv:
+        print(f"{len(rows)} invocation(s) written to {os.path.abspath(args.csv)}"
+              if not args.json else json.dumps({"workspace": ws.name, "csv":
+                                                os.path.abspath(args.csv),
+                                                "invocations": len(rows)}, indent=2))
+    return 0
 
 
 def _repo_root():
@@ -161,15 +238,25 @@ def main(argv=None, repo_root=None):
         if args.command == "status":
             ws = workspace.open_workspace(args.workspace, repo_root, create=False)
             loops = [args.loop] if args.loop else list(LOOPS)
+            large = large_evidence(ws, loops)
             if args.json:
                 objs = {loop: engine.status_object(ws, loop) for loop in loops}
-                print(json.dumps(objs[args.loop] if args.loop else
-                                 {"workspace": ws.name, "loops": objs}, indent=2))
+                obj = objs[args.loop] if args.loop else {"workspace": ws.name, "loops": objs}
+                obj["large_evidence"] = large
+                print(json.dumps(obj, indent=2))
             else:
                 for loop in loops:
                     _print_status(engine.status_object(ws, loop))
+                if large:
+                    print("evidence files over 1 MB (review them for secrets before committing "
+                          "the workspace):")
+                    for item in large:
+                        print(f"  {item['path']} ({item['bytes']} bytes)")
             return 0
 
+        if args.command == "export-sessions":
+            return _export_sessions(args, workspace.open_workspace(args.workspace, repo_root,
+                                                                   create=False))
         if args.command == "orchestrate":
             return _orchestrate(args, repo_root)
 

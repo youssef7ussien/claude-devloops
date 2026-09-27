@@ -65,8 +65,16 @@ class RuntimeTest(unittest.TestCase):
         runtime.stop(proc, grace=1)
         self.assertIsNotNone(proc.poll())
         self.assertLess(time.monotonic() - started, 5)
-        with self.assertRaises(ProcessLookupError):
-            os.killpg(proc.pid, 0)
+        # The killed, orphaned `sleep` lingers as a zombie until init reaps it, which can take a
+        # moment on a loaded machine; the group must be gone soon after.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.killpg(proc.pid, 0)
+            except ProcessLookupError:
+                break
+            self.assertLess(time.monotonic(), deadline, "the process group outlived stop()")
+            time.sleep(0.05)
 
     def test_stop_none_is_a_no_op(self):
         runtime.stop(None)

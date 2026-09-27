@@ -434,13 +434,13 @@ specific to any one application (FR-037, FR-050, FR-059; SC-006).
 **Independent Test**: Running full flows for both loops on two unrelated fixtures, in separate
 workspaces, leaves the hash manifest of `loops/` and `bin/` unchanged.
 
-- [ ] T067 [P] [US6] Create the smoke fixtures:
+- [X] T067 [P] [US6] Create the smoke fixtures:
   - `loops/shared/tests/fixtures/smoke/requirements.md`: one story, "a `GET /health` endpoint returning `{\"status\":\"ok\"}` and a page that shows that status".
   - `loops/shared/tests/fixtures/smoke-alt/requirements.md`: one story, "a counter: `POST /counter/increment` and `GET /counter`, and a page with a button that increments it and shows the value".
 
   They share no entities or endpoints (SC-006). These are the inputs for the real-Claude runs in quickstart §2–4.
-- [ ] T068 [P] [US6] Write `loops/shared/tests/test_reusability.py`. With fake Claude, run the backend-dev and frontend-dev flows for both smoke fixtures in workspaces `reuse-a` and `reuse-b`. Assert that both reach `completed`, that `boundary.snapshot` manifests of `loops/` and `bin/` are identical before and after, and that the two workspaces share no files.
-- [ ] T069 [P] [US6] Write `loops/shared/tests/test_no_app_specifics.py`. It scans only the files that steer the loops' behavior:
+- [X] T068 [P] [US6] Write `loops/shared/tests/test_reusability.py`. With fake Claude, run the backend-dev and frontend-dev flows for both smoke fixtures in workspaces `reuse-a` and `reuse-b`. Assert that both reach `completed`, that `boundary.snapshot` manifests of `loops/` and `bin/` are identical before and after, and that the two workspaces share no files.
+- [X] T069 [P] [US6] Write `loops/shared/tests/test_no_app_specifics.py`. It scans only the files that steer the loops' behavior:
   - `loops/*/Loop-instructions.md`, `loops/*/task.md`, and `loops/*/loop.json`;
   - `loops/shared/prompts/**`;
   - `loops/shared/config/defaults.json`;
@@ -456,16 +456,16 @@ workspaces, leaves the hash manifest of `loops/` and `bin/` unchanged.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T070 [P] Write `loops/README.md` (FR-047/048), covering only implemented behavior:
+- [X] T070 [P] Write `loops/README.md` (FR-047/048), covering only implemented behavior:
   - an overview and prerequisites (Claude Code login, Python ≥ 3.10, curl, node/npx, and `npx playwright install chromium`);
   - the command reference with exit codes (from contracts/cli.md), configuration keys and defaults (from `defaults.json`), and the workspace layout;
   - approval, replan, and `open-questions.md`; recovery (interrupted trials, `retry`, service errors with exit 50, stale locks); the secrets configuration, and a note to review workspaces before committing them (FR-070);
   - Mermaid `sequenceDiagram`s for backend-dev, frontend-dev, and orchestrate.
-- [ ] T071 [P] Create optional Claude Code skills (research R-16): `.claude/skills/loops-backend-dev/SKILL.md`, `.claude/skills/loops-frontend-dev/SKILL.md`, and `.claude/skills/loops-orchestrate/SKILL.md`. Each has frontmatter `name` and `description` and instructions to run exactly one `bin/devloops` command through Bash with the user's arguments, then summarize `status --json`. They contain no loop logic.
-- [ ] T072 [P] Add `export-sessions [--csv <file>]` to `cli.py`. It writes a CSV with the columns workspace, loop, step, milestone, trial, session ID, prompt path, the four token counts, cost, start, and end, built from every `state/invocations.jsonl` in the workspace (FR-033). Test it in `loops/shared/tests/test_export.py`.
-- [ ] T073 [P] Implement optional `git.commit_per_milestone` (spec A-6), which is off by default, in `loops/shared/devloops/engine.py`. After an achieved milestone, if the target is in a git repo, run `git add` for **only** the target's changed paths and commit with a Conventional Commits message, `feat(<loop>): complete <milestone id> <title>`. Test it in `loops/shared/tests/test_git_commit.py`.
-- [ ] T074 [P] Extend `status` in `cli.py` to list any evidence file larger than 1 MB under the workspace, as a review hint (research R-21).
-- [ ] T075 Run the full offline suite (`python3 -m unittest discover -s loops/shared/tests -v`, quickstart §1) and fix failures until it is green. Confirm that `git status loops/ bin/` is clean after the suite runs.
+- [X] T071 [P] Create optional Claude Code skills (research R-16): `.claude/skills/loops-backend-dev/SKILL.md`, `.claude/skills/loops-frontend-dev/SKILL.md`, and `.claude/skills/loops-orchestrate/SKILL.md`. Each has frontmatter `name` and `description` and instructions to run exactly one `bin/devloops` command through Bash with the user's arguments, then summarize `status --json`. They contain no loop logic.
+- [X] T072 [P] Add `export-sessions [--csv <file>]` to `cli.py`. It writes a CSV with the columns workspace, loop, step, milestone, trial, session ID, prompt path, the four token counts, cost, start, and end, built from every `state/invocations.jsonl` in the workspace (FR-033). Test it in `loops/shared/tests/test_export.py`.
+- [X] T073 [P] Implement optional `git.commit_per_milestone` (spec A-6), which is off by default, in `loops/shared/devloops/engine.py`. After an achieved milestone, if the target is in a git repo, run `git add` for **only** the target's changed paths and commit with a Conventional Commits message, `feat(<loop>): complete <milestone id> <title>`. Test it in `loops/shared/tests/test_git_commit.py`.
+- [X] T074 [P] Extend `status` in `cli.py` to list any evidence file larger than 1 MB under the workspace, as a review hint (research R-21).
+- [X] T075 Run the full offline suite (`python3 -m unittest discover -s loops/shared/tests -v`, quickstart §1) and fix failures until it is green. Confirm that `git status loops/ bin/` is clean after the suite runs.
 - [ ] T076 Run quickstart §2–4 with real Claude Code, using `loops/shared/tests/fixtures/smoke` and `smoke-alt` (SC-011, SC-008, SC-006), following only the commands in `loops/README.md`. Record the outcome, workspace paths, and any README gaps in `specs/001-reusable-dev-loops/validation-results.md`, and fix the documentation or code where the README and the behavior differ (FR-048).
 
 ---
