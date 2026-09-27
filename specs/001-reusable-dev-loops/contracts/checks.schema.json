@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/checks.schema.json",
+  "title": "Frozen curl check set for one backend milestone (research R-8)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "milestone_id",
+    "checks"
+  ],
+  "properties": {
+    "milestone_id": {
+      "type": "string"
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "criteria",
+          "request",
+          "expect"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Acceptance criterion IDs covered"
+          },
+          "request": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "method",
+              "path"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE",
+                  "HEAD",
+                  "OPTIONS"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "description": "Relative to runtime.base_url; may contain ${var}"
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "body": {
+                "description": "JSON body; strings may contain ${var}"
+              }
+            }
+          },
+          "expect": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "integer"
+              },
+              "body_contains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "json_equals": {
+                "type": "object",
+                "description": "Dotted JSON path -> expected value"
+              }
+            }
+          },
+          "capture": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "var -> dotted JSON path"
+          }
+        }
+      }
+    }
+  }
+}

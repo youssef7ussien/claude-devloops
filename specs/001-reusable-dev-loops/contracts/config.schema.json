@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/config.schema.json",
+  "title": "Loop configuration (defaults < workspace config.json < CLI flags)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "max_trials": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "FR-005/006, D-1: trials per milestone (and per planning)"
+    },
+    "max_invocations_per_run": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 60,
+      "description": "R-18 hard ceiling"
+    },
+    "invocation_timeout_seconds": {
+      "type": "integer",
+      "minimum": 30,
+      "default": 1800
+    },
+    "max_budget_usd_per_invocation": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "default": null
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "description": "Passed as --model when set"
+    },
+    "implement_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash"
+      ]
+    },
+    "unit_tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "FR-008 optional"
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Overrides plan runtime.unit_test_command"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Overrides for plan runtime (R-7)",
+      "properties": {
+        "install_command": {
+          "type": "string"
+        },
+        "start_command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "ready_url": {
+          "type": "string"
+        },
+        "ready_timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 120
+        },
+        "openapi_path": {
+          "type": "string"
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "frontend-dev only (FR-039, R-12)",
+      "properties": {
+        "base_url": {
+          "type": "string"
+        },
+        "start_command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "ready_url": {
+          "type": "string"
+        }
+      }
+    },
+    "playwright": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mcp_command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "npx",
+            "@playwright/mcp@latest",
+            "--headless"
+          ]
+        }
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commit_per_milestone": {
+          "type": "boolean",
+          "default": false,
+          "description": "A-6: off unless configured"
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "FR-070, research R-21: values redacted to *** before anything is written",
+      "properties": {
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "literals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "FR-035b, research R-23",
+      "properties": {
+        "allowed_extra": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra paths inside audited repositories that tools may write to (for example, a cache directory)"
+        }
+      }
+    }
+  }
+}
