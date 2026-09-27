@@ -317,24 +317,24 @@ resumes without re-implementing achieved tasks.
 
 ### Tests for User Story 3
 
-- [ ] T047 [P] [US3] Write `loops/shared/tests/test_limits.py`:
+- [X] T047 [P] [US3] Write `loops/shared/tests/test_limits.py`:
   - always-failing validation with the default limit → exactly 3 trials, then exit 20 `trials-exhausted`, the next milestone still `pending`, and its unachieved tasks `failed` (FR-005, SC-004);
   - `--max-trials 2` → 2 trials;
   - a fake call sleeping past `invocation_timeout_seconds` → trial failed `timeout` (FR-062);
   - `max_invocations_per_run` reached → exit 20 `invocation-cap`;
   - a second concurrent `run` → exit 40, naming the active pid (FR-065).
-- [ ] T048 [P] [US3] Write `loops/shared/tests/test_recovery.py`:
+- [X] T048 [P] [US3] Write `loops/shared/tests/test_recovery.py`:
   - kill the driver while fake `implement` sleeps, then `run` again → the trial is failed with `interrupted`, counts, and trial n + 1 starts; the prompt of the new trial lists only tasks that are not achieved; milestones already achieved are not re-run (FR-030a, SC-003);
   - `run` on `stopped-on-failure` without a grant → no calls and no changes (FR-063);
   - `retry --milestone M01 --reason "x"` → `grants[]` recorded, a `retry-granted` event, a new trial with the reason in the fix prompt;
   - `retry` in any other status → refused, exit 2;
   - `retry` on a run stopped with `planning-trials-exhausted` → refused, exit 2, with a message saying to start a new workspace (FR-061).
-- [ ] T049 [P] [US3] Write `loops/shared/tests/test_service_errors.py`:
+- [X] T049 [P] [US3] Write `loops/shared/tests/test_service_errors.py`:
   - fake Claude returns `api_error_status: 429` → exit 50, status `stopped-on-service-error` code `rate-limited`, trial `void`, and `resume_status` recorded;
   - the next `run` succeeds with the **same** trial number, and the trial count is unchanged (FR-067);
   - status 401 → `auth-failed`;
   - `is_error: true` with no `api_error_status` → a counted work failure.
-- [ ] T050 [P] [US3] Write `loops/shared/tests/test_needs_input.py`:
+- [X] T050 [P] [US3] Write `loops/shared/tests/test_needs_input.py`:
   - `implement` returns a non-empty `needs_input` on trial 1 of 3 → the milestone is `failed` at once with `needs-input` (no further trials), the run exits 20, and the questions are appended to `open-questions.md`;
   - answering them and running `retry` resumes the milestone (FR-055a);
   - editing `open-questions.md` after `approve` → exit 30 `input-changed` with input `answers` (FR-051a);
@@ -343,18 +343,18 @@ resumes without re-implementing achieved tasks.
 
 ### Implementation for User Story 3
 
-- [ ] T051 [US3] Implement interrupted-trial detection in `engine.py` step 1. Any `trial.json` with status `in-progress` at startup becomes `failed` with reason `interrupted` and `ended_at = now`, a `trial-started` event is recorded before the next trial, and the trial counts toward the limit (FR-030a).
-- [ ] T052 [US3] Implement the service-error path in `engine.py`. When `claude.py` returns `failure_class == "service"`:
+- [X] T051 [US3] Implement interrupted-trial detection in `engine.py` step 1. Any `trial.json` with status `in-progress` at startup becomes `failed` with reason `interrupted` and `ended_at = now`, a `trial-started` event is recorded before the next trial, and the trial counts toward the limit (FR-030a).
+- [X] T052 [US3] Implement the service-error path in `engine.py`. When `claude.py` returns `failure_class == "service"`:
   - mark the trial `void` with a reason of `service-unavailable`, `rate-limited` (429), or `auth-failed` (401/403);
   - store `resume_status` (`planning` or `implementing`), set the status to `stopped-on-service-error`, record a `service-error` event, and exit 50.
   - On the next start, restore `resume_status` and continue; the selector does not count `void` trials (FR-067, research R-19).
-- [ ] T053 [US3] Implement `needs_input` handling in `engine.py`. A non-empty `needs_input` from `implement` or `fix` fails the milestone immediately with reason `needs-input`, appends each question to `outputs/open-questions.md` as a new `OQ<n>` with an empty answer, sets `stopped-on-failure` / `needs-input`, and exits 20 (FR-055a, research R-20).
-- [ ] T054 [US3] Wire the time limit and call cap into `engine.py`. A `timed_out` call fails the trial with `timeout`, which counts. The selector's `invocation-cap` result sets `stopped-on-failure` / `invocation-cap` (FR-062).
-- [ ] T055 [US3] Implement answers fingerprinting in `engine.py` and `cli.py`.
+- [X] T053 [US3] Implement `needs_input` handling in `engine.py`. A non-empty `needs_input` from `implement` or `fix` fails the milestone immediately with reason `needs-input`, appends each question to `outputs/open-questions.md` as a new `OQ<n>` with an empty answer, sets `stopped-on-failure` / `needs-input`, and exits 20 (FR-055a, research R-20).
+- [X] T054 [US3] Wire the time limit and call cap into `engine.py`. A `timed_out` call fails the trial with `timeout`, which counts. The selector's `invocation-cap` result sets `stopped-on-failure` / `invocation-cap` (FR-062).
+- [X] T055 [US3] Implement answers fingerprinting in `engine.py` and `cli.py`.
   - `approve` and `retry` record the sha256 of `outputs/open-questions.md` as `approval.answers_sha256` or `grants[].answers_sha256`.
   - **When the comparison applies**: the answers file is compared only if an approval or grant has recorded a hash (`approval.answers_sha256` or the latest `grants[].answers_sha256`). The comparison never runs while the status is `planning` or `awaiting-approval`, or in the `approve`, `replan`, and `retry` commands, because editing answers is the expected step there. When it applies, a changed file gives `input-changed` with input `answers` (FR-051a).
   - The engine itself writes `open-questions.md` only while the status is `planning` or `awaiting-approval`, or when it stops as `stopped-on-failure` with reason `needs-input`. It never records an answers hash when it writes the file; only `approve` and `retry` record hashes.
-- [ ] T056 [US3] Add `retry <loop> --milestone <id> --reason <text> [--trials n]` to `cli.py` (FR-063, contracts/cli.md).
+- [X] T056 [US3] Add `retry <loop> --milestone <id> --reason <text> [--trials n]` to `cli.py` (FR-063, contracts/cli.md).
   - It is allowed only in `stopped-on-failure` when the milestone is `failed`. Otherwise exit 2.
   - It appends `{milestone_id, granted_at, reason, extra_trials (default max_trials), answers_sha256}` to `run.json` `grants`, resets the milestone status to `in-progress` and its `failed` tasks to `pending`, sets the status to `implementing`, and records a `retry-granted` event.
   - The engine includes grant reasons in `fix` prompts.

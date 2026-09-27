@@ -83,14 +83,26 @@ def _hash_or_none(path):
         return None
 
 
+def recorded_answers_sha256(run_state):
+    """The answers hash to compare: the latest grant's, else the approval's, else None (T055).
+
+    A `retry` after a `needs-input` stop records the answered file with its grant, so that grant,
+    not the older approval, is what later starts must match.
+    """
+    for grant in reversed(run_state.get("grants") or []):
+        if grant.get("answers_sha256"):
+            return grant["answers_sha256"]
+    return (run_state.get("approval") or {}).get("answers_sha256")
+
+
 def recorded_fingerprints(run_state):
-    """The fingerprints recorded in `run.json`. Answers count only once an approval recorded them."""
+    """The fingerprints recorded in `run.json`. Answers count only once an approval or grant
+    recorded them."""
     inputs = run_state.get("inputs") or {}
-    approval = run_state.get("approval") or {}
     return {
         "requirements": (inputs.get("requirements") or {}).get("sha256"),
         "api-spec": (inputs.get("api_spec") or {}).get("sha256"),
-        "answers": approval.get("answers_sha256"),
+        "answers": recorded_answers_sha256(run_state),
     }
 
 

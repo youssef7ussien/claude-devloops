@@ -4,8 +4,9 @@ One `Engine` drives one loop run in one workspace: lock, preflight, the terminal
 short-circuit, input fingerprints, planning, the approval pause, then milestone trials until the
 run completes or stops. Every state write is atomic and happens before the action it records.
 
-US3 completes several hook points kept here: interrupted trials (T051), the service-error path
-(T052), `needs_input` (T053), and retry grants (T056).
+It also keeps the run safe to leave unattended (US3): interrupted trials fail and count (T051),
+service failures void the trial and stop resumably (T052), `needs_input` stops the milestone at
+once (T053), and `retry` grants a failed milestone more trials (T056).
 """
 import importlib
 import os
@@ -161,6 +162,78 @@ class Engine:
             except StopRun as stop:
                 return self._stop(stop)
 
+    def retry(self, milestone_id, reason, trials=None):
+        """Grant a failed milestone more trials and move the run back to `implementing` (FR-063).
+
+        Allowed only in `stopped-on-failure` with that milestone `failed`, and never after
+        `planning-trials-exhausted`, which is final (FR-061). The grant records the current
+        answers' fingerprint, which later starts compare against (T055). It starts nothing.
+        """
+        with self._lock():
+            self.rs = state.read_json(self.run_path)
+            status = self.rs["status"] if self.rs else "not started"
+            stop_reason = (self.rs or {}).get("status_reason") or {}
+            if status == "stopped-on-failure" and \
+                    stop_reason.get("code") == "planning-trials-exhausted":
+                raise state.UsageError("`retry` cannot resume a run whose planning trials are "
+                                       "exhausted; that stop is final, start a new workspace")
+            if status != "stopped-on-failure":
+                raise state.UsageError(f"`retry` is allowed only when the run is "
+                                       f"stopped-on-failure (it is {status})")
+            ms = self.rs["milestones"].get(milestone_id)
+            if ms is None or ms["status"] != "failed":
+                failed = [m for m, s in self.rs["milestones"].items() if s["status"] == "failed"]
+                raise state.UsageError(
+                    f"milestone {milestone_id} has not failed "
+                    f"({'unknown' if ms is None else ms['status']}); retry "
+                    + (f"--milestone {', '.join(failed)}" if failed else "has nothing to grant"))
+            self._use_config(self.rs["effective_config"])
+            if stop_reason.get("code") == "needs-input" and \
+                    stop_reason.get("milestone_id") == milestone_id:
+                self._require_answers(milestone_id)
+            answers = inputs._hash_or_none(self.answers_path)
+            grant = {"milestone_id": milestone_id, "granted_at": state.now_iso(),
+                     "reason": reason, "extra_trials": trials or self.config["max_trials"],
+                     "answers_sha256": answers}
+            self.rs.setdefault("grants", []).append(grant)
+            ms["status"] = "in-progress"
+            ms["tasks"] = {t: ("pending" if s == "failed" else s) for t, s in ms["tasks"].items()}
+            self.rs["status"] = "implementing"
+            self.rs["status_reason"] = None
+            self._save()
+            self._event("retry-granted", f"{milestone_id}: {grant['extra_trials']} more trial(s): "
+                                         f"{reason}", milestone=milestone_id)
+            self._render()
+            self.message = (f"granted {grant['extra_trials']} more trial(s) to {milestone_id}; run "
+                            f"`devloops run {self.loop}` to continue")
+            return 0
+
+    def _require_answers(self, milestone_id):
+        """Refuse `retry` while a question of the `needs-input` stop is unanswered.
+
+        The grant fingerprints the answers file; answering after `retry` would change it, and the
+        next `run` would then stop for good with `input-changed` (FR-051a). Questions are matched
+        by their text to the stopping trial's `needs_input`.
+        """
+        ms = self.rs["milestones"][milestone_id]
+        last = next(t for t in reversed(ms["trials"]) if t["status"] == "failed")
+        doc = state.read_json(os.path.join(self._trial_dir(milestone_id, last["n"]), "trial.json"),
+                              default={})
+        asked = {q["question"].strip() for q in doc.get("needs_input") or []}
+        try:
+            with open(self.answers_path, encoding="utf-8") as f:
+                answers = render.parse_answers(f.read())
+        except FileNotFoundError:
+            answers = {}
+        answered = {q.strip() for q, a in answers.values() if a.strip()}
+        missing = sorted(qid for qid, (q, a) in answers.items()
+                         if q.strip() in asked and not a.strip())
+        if missing or not asked <= answered:
+            raise state.UsageError(
+                f"answer {', '.join(missing) or 'the needs-input questions'} in "
+                f"outputs/open-questions.md before `retry`: the grant records the answers, so "
+                f"answering afterwards would stop the next run with input-changed")
+
     # --- start ---------------------------------------------------------------------------------------
 
     def _first_start(self):
@@ -254,7 +327,32 @@ class Engine:
             self.rs["resume_status"] = None
 
     def _recover_interrupted(self):
-        """Hook for T051: fail a trial left `in-progress` with reason `interrupted`."""
+        """Fail every trial left `in-progress` by a driver that died mid-trial (FR-030a, R-4).
+
+        It becomes `failed` with reason `interrupted` and counts toward the limit, so the next
+        trial of the milestone is a fix with the interruption as its previous failure.
+        """
+        now = state.now_iso()
+        detail = "the driver stopped before the trial finished (interrupted or killed)"
+        for trial in (self.rs.get("planning") or {}).get("trials", []):
+            if trial["status"] == "in-progress":
+                trial.update(status="failed", failure={"reason": "interrupted", "detail": detail},
+                             ended_at=now)
+                self._event("validation-failed", f"planning trial {trial['n']} failed: "
+                                                 f"interrupted: {detail}", trial=trial["n"])
+        for mid, ms in (self.rs.get("milestones") or {}).items():
+            for summary in ms.get("trials", []):
+                if summary["status"] != "in-progress":
+                    continue
+                path = os.path.join(self._trial_dir(mid, summary["n"]), "trial.json")
+                doc = state.read_json(path, default={"n": summary["n"]})
+                doc.update(status="failed", failure={"reason": "interrupted", "detail": detail},
+                           ended_at=now)
+                state.write_json_atomic(path, doc)
+                summary.update(status="failed", reason="interrupted", ended_at=now)
+                ms["ended_at"] = now
+                self._event("validation-failed", f"trial {summary['n']} failed: interrupted: "
+                                                 f"{detail}", milestone=mid, trial=summary["n"])
 
     # --- state machine ----------------------------------------------------------------------------------
 
@@ -309,8 +407,13 @@ class Engine:
             out = self._runner().call(kind, self._plan_context(kind, counted),
                                       self.rs["target_dir"], trial=n, add_dirs=self._input_dirs())
             trial["invocations"].append(out.record["session_id"])
+            if not out.ok and out.failure_class == "service":
+                trial.update(status="void", failure={"reason": out.failure_reason,
+                                                     "detail": out.failure_detail},
+                             ended_at=state.now_iso())
+                self._stop_on_service_error("planning", out.failure_reason, out.failure_detail,
+                                            f"planning trial {n}", trial=n)
             if not out.ok:
-                # Service failures still count here until T052 adds the void path.
                 self._fail_planning(trial, out.failure_reason, out.failure_detail)
                 continue
             req = self.rs["inputs"]["requirements"]
@@ -441,8 +544,9 @@ class Engine:
                     detail += f" (the call also failed: {out.failure_reason}: {out.failure_detail})"
                 self._event("boundary-violation", detail, milestone=mid, trial=n)
                 return self._finish(milestone, trial, "boundary-violation", detail)
+            if not out.ok and out.failure_class == "service":
+                self._void(milestone, trial, out.failure_reason, out.failure_detail)
             if not out.ok:
-                # Service failures still count here until T052 adds the void path.
                 return self._finish(milestone, trial, out.failure_reason, out.failure_detail)
             self._on_needs_input(milestone, trial, out.structured_output)
             phase = "validation-failed"
@@ -454,6 +558,8 @@ class Engine:
                 raise  # the trial was already closed; this is not a trial failure
             if isinstance(e, RuntimeStartFailed):
                 self._finish(milestone, trial, "runtime-start-failed", str(e))
+            elif isinstance(e, CallFailed) and e.failure_class == "service":
+                self._void(milestone, trial, e.reason, e.detail)  # e.g. author-checks hit a 429
             elif isinstance(e, CallFailed):  # a validator's own call, e.g. a validate-ui timeout
                 self._finish(milestone, trial, e.reason, str(e))
             else:
@@ -467,13 +573,40 @@ class Engine:
                 ms["tasks"][tid] = "implemented"
                 self._event("task-implemented", f"{tid}: {entry.get('note', '')}",
                             milestone=milestone["id"], trial=trial["n"])
-        trial["assumptions"] = result["assumptions"]
-        trial["needs_input"] = result["needs_input"]
+        # Redacted here, once: trial.json and open-questions.md both store these (FR-070).
+        trial["assumptions"] = self.redactor.redact_obj(result["assumptions"])[0]
+        trial["needs_input"] = self.redactor.redact_obj(result["needs_input"])[0]
         self._write_trial(milestone["id"], trial)
         self._save()
 
     def _on_needs_input(self, milestone, trial, result):
-        """Hook for T053: a non-empty `needs_input` fails the milestone at once."""
+        """A non-empty `needs_input` fails the milestone at once, whatever trials remain.
+
+        A question is not something a fix can answer (FR-055a, R-20): the questions are appended
+        to `outputs/open-questions.md` for the developer, and `retry` resumes the milestone.
+        """
+        questions = trial["needs_input"]  # redacted by _record_implementation
+        if not questions:
+            return
+        mid, n = milestone["id"], trial["n"]
+        try:
+            with open(self.answers_path, encoding="utf-8") as f:
+                existing = f.read()
+        except FileNotFoundError:
+            existing = None
+        text, ids = render.append_open_questions(existing, questions,
+                                                 f"needs-input from {mid} trial {n}")
+        state.write_text_atomic(self.answers_path, text)
+        detail = "; ".join(f"{qid}: {q['question']}" for qid, q in zip(ids, questions))
+        self._finish(milestone, trial, "needs-input", detail)
+        selector.mark_failed(self.rs["milestones"][mid])
+        self._save()
+        self._event("needs-input", f"{mid} trial {n} asked {len(ids)} question(s): {detail}",
+                    milestone=mid, trial=n)
+        raise StopRun("stopped-on-failure", "needs-input",
+                      f"milestone {mid} needs input: answer {', '.join(ids)} in "
+                      f"outputs/open-questions.md, then run `devloops retry {self.loop} "
+                      f"--milestone {mid} --reason \"...\"`", milestone_id=mid)
 
     def _validate(self, milestone, trial, trial_dir):
         mid = milestone["id"]
@@ -505,6 +638,31 @@ class Engine:
             adapter.on_achieved(ctx)
             self._save()
             self._render()
+
+    def _void(self, milestone, trial, reason, detail):
+        """Close a trial as `void` (not counted; its number is reused) and stop resumably."""
+        mid = milestone["id"]
+        now = state.now_iso()
+        trial.update(status="void", failure={"reason": reason, "detail": detail}, ended_at=now)
+        self._write_trial(mid, trial)
+        for summary in self.rs["milestones"][mid]["trials"]:
+            if summary["n"] == trial["n"] and summary["status"] == "in-progress":
+                summary.update(status="void", reason=reason, ended_at=now)
+        self._stop_on_service_error("implementing", reason, detail, f"{mid} trial {trial['n']}",
+                                    milestone=mid, trial=trial["n"])
+
+    def _stop_on_service_error(self, resume_status, reason, detail, what, milestone=None,
+                               trial=None):
+        """Record the void and stop as `stopped-on-service-error`, remembering where to resume."""
+        self.rs["resume_status"] = resume_status
+        self._save()
+        self._event("trial-voided", f"{what} voided: {reason}", milestone=milestone, trial=trial)
+        self._event("service-error", f"{reason}: {detail[:500]}", milestone=milestone,
+                    trial=trial)
+        raise StopRun("stopped-on-service-error", reason,
+                      f"Claude Code service failure ({reason}): {detail[:300]}; no trial was "
+                      f"used, run `devloops run {self.loop}` again to resume",
+                      milestone_id=milestone)
 
     def _finish(self, milestone, trial, reason, detail):
         """Close a trial: `reason=None` means passed. Updates trial.json, run.json, and the views."""

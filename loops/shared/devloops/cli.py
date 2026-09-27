@@ -52,6 +52,16 @@ def build_parser():
         cmd.add_argument("loop", choices=LOOPS)
         cmd.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
+    retry = sub.add_parser("retry", parents=[common],
+                           help="grant a failed milestone more trials (FR-063)")
+    retry.add_argument("loop", choices=LOOPS)
+    retry.add_argument("--milestone", required=True, help="the failed milestone, e.g. M01")
+    retry.add_argument("--reason", required=True,
+                       help="why; recorded with the grant and passed to later fix prompts")
+    retry.add_argument("--trials", type=_positive_int,
+                       help="trials to grant (default: max_trials)")
+    retry.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
+
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
     return parser
@@ -126,7 +136,10 @@ def main(argv=None, repo_root=None):
             force_unlock=args.force_unlock,
         )
         eng = engine.Engine(args.loop, ws, options, repo_root=repo_root)
-        code = {"run": eng.run, "approve": eng.approve, "replan": eng.replan}[args.command]()
+        if args.command == "retry":
+            code = eng.retry(args.milestone, args.reason, args.trials)
+        else:
+            code = {"run": eng.run, "approve": eng.approve, "replan": eng.replan}[args.command]()
         _emit(args, ws, args.loop, eng.message, code)
         return code
     except DevloopsError as e:

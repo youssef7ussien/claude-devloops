@@ -273,6 +273,26 @@ def render_open_questions(loop, workspace_name, questions, existing_text=None):
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+def append_open_questions(existing_text, questions, context):
+    """Append `needs_input` questions to open-questions.md as new `OQ<n>`, each unanswered.
+
+    `questions` are `{question, requirement_refs}`; numbering continues after the highest `OQ<n>`
+    already in the file. Returns `(text, ids)`. Answers already written are kept as they are.
+    """
+    text = (existing_text or "").replace("_No open questions._\n", "").rstrip("\n")
+    numbers = [int(n) for n in re.findall(r"(?m)^### OQ(\d+)\s*$", text)]
+    next_n = max(numbers, default=0) + 1
+    ids = []
+    lines = [text, ""] if text else []
+    for i, q in enumerate(questions):
+        qid = f"OQ{next_n + i}"
+        ids.append(qid)
+        lines += [f"### {qid}", "", f"**Question:** {q['question']}",
+                  f"**Context:** {context}", f"**Affects:** {_refs(q.get('requirement_refs'))}", "",
+                  ANSWER_MARK, ""]
+    return "\n".join(lines).rstrip("\n") + "\n", ids
+
+
 # --- final-report.md ----------------------------------------------------------------------------
 
 def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validations):

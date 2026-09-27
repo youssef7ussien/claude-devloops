@@ -37,7 +37,7 @@ Answer fields (all optional):
   total_cost_usd, num_turns, duration_ms, permission_denials
 
 Each call is appended to `$DEVLOOPS_FAKE_LOG` (JSONL) with its argv, step, call number, cwd,
-session ID, and prompt. Per-step call counters live next to the scenario in `<scenario>.calls`.
+session ID, pid, and prompt. Per-step call counters live next to the scenario in `<scenario>.calls`.
 """
 import json
 import os
@@ -282,6 +282,7 @@ def main(argv):
     if log_path:
         entry = {
             "argv": argv, "step": step, "call": call, "cwd": cwd, "session_id": session_id,
+            "pid": os.getpid(),
             "prompt": prompt, "allowed_roots": os.environ.get("DEVLOOPS_ALLOWED_ROOTS"),
             "time": time.time(),
         }
