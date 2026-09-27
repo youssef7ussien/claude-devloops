@@ -76,42 +76,42 @@ implemented and tested on its own.
 **Purpose**: The shared driver that every loop uses (FR-038). No user story can start before this
 phase is done.
 
-- [ ] T008 [P] Implement a stdlib JSON-Schema subset validator in `loops/shared/devloops/schema.py`.
+- [X] T008 [P] Implement a stdlib JSON-Schema subset validator in `loops/shared/devloops/schema.py`.
   - Support `type` (including type lists and `null`), `enum`, `const`, `required`, `properties`, `additionalProperties` (bool or schema), `items`, `minItems`, `minLength`, `pattern`, `minimum`, and local `$ref` to a sibling schema file.
   - Provide `validate(instance, schema_name) -> list[str]`, which returns error paths.
   - Add tests in `loops/shared/tests/test_schema.py`, covering each schema file in `loops/shared/schemas/` against one valid and one invalid sample.
-- [ ] T009 [P] Implement `loops/shared/devloops/state.py`:
+- [X] T009 [P] Implement `loops/shared/devloops/state.py`:
   - `write_json_atomic(path, obj)`, `read_json(path, default=None)`, `append_jsonl(path, obj)` (open with append, write one line, `flush` + `fsync`), and `now_iso()` (UTC, ISO-8601, `Z`).
   - `record_event(loop_dir, type, message, milestone=None, trial=None)`, which writes to `state/events.jsonl`. The event types come from data-model.md, "Event".
   - Add tests in `loops/shared/tests/test_state.py`, including one showing that a crash between the temp write and the replace leaves the old file intact.
-- [ ] T010 [P] Implement `loops/shared/devloops/redact.py` (FR-070, research R-21):
+- [X] T010 [P] Implement `loops/shared/devloops/redact.py` (FR-070, research R-21):
   - `Redactor(config)` builds its value list from `os.environ[name]` for each name in `secrets.env` (skipping unset or empty values) plus `secrets.literals`.
   - `redact(text) -> (text, changed)` replaces every value with `***`, longest first. `redact_obj(obj)` does the same recursively for JSON.
   - Add tests in `loops/shared/tests/test_redact.py`.
-- [ ] T011 Implement `loops/shared/devloops/config.py`. It depends on T008.
+- [X] T011 Implement `loops/shared/devloops/config.py`. It depends on T008.
   - `load_effective(defaults_path, workspace_config_path|None, cli_overrides: dict) -> dict` does a deep merge in the order defaults < workspace `config.json` < CLI, then validates with `schema.validate(..., "config.schema.json")`. Invalid config exits with code 2 and lists the errors.
   - The effective config is frozen into `run.json` `effective_config` on the first run. Later CLI overrides are applied and recorded as an event `config-override`.
   - Add tests in `loops/shared/tests/test_config.py`.
-- [ ] T012 Implement `loops/shared/devloops/workspace.py` (FR-035a–d, FR-049–051, FR-065). It depends on T009.
+- [X] T012 Implement `loops/shared/devloops/workspace.py` (FR-035a–d, FR-049–051, FR-065). It depends on T009.
   - `open_workspace(name_or_path, repo_root)` resolves a bare name to `workspaces/<name>/` and creates `workspace.json` on the first run with `{name, created_at, requirements: {path, sha256, mode, story_id}, targets: {"backend-dev": path, "frontend-dev": path}, config_path}`. The name must match `^[a-z0-9-]+$`.
   - `set_target(loop, path)` requires an absolute path that exists or can be created and is writable, is **not inside `loops/` or `bin/`**, and is not equal to or inside the other loop's target. Violations give `stopped-on-input-error` with code `target-unwritable`. Attaching with a different target for the same loop gives `workspace-mismatch`.
   - `acquire_lock(loop_dir)` writes `state/lock` as `{pid, host, started_at}`. If the lock is held by a live process, exit 40 and name that pid and start time. If the pid is dead, report "stale lock" and exit 40 unless `--force-unlock` is given, which records an event.
   - `release_lock()` removes the lock and is called in a `finally` block.
   - Add tests in `loops/shared/tests/test_workspace.py`.
-- [ ] T013 Implement `loops/shared/devloops/inputs.py` for the PRD mode (FR-009, FR-012, FR-013, FR-051a).
+- [X] T013 Implement `loops/shared/devloops/inputs.py` for the PRD mode (FR-009, FR-012, FR-013, FR-051a).
   - `check_requirements(path)` gives `missing-input` if the file is missing, unreadable, or empty or whitespace-only. `sha256_file(path)` hashes at byte level.
   - `compare_fingerprints(run_state, current)` gives `stopped-on-input-error` with code `input-changed` and `input` set to one of `requirements`, `api-spec`, or `answers`, and changes **no** code or state other than `status` and `status_reason`.
   - Story modes are added in T060. Add tests in `loops/shared/tests/test_inputs.py`.
-- [ ] T014 [P] Implement `loops/shared/devloops/preflight.py` (FR-013b, research R-22).
+- [X] T014 [P] Implement `loops/shared/devloops/preflight.py` (FR-013b, research R-22).
   - `check_tools(loop_def, config)`: run `claude --version` (or `$DEVLOOPS_CLAUDE_BIN --version`). For each name in `loop.json` `required_tools`, check `curl --version` for `"curl"`, and check that `shutil.which(config.playwright.mcp_command[0])` exists for `"playwright-mcp"`.
   - Return a `missing-tool` result that names the tool. It runs before planning and again on every start.
   - Add tests in `loops/shared/tests/test_preflight.py`, using a manipulated `PATH`.
-- [ ] T015 [P] Implement `loops/shared/devloops/openapi.py` (FR-013a, FR-019, FR-024).
+- [X] T015 [P] Implement `loops/shared/devloops/openapi.py` (FR-013a, FR-019, FR-024).
   - `load_spec(path)` requires valid JSON with `openapi` starting with `"3."` and a `paths` object; otherwise it gives `invalid-api-spec`.
   - `operations(spec)` returns a set of `(METHOD, path_template)` pairs.
   - `match(spec, method, url_or_path, base_url=None)` strips the base URL and query, then matches template segments where `{param}` matches any single segment.
   - Add tests in `loops/shared/tests/test_openapi.py`.
-- [ ] T016 Implement plan validation in `loops/shared/devloops/plan.py` (research R-5). It depends on T008.
+- [X] T016 Implement plan validation in `loops/shared/devloops/plan.py` (research R-5). It depends on T008.
   - `validate_plan(plan, loop_def, mode, story_id) -> list[str]` validates against `plan.schema.json`, which already enforces ID patterns: milestone `^M[0-9]{2}$`, task `^M[0-9]{2}-T[0-9]{2}$`, criterion `^M[0-9]{2}-AC[0-9]+$`, question `^OQ[0-9]+$`. It then applies these semantic rules:
     - all IDs are unique;
     - `depends_on` references existing milestones, forms a DAG, and the list order is a valid topological order;
@@ -120,7 +120,7 @@ phase is done.
     - a non-empty `stack.conflicts` requires ≥ 1 open question (FR-060);
     - `runtime.openapi_path` is present when `loop.json` has `"requires_openapi_path": true`.
   - Story-scope rules are added in T061. Add tests in `loops/shared/tests/test_plan.py`.
-- [ ] T017 Implement the headless call wrapper in `loops/shared/devloops/claude.py` ([contracts/claude-invocation.md](./contracts/claude-invocation.md)). It depends on T009 and T010.
+- [X] T017 Implement the headless call wrapper in `loops/shared/devloops/claude.py` ([contracts/claude-invocation.md](./contracts/claude-invocation.md)). It depends on T009 and T010.
   - **Prompt composition**: first line `<!-- step: <step> -->`, then `loops/shared/prompts/common.md`, then `loops/<loop>/Loop-instructions.md`, then `loops/shared/prompts/steps/<step>.md`, then a `## Context` JSON block from the engine. Save the redacted prompt to `state/prompts/<seq:04d>-<step>.md`.
   - **argv per step**, from the Steps table: `-p <prompt> --session-id <uuid4> --output-format json|stream-json --json-schema <schema json> --allowedTools ... --disallowedTools ... [--permission-mode acceptEdits] --settings <per-call settings file> --strict-mcp-config [--mcp-config <file>] [--model] [--max-budget-usd]`.
     - Read-only steps (`plan`, `replan`, `author-checks`, `validate-ui`) disallow `Edit Write MultiEdit NotebookEdit Bash`.
@@ -132,26 +132,26 @@ phase is done.
   - **Classification** (research R-19): `failure_class = "service"` if `api_error_status` is 401, 403, 429, or 500–599, or if the process exited non-zero with no result and stderr matches authentication or connection patterns (keep the patterns in a module constant). `"work"` for any other failure. `"none"` on success.
   - **Records**: append a redacted invocation record matching `invocation-record.schema.json`, where tokens map `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`, each `null` if missing. Increment `run.json` `invocation_count` **before** the call.
   - Add tests in `loops/shared/tests/test_claude.py`, using fake_claude and asserting on argv for each step.
-- [ ] T018 [P] Implement the PreToolUse write guard `loops/shared/hooks/guard_writes.py` (FR-035b, FR-071, research R-11).
+- [X] T018 [P] Implement the PreToolUse write guard `loops/shared/hooks/guard_writes.py` (FR-035b, FR-071, research R-11).
   - Read the hook JSON from stdin. Take the path from `tool_input.file_path` or `tool_input.notebook_path`, resolve it with `os.path.realpath` relative to `cwd`, and allow it (exit 0) only if it lies under one of the roots in `DEVLOOPS_ALLOWED_ROOTS` (separated by `os.pathsep`). Otherwise print a reason to stderr and exit 2.
   - Before finalizing, check the stdin field names against the Claude Code hooks documentation for version 2.1.283.
   - Add tests in `loops/shared/tests/test_guard_writes.py`.
-- [ ] T019 [P] Implement `loops/shared/devloops/boundary.py` (FR-035b, research R-11/R-23).
+- [X] T019 [P] Implement `loops/shared/devloops/boundary.py` (FR-035b, research R-11/R-23).
   - `snapshot(repo_root, workspace_loop_dir, targets)` records a sha256 manifest of `loops/`, `bin/`, and the loop's `state/` directory, plus `git status --porcelain -z` for every git repo that contains a target or the workspace. Discover repos with `git -C <dir> rev-parse --show-toplevel`; if git is absent, skip the git part and record `git-unavailable`.
   - `diff(before, after, allowed_roots, allowed_extra) -> violations[]` lists every changed path outside the allowed roots and outside `boundary.allowed_extra`. Tool caches outside the audited repos are out of scope.
   - It never reverts anything; it only reports.
   - Add tests in `loops/shared/tests/test_boundary.py`.
-- [ ] T020 [P] Implement `loops/shared/devloops/runtime.py`.
+- [X] T020 [P] Implement `loops/shared/devloops/runtime.py`.
   - `start(command, cwd, env, log_path)` uses `subprocess.Popen(shell=True, start_new_session=True)`.
   - `wait_ready(ready_url, timeout)` polls with `urllib.request` until it gets a status below 500, or fails with `runtime-start-failed`.
   - `stop(proc)` sends SIGTERM to the group, waits 10 s, then sends SIGKILL.
   - Use it as a context manager so the process is always stopped.
   - Add tests in `loops/shared/tests/test_runtime.py`, using `python3 -m http.server` as the runtime.
-- [ ] T021 [P] Implement the shared unit-test runner `loops/shared/devloops/validators/unit_tests.py` (FR-008).
+- [X] T021 [P] Implement the shared unit-test runner `loops/shared/devloops/validators/unit_tests.py` (FR-008).
   - `run(config, plan_runtime, target_dir, trial_dir)` does nothing unless `unit_tests.enabled`. The command is `config.unit_tests.command`, falling back to `plan.runtime.unit_test_command`. If it is enabled with no command, the result is failed with the reason "no unit test command".
   - It records `{enabled, command, exit_code, log_path}`. A non-zero exit fails validation.
   - Add tests in `loops/shared/tests/test_unit_tests_runner.py`.
-- [ ] T022 Implement Markdown rendering in `loops/shared/devloops/render.py` (FR-002–004b, FR-034). It depends on T009. Every view is regenerated from state and never read back.
+- [X] T022 Implement Markdown rendering in `loops/shared/devloops/render.py` (FR-002–004b, FR-034). It depends on T009. Every view is regenerated from state and never read back.
   - `outputs/milestone-<NN>-<slug>.md`: title, goal, dependencies, task checkboxes (`[x]` only for `achieved`), acceptance criteria, a table of trials (n, status, reason, start, end), and assumptions.
   - `progress.md`:
     - action items rendered from `events.jsonl`;
@@ -163,19 +163,19 @@ phase is done.
   - `outputs/open-questions.md` lists every question as `### OQ<n>`, with its context and an empty `**Answer:**` line.
   - `outputs/final-report.md`: outcome, milestones, validation summary, and "Assumptions for review" (FR-055).
   - Add golden-file tests in `loops/shared/tests/test_render.py`.
-- [ ] T023 Implement next-unit selection in `loops/shared/devloops/selector.py` (FR-026, plan Iteration model step 4). It depends on T009.
+- [X] T023 Implement next-unit selection in `loops/shared/devloops/selector.py` (FR-026, plan Iteration model step 4). It depends on T009.
   - `next_unit(run_state, plan) -> ("complete" | ("stop", code) | ("trial", milestone_id, n))` takes the first milestone in the stored order whose status is not `achieved`.
   - A milestone with status `failed` gives `stop trials-exhausted`.
   - `n` = the number of **counted** trials + 1, where trials with status `void` are not counted.
   - `n > max_trials + sum(grants.extra_trials for that milestone)` gives: mark the milestone `failed`, then `stop trials-exhausted`.
   - `invocation_count >= max_invocations_per_run` gives `stop invocation-cap`.
   - Add tests in `loops/shared/tests/test_selector.py`.
-- [ ] T024 Write the shared prompts:
+- [X] T024 Write the shared prompts:
   - `loops/shared/prompts/common.md` (every step): work only on the given milestone; change only what its tasks need; no unrelated refactoring (FR-035); keep existing conventions (FR-036); never edit the requirements; report ambiguity as `assumptions[]`; route anything that would add, remove, or contradict a requirement to `needs_input[]` (FR-055a); cite requirement references (FR-066); never write outside the target.
   - `loops/shared/prompts/steps/plan.md` and `replan.md`: return a plan per `plan.schema.json`; apply the stack priority order of existing code, then the requirements or configuration, then a proposal (FR-057/058); observable acceptance criteria (FR-018/023); open questions; declared runtime commands.
   - `loops/shared/prompts/steps/implement.md` and `fix.md`: the result schema from claude-invocation.md, with `tasks`, `assumptions`, `needs_input`, and `files_changed`. `fix` explains how to use the previous failure summary and evidence paths from the context.
   - These prompts must contain no application- or stack-specific content.
-- [ ] T025 Implement the loop engine `loops/shared/devloops/engine.py` (plan, Iteration model steps 1–10). It depends on T011–T023.
+- [X] T025 Implement the loop engine `loops/shared/devloops/engine.py` (plan, Iteration model steps 1–10). It depends on T011–T023.
   - **Interface**: `Engine(loop_name, workspace, config).run() -> exit_code`, taking a validator adapter with `validate(ctx) -> dict` that matches `validation-result.schema.json`. Load the adapter by name from `loops/<loop>/loop.json` `validator`.
   - **Steps 1–2**, in this exact order: (1) lock; (2) preflight; (3) the terminal-state short-circuit, where a terminal run (`completed`, or `stopped-on-failure`/`stopped-on-input-error` with no new grant) makes no calls, changes nothing, reports its status, and exits with its code, so `completed` exits 0 (FR-029, FR-063); (4) only then the fingerprint checks. A terminal run is never moved to `stopped-on-input-error`. With no plan: `plan` trial → `validate_plan`. An invalid plan counts as a planning trial (FR-061), and running out of planning trials gives `stopped-on-failure` / `planning-trials-exhausted`. A valid plan is stored in `state/plan.json`, milestones are initialized to `pending` and tasks to `pending`, the views are rendered, and the status becomes `awaiting-approval` (exit 10).
   - **Steps 3–10**:
@@ -187,11 +187,11 @@ phase is done.
     - Loop via the selector. When the loop completes, call the adapter's `on_complete(ctx)` hook, write `final-report.md`, and set `completed` (exit 0).
     - Exit codes follow [contracts/cli.md](./contracts/cli.md).
   - Leave interrupted detection, the service-error path, `needs_input`, and grants to US3 (T052–T056), but keep the hook points.
-- [ ] T026 Implement the CLI `loops/shared/devloops/cli.py`, using `argparse` and following [contracts/cli.md](./contracts/cli.md). It depends on T025.
+- [X] T026 Implement the CLI `loops/shared/devloops/cli.py`, using `argparse` and following [contracts/cli.md](./contracts/cli.md). It depends on T025.
   - Commands: `run <backend-dev|frontend-dev>` (with `--workspace`, `--requirements`, `--target`, `--api-spec`, `--max-trials`, `--config`, `--force-unlock`, `--json`), `approve <loop>` (allowed only in `awaiting-approval`; records `approval` = `{approved_at, action: "approve", answers_path, answers_sha256}`), `replan <loop>` (runs a `replan` planning trial with the answers and pauses again), and `status [<loop>]`, which is read-only and prints the status, the next milestone, the trials used out of the limit, the last failure, `ui_url`, and `openapi_artifact`.
   - `--json` prints one status object. Usage errors exit 2.
   - `retry`, `orchestrate`, and `export-sessions` are added in T056, T065, and T072.
-- [ ] T027 Add engine core tests in `loops/shared/tests/test_engine_core.py`, using fake_claude and a stub validator adapter registered by a test `loop.json` under a temp `loops/` copy. Cover:
+- [X] T027 Add engine core tests in `loops/shared/tests/test_engine_core.py`, using fake_claude and a stub validator adapter registered by a test `loop.json` under a temp `loops/` copy. Cover:
   - plan → exit 10, with milestone files and `open-questions.md` rendered;
   - `approve`, then `run` → the trial passes → `completed` (exit 0), with tasks `[x]` in the milestone file and `progress.md` token columns filled;
   - a second `run` → no fake-claude calls (FR-029);

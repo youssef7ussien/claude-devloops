@@ -7,16 +7,20 @@ allowed are denied instead of prompting, so the allowlist defines what each step
 ```text
 claude -p "<composed prompt>" \
   --session-id <uuid assigned by driver> \
-  --output-format json                     # stream-json for validate-ui (R-10)
+  --output-format json                     # stream-json (plus --verbose) for validate-ui (R-10)
   --json-schema '<step result schema>' \
   --permission-mode <mode> \
   --allowedTools <list> --disallowedTools <list> \
+  [--add-dir <directories of the input files>]   # read access outside the target
   --settings <per-call settings JSON: PreToolUse guard hook> \
   --strict-mcp-config [--mcp-config <playwright config>] \
   [--model <config.model>] [--max-budget-usd <config.max_budget_usd_per_invocation>]
 ```
 
 - The call runs with `cwd = target_dir`.
+- `--add-dir` gives read access to the directories of the inputs (requirements, API spec, answers,
+  and on fix trials the previous trial's evidence), which usually lie outside the target. Writes
+  stay confined to the target by the guard hook and the audit.
 - The driver enforces `invocation_timeout_seconds` by killing the process.
 - The environment passes `DEVLOOPS_ALLOWED_ROOTS` to the guard hook.
 

@@ -9,6 +9,12 @@ import tempfile
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(TESTS_DIR)))
 FIXTURES_DIR = os.path.join(TESTS_DIR, "fixtures")
+SHARED_DIR = os.path.dirname(TESTS_DIR)
+FAKE_CLAUDE = os.path.join(TESTS_DIR, "fake_claude.py")
+
+# Tests import the package directly: `import helpers` first, then `from devloops import ...`.
+if SHARED_DIR not in sys.path:
+    sys.path.insert(0, SHARED_DIR)
 
 _COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
 

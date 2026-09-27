@@ -158,6 +158,7 @@ The unit of planning, validation, trials, and accounting (A-2, D-1). Rendered to
 | `status` | `in-progress → passed`, or `failed`, or `void` (not counted) |
 | `failure` | `{reason, detail}`. **Counted** reasons: `validation-failed`, `boundary-violation`, `timeout`, `claude-error`, `invalid-output`, `runtime-start-failed`, `interrupted`, `needs-input`. **Void** reasons (status `void`): `service-unavailable`, `rate-limited`, `auth-failed` (FR-067, R-19) |
 | `needs_input[]` | Questions returned by the implement or fix step (FR-055a, R-20) |
+| `assumptions[]` | `{text, affects}` returned by the implement or fix step; rendered in the milestone file and the final report (FR-055) |
 | `invocations[]` | Session IDs (see the invocation records) |
 | `validation` | ValidationResult reference |
 | `started_at` / `ended_at` | |
@@ -219,11 +220,13 @@ compared on every later start (FR-051a). Answers given for `needs-input` questio
 ## Event (action-item log)
 
 One JSON line per action in `state/events.jsonl`: `{at, loop, milestone?, trial?, type, message}`.
-The `type` values are `run-started`, `input-check`, `plan-stored`, `paused`, `approved`,
+The `type` values are `run-started`, `input-check`, `config-override`, `lock-cleared`,
+`plan-stored`, `paused`, `approved`,
 `trial-started`, `trial-voided`, `task-implemented`, `validation-passed`, `validation-failed`,
 `needs-input`, `retry-granted`, `service-error`,
-`boundary-violation`, `milestone-achieved`, `stopped`, and `completed`. Events are rendered into the
-action-item section of `progress.md` (FR-004).
+`boundary-violation`, `milestone-achieved`, `stopped`, and `completed`. `config-override` records a
+CLI override applied over the frozen `effective_config`; `lock-cleared` records a stale lock removed
+by `--force-unlock`. Events are rendered into the action-item section of `progress.md` (FR-004).
 
 ## OrchestratorRun
 
