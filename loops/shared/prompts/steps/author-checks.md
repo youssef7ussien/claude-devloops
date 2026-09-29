@@ -36,3 +36,7 @@ Every check's `(method, path)` must exist as an operation in the current OpenAPI
 document does not yet declare an operation this milestone's criteria need, that is the
 implementation's job to add, not yours to check around. Only cover operations the milestone's
 criteria actually call for.
+
+The one exception is a check that shows something does **not** exist: a check that expects
+`404` (an unknown path) or `405` (an unsupported method) on an undocumented `(method, path)` is
+consistent with the document and is allowed. Such a check never counts as covering an operation.

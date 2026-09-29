@@ -23,9 +23,15 @@ application: the requirements, the target directories, and the configuration are
 - **Claude Code**, installed and logged in (`claude` on `PATH`; run `claude` once to log in).
 - **Python ≥ 3.10**. The driver uses the standard library only; there is nothing to install.
 - **curl**, for `backend-dev`.
-- **node / npx** and a browser for the Playwright MCP server, for `frontend-dev`:
-  `npx playwright install chromium`. The server is started as
-  `npx @playwright/mcp@latest --headless` (config `playwright.mcp_command`).
+- **node / npx** and a browser for the Playwright MCP server, for `frontend-dev`. The server is
+  started as `npx @playwright/mcp@latest --headless` (config `playwright.mcp_command`), which
+  uses the **Google Chrome** channel by default. Either install it (`npx playwright install
+  chrome`), or point the server at a browser you have, in the workspace config:
+
+  ```json
+  {"playwright": {"mcp_command": ["npx", "@playwright/mcp@latest", "--headless",
+                                  "--executable-path", "/usr/bin/chromium"]}}
+  ```
 
 Each start checks the tools its loop needs and stops with exit 30 if one is missing.
 
@@ -40,16 +46,28 @@ bin/devloops run backend-dev --workspace myapp \
 bin/devloops approve backend-dev --workspace myapp
 bin/devloops run backend-dev --workspace myapp            # implements every milestone; exit 0
 
-# 3. The frontend, against the backend's verified contract:
+# 3. The frontend, against the backend's verified contract. frontend-config.json tells the
+#    frontend how to start the backend during validation (see below):
 bin/devloops run frontend-dev --workspace myapp \
   --requirements path/to/PRD.md --target /path/to/myapp/frontend \
-  --api-spec workspaces/myapp/backend-dev/outputs/openapi.json
+  --api-spec workspaces/myapp/backend-dev/outputs/openapi.json \
+  --config workspaces/myapp/frontend-config.json
 bin/devloops approve frontend-dev --workspace myapp
 bin/devloops run frontend-dev --workspace myapp
 
 # Or both loops in one command (run it again after each approval):
 bin/devloops orchestrate --workspace myapp --requirements path/to/PRD.md \
   --target-root /path/to/myapp
+```
+
+For step 3, copy the backend's runtime from `workspaces/myapp/backend-dev/outputs/plan-summary.md`
+into `frontend-config.json`, with `cwd` set to the backend target. Without a `backend` block the
+frontend is validated with no backend, and every criterion that needs one fails. `orchestrate`
+fills this in for you.
+
+```json
+{"backend": {"start_command": "node server.js", "cwd": "/path/to/myapp/backend",
+             "ready_url": "http://127.0.0.1:8000/health"}}
 ```
 
 To implement a single user story instead of the whole PRD, add `--story-id <id>` (the story
@@ -144,7 +162,7 @@ sequenceDiagram
     CLI-->>Dev: exit 10, outputs/ and open-questions.md
     Dev->>CLI: approve backend-dev, then run backend-dev
     loop each milestone, up to max_trials
-        CLI->>Claude: author-checks (first trial only; frozen)
+        CLI->>Claude: author-checks (first trial only frozen)
         CLI->>Claude: implement (or fix with the last failure)
         Claude->>App: edits files in the target
         CLI->>App: start runtime, wait for ready_url

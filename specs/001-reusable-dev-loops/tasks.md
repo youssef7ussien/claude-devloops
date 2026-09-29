@@ -466,7 +466,7 @@ workspaces, leaves the hash manifest of `loops/` and `bin/` unchanged.
 - [X] T073 [P] Implement optional `git.commit_per_milestone` (spec A-6), which is off by default, in `loops/shared/devloops/engine.py`. After an achieved milestone, if the target is in a git repo, run `git add` for **only** the target's changed paths and commit with a Conventional Commits message, `feat(<loop>): complete <milestone id> <title>`. Test it in `loops/shared/tests/test_git_commit.py`.
 - [X] T074 [P] Extend `status` in `cli.py` to list any evidence file larger than 1 MB under the workspace, as a review hint (research R-21).
 - [X] T075 Run the full offline suite (`python3 -m unittest discover -s loops/shared/tests -v`, quickstart §1) and fix failures until it is green. Confirm that `git status loops/ bin/` is clean after the suite runs.
-- [ ] T076 Run quickstart §2–4 with real Claude Code, using `loops/shared/tests/fixtures/smoke` and `smoke-alt` (SC-011, SC-008, SC-006), following only the commands in `loops/README.md`. Record the outcome, workspace paths, and any README gaps in `specs/001-reusable-dev-loops/validation-results.md`, and fix the documentation or code where the README and the behavior differ (FR-048).
+- [X] T076 Run quickstart §2–4 with real Claude Code, using `loops/shared/tests/fixtures/smoke` and `smoke-alt` (SC-011, SC-008, SC-006), following only the commands in `loops/README.md`. Record the outcome, workspace paths, and any README gaps in `specs/001-reusable-dev-loops/validation-results.md`, and fix the documentation or code where the README and the behavior differ (FR-048).
 
 ---
 

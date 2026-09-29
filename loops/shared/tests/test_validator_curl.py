@@ -214,6 +214,44 @@ class CurlValidatorTest(unittest.TestCase):
                             for op in result["contract"]["unmatched_operations"]),
                         result["contract"]["unmatched_operations"])
 
+    def test_a_check_that_an_undocumented_path_is_absent_agrees_with_the_contract(self):
+        checks = valid_checks()
+        checks["checks"].append({"id": "C5", "criteria": ["M01-AC2"],
+                                 "request": {"method": "GET", "path": "/does-not-exist"},
+                                 "expect": {"status": 404}})
+        self.scenario(checks)
+        result = curl.validate(self.ctx(trial=1))
+        by_id = {c["check_id"]: c for c in result["checks"]}
+        self.assertTrue(by_id["C5"]["passed"], by_id["C5"])
+        self.assertEqual(result["contract"], {"passed": True, "unmatched_operations": []})
+
+    def test_an_undocumented_path_expected_to_succeed_still_fails_the_contract(self):
+        checks = valid_checks()
+        checks["checks"].append({"id": "C5", "criteria": ["M01-AC2"],
+                                 "request": {"method": "GET", "path": "/does-not-exist"},
+                                 "expect": {"status": 200}})
+        self.scenario(checks)
+        result = curl.validate(self.ctx(trial=1))
+        self.assertFalse({c["check_id"]: c for c in result["checks"]}["C5"]["passed"])
+        self.assertIn("GET /does-not-exist", result["contract"]["unmatched_operations"])
+
+    def test_absence_checks_cover_no_operation(self):
+        spec = {"openapi": "3.0.3", "info": {"title": "t", "version": "1"},
+                "paths": {"/items": {"get": {"responses": {"200": {"description": "ok"}}}}}}
+        base = "http://127.0.0.1:1"
+        # 405 on an undocumented method, 404 on an unknown path: both agree with the document.
+        self.assertEqual(curl._contract(spec, base, [("GET", "/items", 200),
+                                                     ("DELETE", "/items", 405),
+                                                     ("GET", "/nope", 404)], []),
+                         {"passed": True, "unmatched_operations": []})
+        # They never stand in for a documented operation that no check exercised.
+        self.assertEqual(curl._contract(spec, base, [("GET", "/nope", 404)], []),
+                         {"passed": False, "unmatched_operations": ["GET /items"]})
+        # Any other expected status on an undocumented operation is an undocumented call.
+        self.assertEqual(curl._contract(spec, base, [("GET", "/items", 200),
+                                                     ("GET", "/nope", 400)], []),
+                         {"passed": False, "unmatched_operations": ["GET /nope"]})
+
     def test_missing_criterion_coverage_is_rejected_as_invalid_output(self):
         checks = valid_checks()
         checks["checks"] = [c for c in checks["checks"] if "M01-AC2" not in c["criteria"]]

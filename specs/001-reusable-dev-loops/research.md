@@ -171,7 +171,10 @@ settled all of them (spec items tagged [R]). They are kept at the end as a recor
      line, status, headers, and body as evidence and evaluates the expectations
      (status, `body_contains`, JSON-path equality, and variable capture for chained requests).
   4. **Check OpenAPI consistency** (FR-019):
-     - Every `(method, path)` exercised must exist in the OpenAPI document.
+     - Every `(method, path)` exercised must exist in the OpenAPI document. The exception is a
+       check that expects `404` or `405` on an undocumented `(method, path)`: it shows the
+       endpoint is absent, which agrees with the document, and it covers no operation (found in
+       the T076 real run, where a negative check made a milestone impossible to pass).
      - At every milestone validation, before the document is published, every operation in it
        must be exercised by a check of this milestone or of an earlier achieved milestone. The
        same check is repeated at loop completion. The published `outputs/openapi.json` therefore

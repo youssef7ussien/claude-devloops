@@ -292,6 +292,12 @@ def main(argv):
             os.fsync(f.fileno())
 
     answer = pick_answer(scenario, step, call) if step else None
+    json_schema = one(opts, "--json-schema")
+    if json_schema and "$schema" in json.loads(json_schema):
+        # Like the real CLI (2.1.x), which cannot resolve a draft 2020-12 `$schema` URI.
+        answer = {"is_error": True, "exit_code": 1, "no_result": True,
+                  "stderr": "Error: --json-schema is not a valid JSON Schema: no schema with key "
+                            f"or ref \"{json.loads(json_schema)['$schema']}\""}
     if answer is None:
         answer = {"is_error": True, "exit_code": 1,
                   "result": f"fake_claude: no scenario answer for step {step!r} (call {call})"}

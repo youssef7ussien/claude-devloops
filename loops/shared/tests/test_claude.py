@@ -99,8 +99,12 @@ class ClaudeRunnerTest(unittest.TestCase):
 
     def test_json_schema_matches_the_step(self):
         self.call("plan", {"structured_output": samples.plan()})
-        self.assertEqual(json.loads(self.flag_values(self.last_argv(), "--json-schema")[0]),
-                         schema.load("plan.schema.json"))
+        sent = json.loads(self.flag_values(self.last_argv(), "--json-schema")[0])
+        full = schema.load("plan.schema.json")
+        # Claude Code rejects the draft 2020-12 `$schema` marker, so it is not sent (T076).
+        self.assertNotIn("$schema", sent)
+        self.assertNotIn("$id", sent)
+        self.assertEqual(sent, {k: v for k, v in full.items() if k not in ("$schema", "$id")})
         self.call("implement", {"structured_output": IMPLEMENTED})
         self.assertEqual(json.loads(self.flag_values(self.last_argv(), "--json-schema")[0]),
                          claude.IMPLEMENT_RESULT_SCHEMA)

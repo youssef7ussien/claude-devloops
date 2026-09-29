@@ -70,6 +70,10 @@ class Orchestrator:
 
     def _run_loop(self, loop, options):
         step = self._step(loop)
+        if step["status"] == "completed" and \
+                engine.status_object(self.ws, loop)["status"] == "completed":
+            # Nothing to resume: keep the step's record, so its times stay those of the real run.
+            return EXIT_CODES["completed"]
         step.update(status="running", reason=None, ended_at=None)
         step["started_at"] = step.get("started_at") or state.now_iso()
         self._save()  # written before the action it records

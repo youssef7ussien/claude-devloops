@@ -181,6 +181,9 @@ class OrchestratorTest(unittest.TestCase):
 
         orch = self.orch_state()
         self.assertEqual(orch["status"], "completed")
+        # Resuming a completed backend leaves its step alone: it ended before the frontend began.
+        backend_step, frontend_step = orch["steps"]
+        self.assertLessEqual(backend_step["ended_at"], frontend_step["started_at"])
         self.assertEqual([(s["loop"], s["status"]) for s in orch["steps"]][-2:],
                          [("backend-dev", "completed"), ("frontend-dev", "completed")])
         handoff = orch["handoff"]

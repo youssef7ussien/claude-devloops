@@ -181,6 +181,15 @@ class ClaudeRunner:
         spec = STEPS[step]["schema"]
         return schema.load(spec) if isinstance(spec, str) else spec
 
+    def cli_schema(self, step):
+        """The step schema as `--json-schema` takes it: without `$schema` and `$id`.
+
+        Claude Code rejects the draft 2020-12 `$schema` URI our schema files declare ("no schema
+        with key or ref"). The schemas use no draft-specific keywords, so dropping the markers
+        changes nothing; the driver still validates the result against the full schema.
+        """
+        return {k: v for k, v in self.step_schema(step).items() if k not in ("$schema", "$id")}
+
     def settings(self):
         guard = os.path.join(self.repo_root, "loops", "shared", "hooks", "guard_writes.py")
         return {"hooks": {"PreToolUse": [{
@@ -201,7 +210,7 @@ class ClaudeRunner:
                  "--output-format", "stream-json" if stream else "json"]
         if stream:
             argv.append("--verbose")  # required by -p with stream-json
-        argv += ["--json-schema", json.dumps(self.step_schema(step), separators=(",", ":")),
+        argv += ["--json-schema", json.dumps(self.cli_schema(step), separators=(",", ":")),
                  "--allowedTools", *tools]
         if spec["writes"]:
             argv += ["--permission-mode", "acceptEdits"]

@@ -266,18 +266,24 @@ def _earlier_achieved_checks(loop_dir, run_state, exclude_milestone_id):
     return pairs
 
 
+# A check expecting one of these statuses on an undocumented (method, path) shows the endpoint is
+# absent, which agrees with the document; it is not an undocumented call (T076).
+ABSENCE_STATUSES = (404, 405)
+
+
 def _contract(spec, base_url, checks_used, other_checks):
+    """`checks_used` is `[(method, path, expected_status)]` for this milestone's checks."""
     if spec is None:
         return {"passed": False,
                "unmatched_operations": ["no OpenAPI document at runtime.openapi_path"]}
     unmatched = []
     covered = set()
-    for method, path in checks_used:
+    for method, path, expected_status in checks_used:
         matched = openapi.match(spec, method, path, base_url)
-        if matched is None:
-            unmatched.append(f"{method} {path}")
-        else:
+        if matched is not None:
             covered.add(matched)
+        elif expected_status not in ABSENCE_STATUSES:
+            unmatched.append(f"{method} {path}")
     for method, path in other_checks:
         matched = openapi.match(spec, method, path, base_url)
         if matched is not None:
@@ -316,7 +322,7 @@ def validate(ctx):
             result, method, path = _run_check(check, runtime["base_url"], variables,
                                               ctx.evidence_dir, ctx.redactor)
             check_results.append(result)
-            checks_used.append((method, path))
+            checks_used.append((method, path, check["expect"]["status"]))
         unit_tests = run_unit_tests(ctx.config, (ctx.plan or {}).get("runtime"), ctx.target_dir,
                                     ctx.trial_dir, redactor=ctx.redactor)
 
