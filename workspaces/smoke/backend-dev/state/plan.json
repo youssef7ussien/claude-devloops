@@ -1,0 +1,122 @@
+{
+  "requirements_inventory": [
+    {
+      "ref": "HEALTH-1",
+      "summary": "GET /health returns {\"status\":\"ok\"}, and a page shows that status (page is the frontend's part; the backend provides the endpoint)."
+    }
+  ],
+  "stack": {
+    "summary": "Node.js (>=18) using only the built-in http module, no third-party dependencies. The target directory is empty and neither the requirements nor the configuration name a stack, so this is the simplest stack for a one-endpoint service: nothing to install and it starts instantly. Unit tests use the built-in node:test runner.",
+    "source": "proposed",
+    "conflicts": []
+  },
+  "runtime": {
+    "install_command": "true",
+    "start_command": "node server.js",
+    "cwd": ".",
+    "base_url": "http://127.0.0.1:8000",
+    "ready_url": "http://127.0.0.1:8000/health",
+    "openapi_path": "openapi.json",
+    "unit_test_command": "node --test"
+  },
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Health endpoint",
+      "goal": "Serve GET /health returning {\"status\":\"ok\"} as JSON, documented in openapi.json, so a page can fetch and show the service status.",
+      "depends_on": [],
+      "tasks": [
+        {
+          "id": "M01-T01",
+          "title": "Create HTTP server",
+          "description": "Add package.json (name, \"type\": \"commonjs\", scripts start/test) and server.js with a Node http server that listens on PORT (default 8000) at host 127.0.0.1 (HOST env overrides it). Export the request handler so tests can use it. Unknown routes return 404 with JSON {\"error\":\"not found\"}.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-T02",
+          "title": "Implement GET /health",
+          "description": "GET /health responds 200 with Content-Type application/json and body {\"status\":\"ok\"}. Also send Access-Control-Allow-Origin: * so a separately served status page can read it from the browser. Other methods on /health return 405 with an Allow: GET header.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-T03",
+          "title": "OpenAPI document",
+          "description": "Create openapi.json (OpenAPI 3.0.3) that documents only GET /health, with a 200 response whose application/json schema is an object with a required string property status (enum [\"ok\"]).",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-T04",
+          "title": "Unit tests",
+          "description": "Add test/health.test.js using node:test that starts the handler on an ephemeral port and checks GET /health (200, JSON {\"status\":\"ok\"}) and an unknown path (404).",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        }
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "M01-AC1",
+          "text": "GET http://127.0.0.1:8000/health responds with HTTP 200, a Content-Type header starting with application/json, and a body that parses as JSON and equals exactly {\"status\":\"ok\"}.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-AC2",
+          "text": "The GET /health response includes the header Access-Control-Allow-Origin: *, so a browser page served from another origin can read the status.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-AC3",
+          "text": "GET http://127.0.0.1:8000/does-not-exist responds with HTTP 404 and a JSON body containing an \"error\" field.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-AC4",
+          "text": "openapi.json in the target directory is valid OpenAPI 3 JSON whose paths contain only /health with a get operation, and a 200 response schema matching {\"status\":\"ok\"}.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        }
+      ]
+    }
+  ],
+  "open_questions": [],
+  "assumptions": [
+    {
+      "id": "A1",
+      "text": "The \"page shows that status\" part of HEALTH-1 is built by a separate frontend step (the target is a backend/ directory). The backend only provides GET /health, and allows cross-origin reads (CORS *) so that page can call it.",
+      "source": "requirements HEALTH-1 plus the target_dir layout (smoke/backend)"
+    },
+    {
+      "id": "A2",
+      "text": "The server listens on 127.0.0.1:8000 by default; PORT and HOST environment variables can override this.",
+      "source": "proposed; no port in the requirements or configuration"
+    },
+    {
+      "id": "A3",
+      "text": "The response body must equal {\"status\":\"ok\"} exactly, with no extra fields.",
+      "source": "requirements HEALTH-1"
+    },
+    {
+      "id": "A4",
+      "text": "Node.js 18 or newer is available on the machine running the driver. There are no npm dependencies, so the install step is a no-op.",
+      "source": "proposed stack"
+    },
+    {
+      "id": "A5",
+      "text": "Returning 404 JSON for unknown routes and 405 for other methods on /health is standard error handling. It does not add any new feature.",
+      "source": "proposed"
+    }
+  ]
+}

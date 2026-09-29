@@ -1,0 +1,86 @@
+{
+  "milestone_id": "M01",
+  "checks": [
+    {
+      "id": "C1",
+      "criteria": [
+        "M01-AC1"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "body_contains": [
+          "\"status\"",
+          "\"ok\""
+        ],
+        "json_equals": {
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "id": "C2",
+      "criteria": [
+        "M01-AC2"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "headers": {
+          "Origin": "http://example.com",
+          "Accept": "application/json"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "json_equals": {
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "id": "C3",
+      "criteria": [
+        "M01-AC3"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/does-not-exist",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "expect": {
+        "status": 404,
+        "body_contains": [
+          "\"error\""
+        ]
+      }
+    },
+    {
+      "id": "C4",
+      "criteria": [
+        "M01-AC4"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/health"
+      },
+      "expect": {
+        "status": 200,
+        "body_contains": [
+          "ok"
+        ],
+        "json_equals": {
+          "status": "ok"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "n": 1,
+  "kind": "implement",
+  "status": "failed",
+  "failure": {
+    "reason": "validation-failed",
+    "detail": "contract check failed: GET /does-not-exist"
+  },
+  "needs_input": [],
+  "assumptions": [
+    {
+      "text": "The 405 response for non-GET methods on /health has the JSON body {\"error\":\"method not allowed\"} and also includes Access-Control-Allow-Origin: *.",
+      "affects": [
+        "M01-T02"
+      ]
+    },
+    {
+      "text": "Content-Type is sent as 'application/json; charset=utf-8', which starts with application/json as M01-AC1 requires.",
+      "affects": [
+        "M01-AC1"
+      ]
+    },
+    {
+      "text": "The OpenAPI schema for /health sets additionalProperties: false and includes an example, so it matches exactly {\"status\":\"ok\"}.",
+      "affects": [
+        "M01-T03",
+        "M01-AC4"
+      ]
+    },
+    {
+      "text": "The unit tests use the global fetch, which needs Node >=18 (package.json declares it in engines).",
+      "affects": [
+        "M01-T04"
+      ]
+    }
+  ],
+  "invocations": [
+    "b458e12e-934b-4ac3-9b05-d8ca0a722ac5"
+  ],
+  "validation": "validation.json",
+  "started_at": "2026-09-27T13:42:49.972Z",
+  "ended_at": "2026-09-27T13:43:50.231Z"
+}

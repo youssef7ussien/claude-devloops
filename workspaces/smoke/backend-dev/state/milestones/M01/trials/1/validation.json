@@ -1,0 +1,101 @@
+{
+  "kind": "curl",
+  "checks": [
+    {
+      "check_id": "C1",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:8000/health -H 'Accept: application/json'",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C1.headers",
+        "body_path": "evidence/C1.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C2",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:8000/health -H 'Origin: http://example.com' -H 'Accept: application/json'",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C2.headers",
+        "body_path": "evidence/C2.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C3",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:8000/does-not-exist -H 'Accept: application/json'",
+      "response": {
+        "status": 404,
+        "headers_path": "evidence/C3.headers",
+        "body_path": "evidence/C3.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C4",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:8000/health",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C4.headers",
+        "body_path": "evidence/C4.body"
+      },
+      "failures": []
+    }
+  ],
+  "criteria": [
+    {
+      "criterion_id": "M01-AC1",
+      "passed": true,
+      "observed": "C1 passed",
+      "evidence": [
+        "evidence/C1.body",
+        "evidence/C1.headers"
+      ]
+    },
+    {
+      "criterion_id": "M01-AC2",
+      "passed": true,
+      "observed": "C2 passed",
+      "evidence": [
+        "evidence/C2.body",
+        "evidence/C2.headers"
+      ]
+    },
+    {
+      "criterion_id": "M01-AC3",
+      "passed": true,
+      "observed": "C3 passed",
+      "evidence": [
+        "evidence/C3.body",
+        "evidence/C3.headers"
+      ]
+    },
+    {
+      "criterion_id": "M01-AC4",
+      "passed": true,
+      "observed": "C4 passed",
+      "evidence": [
+        "evidence/C4.body",
+        "evidence/C4.headers"
+      ]
+    }
+  ],
+  "contract": {
+    "passed": false,
+    "unmatched_operations": [
+      "GET /does-not-exist"
+    ]
+  },
+  "unit_tests": {
+    "enabled": false
+  },
+  "boundary": {
+    "passed": true,
+    "violations": []
+  },
+  "passed": false
+}

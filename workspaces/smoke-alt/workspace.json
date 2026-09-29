@@ -1,0 +1,15 @@
+{
+  "name": "smoke-alt",
+  "created_at": "2026-09-27T13:57:30.826Z",
+  "requirements": {
+    "path": "/data/space/workspace/claude-loops/loops/shared/tests/fixtures/smoke-alt/requirements.md",
+    "sha256": "9ad939363c4a9bdd47287729e3d45ffbf715f2f12b4be789bc46c8e37df2c702",
+    "mode": "prd",
+    "story_id": null
+  },
+  "targets": {
+    "backend-dev": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke-alt/backend",
+    "frontend-dev": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke-alt/frontend"
+  },
+  "config_path": "/data/space/workspace/claude-loops/workspaces/smoke-alt/frontend-config.json"
+}

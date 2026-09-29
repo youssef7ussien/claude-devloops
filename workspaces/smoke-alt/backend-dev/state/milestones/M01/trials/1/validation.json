@@ -1,0 +1,203 @@
+{
+  "kind": "curl",
+  "checks": [
+    {
+      "check_id": "C1",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:3000/counter",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C1.headers",
+        "body_path": "evidence/C1.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C2",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:3000/counter",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C2.headers",
+        "body_path": "evidence/C2.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C3",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X POST http://127.0.0.1:3000/counter/increment",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C3.headers",
+        "body_path": "evidence/C3.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C4",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X POST http://127.0.0.1:3000/counter/increment",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C4.headers",
+        "body_path": "evidence/C4.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C5",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X POST http://127.0.0.1:3000/counter/increment",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C5.headers",
+        "body_path": "evidence/C5.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C6",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:3000/counter",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C6.headers",
+        "body_path": "evidence/C6.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C7",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:3000/counter",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C7.headers",
+        "body_path": "evidence/C7.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C8",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:3000/counter/increment",
+      "response": {
+        "status": 405,
+        "headers_path": "evidence/C8.headers",
+        "body_path": "evidence/C8.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C9",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:3000/does-not-exist",
+      "response": {
+        "status": 404,
+        "headers_path": "evidence/C9.headers",
+        "body_path": "evidence/C9.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C10",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X GET http://127.0.0.1:3000/counter",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C10.headers",
+        "body_path": "evidence/C10.body"
+      },
+      "failures": []
+    },
+    {
+      "check_id": "C11",
+      "passed": true,
+      "command": "curl -sS --max-time 30 -X POST http://127.0.0.1:3000/counter/increment",
+      "response": {
+        "status": 200,
+        "headers_path": "evidence/C11.headers",
+        "body_path": "evidence/C11.body"
+      },
+      "failures": []
+    }
+  ],
+  "criteria": [
+    {
+      "criterion_id": "M01-AC1",
+      "passed": true,
+      "observed": "C1 passed",
+      "evidence": [
+        "evidence/C1.body",
+        "evidence/C1.headers"
+      ]
+    },
+    {
+      "criterion_id": "M01-AC2",
+      "passed": true,
+      "observed": "C3 passed; C11 passed",
+      "evidence": [
+        "evidence/C3.body",
+        "evidence/C3.headers",
+        "evidence/C11.body",
+        "evidence/C11.headers"
+      ]
+    },
+    {
+      "criterion_id": "M01-AC3",
+      "passed": true,
+      "observed": "C3 passed; C4 passed; C5 passed; C6 passed",
+      "evidence": [
+        "evidence/C3.body",
+        "evidence/C3.headers",
+        "evidence/C4.body",
+        "evidence/C4.headers",
+        "evidence/C5.body",
+        "evidence/C5.headers",
+        "evidence/C6.body",
+        "evidence/C6.headers"
+      ]
+    },
+    {
+      "criterion_id": "M01-AC4",
+      "passed": true,
+      "observed": "C1 passed; C2 passed; C6 passed; C7 passed",
+      "evidence": [
+        "evidence/C1.body",
+        "evidence/C1.headers",
+        "evidence/C2.body",
+        "evidence/C2.headers",
+        "evidence/C6.body",
+        "evidence/C6.headers",
+        "evidence/C7.body",
+        "evidence/C7.headers"
+      ]
+    },
+    {
+      "criterion_id": "M01-AC5",
+      "passed": true,
+      "observed": "C8 passed; C9 passed; C10 passed",
+      "evidence": [
+        "evidence/C8.body",
+        "evidence/C8.headers",
+        "evidence/C9.body",
+        "evidence/C9.headers",
+        "evidence/C10.body",
+        "evidence/C10.headers"
+      ]
+    }
+  ],
+  "contract": {
+    "passed": true,
+    "unmatched_operations": []
+  },
+  "unit_tests": {
+    "enabled": false
+  },
+  "boundary": {
+    "passed": true,
+    "violations": []
+  },
+  "passed": true
+}

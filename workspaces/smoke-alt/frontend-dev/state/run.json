@@ -1,0 +1,120 @@
+{
+  "loop": "frontend-dev",
+  "status": "completed",
+  "status_reason": null,
+  "inputs": {
+    "requirements": {
+      "path": "/data/space/workspace/claude-loops/loops/shared/tests/fixtures/smoke-alt/requirements.md",
+      "sha256": "9ad939363c4a9bdd47287729e3d45ffbf715f2f12b4be789bc46c8e37df2c702",
+      "mode": "prd",
+      "story_id": null
+    },
+    "api_spec": {
+      "path": "/data/space/workspace/claude-loops/workspaces/smoke-alt/backend-dev/outputs/openapi.json",
+      "sha256": "351ad96d1349553fd4d0f1e60750770c100eb1349dc534dadd5a43f452915c90"
+    }
+  },
+  "target_dir": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke-alt/frontend",
+  "effective_config": {
+    "max_trials": 3,
+    "max_invocations_per_run": 60,
+    "invocation_timeout_seconds": 1800,
+    "max_budget_usd_per_invocation": null,
+    "model": null,
+    "implement_tools": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "Bash"
+    ],
+    "unit_tests": {
+      "enabled": false,
+      "command": null
+    },
+    "runtime": {
+      "ready_timeout_seconds": 120
+    },
+    "backend": {
+      "start_command": "node server.js",
+      "cwd": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke-alt/backend",
+      "ready_url": "http://127.0.0.1:3000/counter"
+    },
+    "playwright": {
+      "mcp_command": [
+        "npx",
+        "@playwright/mcp@latest",
+        "--headless",
+        "--executable-path",
+        "/usr/bin/chromium"
+      ]
+    },
+    "git": {
+      "commit_per_milestone": false
+    },
+    "secrets": {
+      "env": [],
+      "literals": []
+    },
+    "boundary": {
+      "allowed_extra": []
+    }
+  },
+  "planning": {
+    "trials": [
+      {
+        "n": 1,
+        "kind": "plan",
+        "status": "passed",
+        "failure": null,
+        "invocations": [
+          "2f5a3381-a752-4fbe-b861-d89b39cf9c20"
+        ],
+        "started_at": "2026-09-27T13:59:22.280Z",
+        "ended_at": "2026-09-27T13:59:55.277Z"
+      }
+    ],
+    "status": "done"
+  },
+  "approval": {
+    "approved_at": "2026-09-27T14:00:04.609Z",
+    "action": "approve",
+    "answers_path": "/data/space/workspace/claude-loops/workspaces/smoke-alt/frontend-dev/outputs/open-questions.md",
+    "answers_sha256": "592cda0aa98fb9dc32bfbf792373e8c7b6a5b28624ba52e85a2413f47b60d31a"
+  },
+  "milestones": {
+    "M01": {
+      "status": "achieved",
+      "tasks": {
+        "M01-T01": "achieved",
+        "M01-T02": "achieved",
+        "M01-T03": "achieved",
+        "M01-T04": "achieved"
+      },
+      "trials": [
+        {
+          "n": 1,
+          "status": "failed",
+          "reason": "interrupted",
+          "started_at": "2026-09-27T14:00:06.367Z",
+          "ended_at": "2026-09-27T14:01:56.871Z"
+        },
+        {
+          "n": 2,
+          "status": "passed",
+          "reason": null,
+          "started_at": "2026-09-27T14:01:57.441Z",
+          "ended_at": "2026-09-27T14:05:13.028Z"
+        }
+      ],
+      "started_at": "2026-09-27T14:00:06.367Z",
+      "ended_at": "2026-09-27T14:05:13.028Z"
+    }
+  },
+  "invocation_count": 4,
+  "ui_url": "http://127.0.0.1:8080/",
+  "openapi_artifact": null,
+  "resume_status": null,
+  "grants": []
+}

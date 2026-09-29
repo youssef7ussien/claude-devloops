@@ -1,0 +1,15 @@
+{
+  "name": "smoke",
+  "created_at": "2026-09-27T13:41:59.167Z",
+  "requirements": {
+    "path": "/data/space/workspace/claude-loops/loops/shared/tests/fixtures/smoke/requirements.md",
+    "sha256": "de55f3ed9f5bbcb0d3af56c6bee0acfe0de6478dff3a5d9641909b0cbe015210",
+    "mode": "prd",
+    "story_id": null
+  },
+  "targets": {
+    "backend-dev": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke/backend",
+    "frontend-dev": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke/frontend"
+  },
+  "config_path": "/data/space/workspace/claude-loops/workspaces/smoke/frontend-config.json"
+}

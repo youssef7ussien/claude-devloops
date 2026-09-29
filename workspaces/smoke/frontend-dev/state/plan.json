@@ -1,0 +1,120 @@
+{
+  "requirements_inventory": [
+    {
+      "ref": "HEALTH-1",
+      "summary": "GET /health returns {\"status\":\"ok\"}, and a page shows that status."
+    }
+  ],
+  "stack": {
+    "summary": "Proposed: a static HTML page with vanilla JavaScript, served by a small dependency-free Node.js HTTP server (server.js) that uses only built-in modules. The page is a single status display, so it needs no framework or build step. Node is already used by the backend (`node server.js`). The backend base URL comes from an environment variable (BACKEND_BASE_URL, default http://127.0.0.1:8000) and reaches the page through a generated /config.js, so it is not hard-coded.",
+    "source": "proposed",
+    "conflicts": []
+  },
+  "runtime": {
+    "start_command": "node server.js",
+    "cwd": ".",
+    "base_url": "http://127.0.0.1:5173",
+    "ready_url": "http://127.0.0.1:5173/",
+    "unit_test_command": "node --test"
+  },
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Service status page",
+      "goal": "Serve a page that calls GET /health on the configured backend and shows the returned status to the user, with a visible error state if the call fails.",
+      "depends_on": [],
+      "tasks": [
+        {
+          "id": "M01-T01",
+          "title": "Static server with runtime config",
+          "description": "Create package.json with no dependencies and a `test` script that runs `node --test`. Create server.js using node:http. It listens on PORT (default 5173) at host 127.0.0.1 and serves public/index.html at /, public/app.js, and a generated /config.js that sets window.APP_CONFIG = { backendBaseUrl } from the BACKEND_BASE_URL env var (default http://127.0.0.1:8000). Any other path returns 404.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-T02",
+          "title": "Status page UI",
+          "description": "Create public/index.html with a heading 'Service status' and a status element (id=\"status\", role=\"status\", aria-live=\"polite\") that first reads 'Checking…'. Load config.js and then app.js.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-T03",
+          "title": "Fetch and render health",
+          "description": "In public/app.js, on load, send exactly one GET to `${backendBaseUrl}/health`. On a 200 response with JSON {status}, set the status element text to 'Status: ok' (the returned value) and add data-state=\"ok\". On a network error, a non-2xx response, or invalid JSON, show 'Status: unavailable' with data-state=\"error\". Call no other endpoint.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-T04",
+          "title": "Unit tests",
+          "description": "Add node:test tests covering the status rendering logic: an ok response gives 'Status: ok'; a failed fetch or a non-2xx response gives 'Status: unavailable'. Put the logic in a small pure function that can be imported and tested without a browser.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        }
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "M01-AC1",
+          "text": "Opening http://127.0.0.1:5173/ in a browser shows a heading 'Service status'.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-AC2",
+          "text": "While the backend is running, the page sends GET http://127.0.0.1:8000/health, and within a few seconds the status element (id=\"status\") reads 'Status: ok'.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-AC3",
+          "text": "The only backend request the page makes is GET /health, which matches the operation getHealth in the API spec.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        },
+        {
+          "id": "M01-AC4",
+          "text": "If the backend is unreachable, the status element reads 'Status: unavailable' instead of staying on 'Checking…' or showing a blank.",
+          "requirement_refs": [
+            "HEALTH-1"
+          ]
+        }
+      ]
+    }
+  ],
+  "open_questions": [],
+  "assumptions": [
+    {
+      "id": "A1",
+      "text": "The target directory is empty, so the stack is proposed: vanilla HTML/JS served by a dependency-free Node server.",
+      "source": "Target directory inspection (no files found)"
+    },
+    {
+      "id": "A2",
+      "text": "The browser calls the backend directly (cross-origin). The backend sends Access-Control-Allow-Origin: *, so no proxy is needed.",
+      "source": "Backend server.js sets a CORS header; context gives backend_base_url http://127.0.0.1:8000"
+    },
+    {
+      "id": "A3",
+      "text": "The frontend serves on 127.0.0.1:5173. The port can be overridden with the PORT env var.",
+      "source": "Proposed; no port was specified in the requirements or configuration"
+    },
+    {
+      "id": "A4",
+      "text": "The status is fetched once, on page load. Auto-refresh and a manual refresh button are not required.",
+      "source": "HEALTH-1 only says the page 'shows that status'"
+    },
+    {
+      "id": "A5",
+      "text": "An error state ('Status: unavailable') is shown when the call fails. This is added so the page never shows a misleading status. It does not change what the page shows in the success case HEALTH-1 describes.",
+      "source": "Reasonable reading of HEALTH-1"
+    }
+  ]
+}

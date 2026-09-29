@@ -1,0 +1,10 @@
+HTTP/1.1 404 Not Found
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+Content-Type: application/json
+Content-Length: 21
+Date: Sun, 27 Sep 2026 13:59:08 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+

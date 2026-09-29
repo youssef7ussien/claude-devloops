@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--headless",
+        "--executable-path",
+        "/usr/bin/chromium",
+        "--output-dir",
+        "/data/space/workspace/claude-loops/workspaces/smoke/frontend-dev/state/milestones/M01/trials/1/evidence"
+      ]
+    }
+  }
+}

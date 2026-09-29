@@ -1,0 +1,137 @@
+{
+  "requirements_inventory": [
+    {
+      "ref": "COUNTER-1",
+      "summary": "Counter: POST /counter/increment adds one and returns the new value; GET /counter returns {\"value\": <n>}; a page has a button that increments and shows the value."
+    }
+  ],
+  "stack": {
+    "summary": "Proposed: Node.js (>=18) using only the built-in http module, no third-party dependencies, with in-memory state. The target directory is empty and neither the requirements nor the configuration name a stack; a zero-dependency Node server is the simplest common choice for two JSON endpoints and needs no install step.",
+    "source": "proposed",
+    "conflicts": []
+  },
+  "runtime": {
+    "start_command": "node server.js",
+    "cwd": ".",
+    "base_url": "http://127.0.0.1:3000",
+    "ready_url": "http://127.0.0.1:3000/counter",
+    "openapi_path": "openapi.json",
+    "unit_test_command": "node --test"
+  },
+  "milestones": [
+    {
+      "id": "M01",
+      "title": "Counter API",
+      "goal": "Serve GET /counter and POST /counter/increment backed by an in-memory counter, and document both in openapi.json.",
+      "depends_on": [],
+      "tasks": [
+        {
+          "id": "M01-T01",
+          "title": "HTTP server skeleton",
+          "description": "Create server.js using Node's built-in http module, listening on PORT env var (default 3000). Unknown routes return 404 with a JSON error body; wrong methods on known paths return 405. Add CORS headers (Access-Control-Allow-Origin: *) and answer OPTIONS preflight with 204 so a separately served page can call the API.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        },
+        {
+          "id": "M01-T02",
+          "title": "GET /counter",
+          "description": "Return 200 with Content-Type application/json and body {\"value\": n}, where n is the current in-memory counter value, starting at 0 when the server starts.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        },
+        {
+          "id": "M01-T03",
+          "title": "POST /counter/increment",
+          "description": "Increment the in-memory counter by one and return 200 with Content-Type application/json and body {\"value\": n} holding the new value. No request body is required.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        },
+        {
+          "id": "M01-T04",
+          "title": "OpenAPI document and unit tests",
+          "description": "Write openapi.json (OpenAPI 3.0) documenting only GET /counter and POST /counter/increment with the {value: integer} response schema. Add node:test unit tests that start the server on an ephemeral port and exercise both endpoints.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        }
+      ],
+      "acceptance_criteria": [
+        {
+          "id": "M01-AC1",
+          "text": "On a freshly started server, GET /counter returns 200 with a JSON body exactly {\"value\": 0}.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        },
+        {
+          "id": "M01-AC2",
+          "text": "POST /counter/increment returns 200 with JSON body {\"value\": n+1}, where n is the value GET /counter returned immediately before.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        },
+        {
+          "id": "M01-AC3",
+          "text": "After three consecutive POST /counter/increment calls on a fresh server, the responses are {\"value\": 1}, {\"value\": 2}, {\"value\": 3} and a following GET /counter returns 200 with {\"value\": 3}.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        },
+        {
+          "id": "M01-AC4",
+          "text": "GET /counter does not change the value: two consecutive GET /counter calls return the same {\"value\": n}.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        },
+        {
+          "id": "M01-AC5",
+          "text": "GET /counter/increment returns 405 and GET /does-not-exist returns 404, and neither changes the value reported by GET /counter.",
+          "requirement_refs": [
+            "COUNTER-1"
+          ]
+        }
+      ]
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "OQ1",
+      "question": "Should the backend also serve the page with the increment button (e.g. GET / returning HTML), or is the page built by a separate frontend in the sibling workspace directory?",
+      "context": "COUNTER-1 mentions a page with a button. The target directory is named 'backend', suggesting a separate frontend. The plan currently excludes the page from the backend and enables CORS so a separately hosted page can call the API. If the backend should serve it, a milestone M02 adding GET / (200, text/html containing a button wired to POST /counter/increment and a display of the value) would be added.",
+      "affects": [
+        "M01"
+      ]
+    }
+  ],
+  "assumptions": [
+    {
+      "id": "A1",
+      "text": "POST /counter/increment returns the new value in the same shape as GET /counter: {\"value\": <n>}, with status 200.",
+      "source": "COUNTER-1 says it 'returns the new value' without a shape; reusing the GET shape is the consistent reading."
+    },
+    {
+      "id": "A2",
+      "text": "The counter starts at 0 and is held in memory; it resets when the server restarts. No persistence is required.",
+      "source": "COUNTER-1 names no initial value or persistence."
+    },
+    {
+      "id": "A3",
+      "text": "The page with the button is out of scope for this backend loop (pending OQ1); the backend enables permissive CORS so a separate frontend can call it.",
+      "source": "Target directory is 'backend'; COUNTER-1 page requirement."
+    },
+    {
+      "id": "A4",
+      "text": "The server listens on port 3000 by default (overridable via the PORT environment variable) and binds to all interfaces.",
+      "source": "Proposed; no port given in requirements or configuration."
+    },
+    {
+      "id": "A5",
+      "text": "The counter is a single global counter with no authentication.",
+      "source": "COUNTER-1 describes one counter and mentions no users or auth."
+    }
+  ]
+}

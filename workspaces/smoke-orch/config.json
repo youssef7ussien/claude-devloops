@@ -1,0 +1,5 @@
+{
+  "playwright": {
+    "mcp_command": ["npx", "@playwright/mcp@latest", "--headless", "--executable-path", "/usr/bin/chromium"]
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "loop": "backend-dev",
+  "status": "completed",
+  "status_reason": null,
+  "inputs": {
+    "requirements": {
+      "path": "/data/space/workspace/claude-loops/loops/shared/tests/fixtures/smoke/requirements.md",
+      "sha256": "de55f3ed9f5bbcb0d3af56c6bee0acfe0de6478dff3a5d9641909b0cbe015210",
+      "mode": "prd",
+      "story_id": null
+    },
+    "api_spec": null
+  },
+  "target_dir": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke/backend",
+  "effective_config": {
+    "max_trials": 3,
+    "max_invocations_per_run": 60,
+    "invocation_timeout_seconds": 1800,
+    "max_budget_usd_per_invocation": null,
+    "model": null,
+    "implement_tools": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "Bash"
+    ],
+    "unit_tests": {
+      "enabled": false,
+      "command": null
+    },
+    "runtime": {
+      "ready_timeout_seconds": 120
+    },
+    "backend": {},
+    "playwright": {
+      "mcp_command": [
+        "npx",
+        "@playwright/mcp@latest",
+        "--headless"
+      ]
+    },
+    "git": {
+      "commit_per_milestone": false
+    },
+    "secrets": {
+      "env": [],
+      "literals": []
+    },
+    "boundary": {
+      "allowed_extra": []
+    }
+  },
+  "planning": {
+    "trials": [
+      {
+        "n": 1,
+        "kind": "plan",
+        "status": "passed",
+        "failure": null,
+        "invocations": [
+          "88ee6fa2-f0ea-42df-b38c-a55534940649"
+        ],
+        "started_at": "2026-09-27T13:42:00.804Z",
+        "ended_at": "2026-09-27T13:42:32.069Z"
+      }
+    ],
+    "status": "done"
+  },
+  "approval": {
+    "approved_at": "2026-09-27T13:42:48.236Z",
+    "action": "approve",
+    "answers_path": "/data/space/workspace/claude-loops/workspaces/smoke/backend-dev/outputs/open-questions.md",
+    "answers_sha256": "bd66ee5034d608fc17ef57b0f98bab96e27d95d0277b3b76852b99f18d92b780"
+  },
+  "milestones": {
+    "M01": {
+      "status": "achieved",
+      "tasks": {
+        "M01-T01": "achieved",
+        "M01-T02": "achieved",
+        "M01-T03": "achieved",
+        "M01-T04": "achieved"
+      },
+      "trials": [
+        {
+          "n": 1,
+          "status": "failed",
+          "reason": "validation-failed",
+          "started_at": "2026-09-27T13:42:49.972Z",
+          "ended_at": "2026-09-27T13:43:50.231Z"
+        },
+        {
+          "n": 2,
+          "status": "failed",
+          "reason": "needs-input",
+          "started_at": "2026-09-27T13:43:51.969Z",
+          "ended_at": "2026-09-27T13:44:37.148Z"
+        },
+        {
+          "n": 3,
+          "status": "passed",
+          "reason": null,
+          "started_at": "2026-09-27T13:47:02.145Z",
+          "ended_at": "2026-09-27T13:47:31.276Z"
+        }
+      ],
+      "started_at": "2026-09-27T13:42:49.972Z",
+      "ended_at": "2026-09-27T13:47:31.276Z"
+    }
+  },
+  "invocation_count": 5,
+  "ui_url": null,
+  "openapi_artifact": {
+    "path": "outputs/openapi.json",
+    "sha256": "4c992baf40acea982f7342c87718c6f3aa74e605d95b88c68adf3b3c1ed17f68"
+  },
+  "resume_status": null,
+  "grants": [
+    {
+      "milestone_id": "M01",
+      "granted_at": "2026-09-27T13:46:53.717Z",
+      "reason": "OQ1 answered: the driver now accepts 404/405 absence checks on undocumented paths",
+      "extra_trials": 2,
+      "answers_sha256": "fd60c112824e8b6a6befb9c8313af2238349c31f9776a4765ce638d2e2044759"
+    }
+  ]
+}

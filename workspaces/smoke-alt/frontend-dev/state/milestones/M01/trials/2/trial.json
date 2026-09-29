@@ -1,0 +1,36 @@
+{
+  "n": 2,
+  "kind": "fix",
+  "status": "passed",
+  "failure": null,
+  "needs_input": [],
+  "assumptions": [
+    {
+      "text": "The trial 1 failure was 'interrupted' and left no validation.json or evidence, and the target directory was empty. So this fix builds the whole milestone rather than patching a specific defect.",
+      "affects": [
+        "M01-T01",
+        "M01-T02",
+        "M01-T03",
+        "M01-T04"
+      ]
+    },
+    {
+      "text": "If the first GET /counter fails, the value display shows '—' instead of staying on 'Loading…', and the error message appears in #error.",
+      "affects": [
+        "M01-T03"
+      ]
+    },
+    {
+      "text": "The server passes an empty BACKEND_BASE_URL through, and config.js then uses the default http://127.0.0.1:3000.",
+      "affects": [
+        "M01-T01"
+      ]
+    }
+  ],
+  "invocations": [
+    "5d44d21f-2156-4521-bf18-9a4a5630ec1a"
+  ],
+  "validation": "validation.json",
+  "started_at": "2026-09-27T14:01:57.441Z",
+  "ended_at": "2026-09-27T14:05:13.028Z"
+}

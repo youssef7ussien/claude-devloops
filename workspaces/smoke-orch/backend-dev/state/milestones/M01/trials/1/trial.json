@@ -1,0 +1,34 @@
+{
+  "n": 1,
+  "kind": "implement",
+  "status": "passed",
+  "failure": null,
+  "needs_input": [],
+  "assumptions": [
+    {
+      "text": "HEAD /health is answered like GET (200, same headers, no body) rather than 405, because HEAD is the standard companion of GET. The Allow header still lists only GET, as the task specifies.",
+      "affects": [
+        "M01-T02"
+      ]
+    },
+    {
+      "text": "Content-Type is sent as 'application/json; charset=utf-8', which satisfies 'starts with application/json'.",
+      "affects": [
+        "M01-T02",
+        "M01-AC1"
+      ]
+    },
+    {
+      "text": "The 'page shows that status' part of HEALTH-1 is out of scope for this backend milestone, which only adds CORS support for a separately served page.",
+      "affects": [
+        "M01-AC2"
+      ]
+    }
+  ],
+  "invocations": [
+    "1b5ee080-400d-4272-a044-1e6df8b0f7f5"
+  ],
+  "validation": "validation.json",
+  "started_at": "2026-09-27T13:52:44.605Z",
+  "ended_at": "2026-09-27T13:53:57.323Z"
+}

@@ -1,0 +1,107 @@
+{
+  "loop": "backend-dev",
+  "status": "completed",
+  "status_reason": null,
+  "inputs": {
+    "requirements": {
+      "path": "/data/space/workspace/claude-loops/loops/shared/tests/fixtures/smoke-alt/requirements.md",
+      "sha256": "9ad939363c4a9bdd47287729e3d45ffbf715f2f12b4be789bc46c8e37df2c702",
+      "mode": "prd",
+      "story_id": null
+    },
+    "api_spec": null
+  },
+  "target_dir": "/tmp/claude-1000/-data-space-workspace-claude-loops/19246cf3-3402-4e12-8fb8-9e1c0e715583/scratchpad/t076/smoke-alt/backend",
+  "effective_config": {
+    "max_trials": 3,
+    "max_invocations_per_run": 60,
+    "invocation_timeout_seconds": 1800,
+    "max_budget_usd_per_invocation": null,
+    "model": null,
+    "implement_tools": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "Bash"
+    ],
+    "unit_tests": {
+      "enabled": false,
+      "command": null
+    },
+    "runtime": {
+      "ready_timeout_seconds": 120
+    },
+    "backend": {},
+    "playwright": {
+      "mcp_command": [
+        "npx",
+        "@playwright/mcp@latest",
+        "--headless"
+      ]
+    },
+    "git": {
+      "commit_per_milestone": false
+    },
+    "secrets": {
+      "env": [],
+      "literals": []
+    },
+    "boundary": {
+      "allowed_extra": []
+    }
+  },
+  "planning": {
+    "trials": [
+      {
+        "n": 1,
+        "kind": "plan",
+        "status": "passed",
+        "failure": null,
+        "invocations": [
+          "23002263-d34e-401c-9d39-36ffb3a34db6"
+        ],
+        "started_at": "2026-09-27T13:57:32.165Z",
+        "ended_at": "2026-09-27T13:58:02.348Z"
+      }
+    ],
+    "status": "done"
+  },
+  "approval": {
+    "approved_at": "2026-09-27T13:58:12.255Z",
+    "action": "approve",
+    "answers_path": "/data/space/workspace/claude-loops/workspaces/smoke-alt/backend-dev/outputs/open-questions.md",
+    "answers_sha256": "15e183efd44059e3a89a3e511cb270a8f273aff479bba17badf9b47424cbc43e"
+  },
+  "milestones": {
+    "M01": {
+      "status": "achieved",
+      "tasks": {
+        "M01-T01": "achieved",
+        "M01-T02": "achieved",
+        "M01-T03": "achieved",
+        "M01-T04": "achieved"
+      },
+      "trials": [
+        {
+          "n": 1,
+          "status": "passed",
+          "reason": null,
+          "started_at": "2026-09-27T13:58:13.795Z",
+          "ended_at": "2026-09-27T13:59:08.820Z"
+        }
+      ],
+      "started_at": "2026-09-27T13:58:13.795Z",
+      "ended_at": "2026-09-27T13:59:08.820Z"
+    }
+  },
+  "invocation_count": 3,
+  "ui_url": null,
+  "openapi_artifact": {
+    "path": "outputs/openapi.json",
+    "sha256": "351ad96d1349553fd4d0f1e60750770c100eb1349dc534dadd5a43f452915c90"
+  },
+  "resume_status": null,
+  "grants": []
+}
