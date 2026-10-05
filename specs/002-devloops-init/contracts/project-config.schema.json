@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/project-config.schema.json",
+  "title": "Project configuration (.devloops/devloops.json and .devloops/devloops.local.json)",
+  "description": "Both files share this schema; the local file is deep-merged over the shared one. Relative paths resolve against the project root (the parent of .devloops/).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workspace": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "default": "main",
+      "description": "Default workspace name when --workspace is not given (FR-011)"
+    },
+    "workspaces_dir": {
+      "type": "string",
+      "default": ".devloops/workspaces",
+      "description": "Where bare workspace names live (FR-012)"
+    },
+    "dashboards_dir": {
+      "type": "string",
+      "default": ".devloops/dashboards",
+      "description": "Where full dashboards are written (FR-036)"
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend-dev": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "frontend-dev": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "description": "Default loop targets (FR-011, FR-013)"
+    },
+    "requirements": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Default requirements input (FR-011, FR-023, FR-024). Exactly one of path / speckit_feature (checked in code: the stdlib validator has no oneOf); story_file only with path.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "story_file": {
+          "type": "boolean",
+          "default": false
+        },
+        "speckit_feature": {
+          "type": "string",
+          "description": "A spec-kit feature folder, or \"active\" for the feature in .specify/feature.json"
+        }
+      }
+    },
+    "config": {
+      "$ref": "config.schema.json",
+      "description": "Run configuration overrides; same shape as 001's config.json (layers 2 and 3 of research P-4)"
+    }
+  }
+}

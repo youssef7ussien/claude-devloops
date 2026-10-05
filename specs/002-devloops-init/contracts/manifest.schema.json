@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devloops/manifest.schema.json",
+  "title": "Install manifest (.devloops/manifest.json)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "devloops_version", "kit_mode", "command", "installed_at", "files"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "devloops_version": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" },
+    "kit_mode": { "enum": ["installed", "source"] },
+    "command": {
+      "type": "string",
+      "description": "How skills invoke devloops: \"devloops\", or the path of bin/devloops (relative to the project root when inside it)"
+    },
+    "installed_at": { "type": "string", "format": "date-time" },
+    "upgraded_at": { "type": ["string", "null"], "format": "date-time" },
+    "ignore_rules": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The .gitignore lines init added"
+    },
+    "files": {
+      "type": "object",
+      "description": "Project-relative path of each installed file -> sha256 of the content init wrote. devloops.json is not listed (FR-028).",
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    }
+  }
+}
