@@ -211,6 +211,9 @@ One JSON line per Claude call in `state/invocations.jsonl`. Schema:
 It holds the session ID, `step`, milestone, trial, prompt path, timestamps, tokens (four counters,
 or `null` when unavailable), cost, duration, turns, `is_error`, `subtype`, and
 `permission_denials`.
+Added by 002: `conversation` (`copied` or `unavailable`), with `conversation_path`
+(`state/conversations/<seq>-<step>.jsonl`, the call's Claude Code transcript, redacted) or
+`conversation_reason` (`not-found`, `interrupted`, `unreadable`) (002 FR-042).
 
 ## Approval
 

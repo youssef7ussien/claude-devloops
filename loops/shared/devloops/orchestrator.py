@@ -39,6 +39,7 @@ class Orchestrator:
         self.state_path = os.path.join(self.dir, "state.json")
         self.state = None
         self.message = ""
+        self.last_run = None  # the loop this command ran last; None if it ran none
 
     def run(self):
         """Run or resume both loops in order; return the exit code of the loop that stopped, or 0."""
@@ -78,6 +79,7 @@ class Orchestrator:
                 engine.status_object(self.ws, loop)["status"] == "completed":
             # Nothing to resume: keep the step's record, so its times stay those of the real run.
             return EXIT_CODES["completed"]
+        self.last_run = loop
         step.update(status="running", reason=None, ended_at=None)
         step["started_at"] = step.get("started_at") or state.now_iso()
         self._save()  # written before the action it records

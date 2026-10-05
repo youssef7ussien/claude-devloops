@@ -283,11 +283,36 @@ class ClaudeRunner:
 
         record = self._record(seq, session_id, step, milestone_id, trial, prompt_path, started_at,
                               ended_at, elapsed_ms, result, timed_out, out.failure_class)
+        conversation, conversation_redacted = self._copy_conversation(
+            seq, step, record["session_id"], target_dir, timed_out)
+        record.update(conversation)
         record, record_redacted = self.redactor.redact_obj(record)
-        record["redacted"] = bool(prompt_redacted or record_redacted)
+        record["redacted"] = bool(prompt_redacted or record_redacted or conversation_redacted)
         state.append_jsonl(os.path.join(self.state_dir, "invocations.jsonl"), record)
         out.record = record
         return out
+
+    def _copy_conversation(self, seq, step, session_id, cwd, timed_out):
+        """Copy the call's Claude Code transcript, redacted, into `state/conversations/` (FR-042).
+
+        Returns the invocation record's conversation fields and whether a secret was replaced.
+        A transcript that cannot be found or read is recorded as unavailable; it never fails the
+        call.
+        """
+        source = find_transcript(session_id, cwd, self.env)
+        if source is None:
+            return {"conversation": "unavailable",
+                    "conversation_reason": "interrupted" if timed_out else "not-found"}, False
+        try:
+            with open(source, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            text, redacted = redact_transcript(text, self.redactor)
+            path = os.path.join(self.state_dir, "conversations", f"{seq:04d}-{step}.jsonl")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            state.write_text_atomic(path, text)
+        except OSError:
+            return {"conversation": "unavailable", "conversation_reason": "unreadable"}, False
+        return {"conversation": "copied", "conversation_path": self._rel(path)}, redacted
 
     def _run(self, argv, stdin_text, cwd, env):
         proc = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
@@ -371,6 +396,63 @@ class ClaudeRunner:
             "api_error_status": _int_or_none(result.get("api_error_status")),
             "failure_class": failure_class,
         }
+
+
+def claude_config_dir(env=None):
+    """Where Claude Code keeps its history: `CLAUDE_CONFIG_DIR`, else `~/.claude`."""
+    env = os.environ if env is None else env
+    return env.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def find_transcript(session_id, cwd, env=None):
+    """The path of a session's transcript in Claude Code's history, or None (research P-9).
+
+    Claude Code keeps it at `projects/<cwd with each non-alphanumeric character as '-'>/
+    <session_id>.jsonl`; long paths are shortened there, so any project folder holding the
+    session's file is accepted next.
+    """
+    if not session_id or os.sep in session_id or not re.fullmatch(r"[A-Za-z0-9-]+", session_id):
+        return None
+    projects = os.path.join(claude_config_dir(env), "projects")
+    name = session_id + ".jsonl"
+    for directory in dict.fromkeys(p for p in (cwd, cwd and os.path.realpath(cwd)) if p):
+        path = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", directory), name)
+        if os.path.isfile(path):
+            return path
+    try:
+        folders = sorted(os.listdir(projects))
+    except OSError:
+        return None
+    for folder in folders:
+        path = os.path.join(projects, folder, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def redact_transcript(text, redactor):
+    """Redact a JSONL transcript line by line; return `(text, changed)`.
+
+    Each line is redacted as text, which keeps it byte-for-byte otherwise. A line that is JSON is
+    also redacted value by value, which catches a secret that JSON escaping changed; only then is
+    the line re-serialized.
+    """
+    lines, changed = [], False
+    # JSONL lines end at "\n" only: `splitlines` would also split inside a string holding U+2028.
+    for line in text.split("\n"):
+        body = line.rstrip("\r")
+        new, line_changed = redactor.redact(body)
+        try:
+            obj = json.loads(new)
+        except ValueError:
+            obj = None
+        if obj is not None:
+            redacted, obj_changed = redactor.redact_obj(obj)
+            if obj_changed:
+                new, line_changed = json.dumps(redacted, ensure_ascii=False), True
+        lines.append(new + line[len(body):])
+        changed = changed or line_changed
+    return "\n".join(lines), changed
 
 
 def _kill_group(proc):

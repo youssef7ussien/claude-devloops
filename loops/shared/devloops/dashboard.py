@@ -9,6 +9,7 @@ HTML-escaped here.
 import html
 import json
 import os
+import re
 from datetime import datetime
 
 from . import render, state
@@ -165,6 +166,38 @@ def collect_loop(ws, loop):
     }
 
 
+FULL_NAME = re.compile(r"^(\d{8}T\d{6}Z)(?:-(\d+))?\.html$")
+
+
+def full_dashboards_dir(ws):
+    """`<dashboards_dir>/<workspace>`, where the workspace's full dashboards go (002 FR-036)."""
+    return os.path.join(ws.project.dashboards_dir, ws.name)
+
+
+def list_full_dashboards(ws):
+    """The workspace's full dashboards, newest first: `[{name, path, link, bytes}]`.
+
+    `link` is relative to the workspace folder, for the lightweight page. Read-only.
+    """
+    if getattr(ws, "project", None) is None:
+        return []
+    directory = full_dashboards_dir(ws)
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    found = []
+    for name in names:
+        match = FULL_NAME.match(name)
+        path = os.path.join(directory, name)
+        if not match or not os.path.isfile(path):
+            continue
+        found.append(((match.group(1), int(match.group(2) or 1)), {
+            "name": name, "path": path, "link": os.path.relpath(path, ws.path),
+            "bytes": os.path.getsize(path)}))
+    return [item for _, item in sorted(found, key=lambda pair: pair[0], reverse=True)]
+
+
 def collect(ws):
     """The page's data for a workspace: its identity, each started loop, and the orchestrator."""
     loops = {loop: collect_loop(ws, loop) for loop in LOOPS}
@@ -189,6 +222,7 @@ def collect(ws):
         "requirements": ws.data.get("requirements") or {},
         "targets": ws.data.get("targets") or {}, "loops": loops, "orchestrator": orch,
         "large_evidence": large,
+        "full_dashboards": list_full_dashboards(ws),
         "totals": {
             "milestones": sum(s["milestones"] for s in stats),
             "achieved": sum(s["achieved"] for s in stats),
@@ -241,6 +275,26 @@ def pill(status, table):
 
 def _path_link(relpath, text=None):
     return f'<a href="{e(relpath)}">{e(text or relpath)}</a>'
+
+
+class FileLinks:
+    """How a page refers to workspace files and URLs: here, links to the files on disk.
+
+    The full dashboard (fulldash.py) substitutes links to the copies embedded in the page.
+    """
+
+    def path(self, relpath, text=None):
+        return _path_link(relpath, text)
+
+    def image(self, relpath, alt):
+        return (f'<a href="{e(relpath)}"><img class="thumb" loading="lazy" src="{e(relpath)}" '
+                f'alt="{e(alt)}"></a>')
+
+    def url(self, url):
+        return f'<a href="{e(url)}">{e(url)}</a>'
+
+
+FILE_LINKS = FileLinks()
 
 
 # --- charts -----------------------------------------------------------------------------------------
@@ -388,7 +442,7 @@ def _next_action(loop, d):
     return None
 
 
-def loop_section(loop, d, ws_path):
+def loop_section(loop, d, ws_path, links=FILE_LINKS):
     s = d["stats"]
     reason = d["status_reason"] or {}
     head = [f'<h2 id="{e(loop)}">{e(loop)} {pill(d["status"], RUN_STATUS)}</h2>']
@@ -406,14 +460,14 @@ def loop_section(loop, d, ws_path):
         _kpi("Elapsed", e(duration(s["seconds"]))),
     ]) + "</div>")
 
-    outputs = [_path_link(f"{loop}/progress.md", "progress.md"),
-               _path_link(f"{loop}/outputs/plan-summary.md", "plan summary")]
+    outputs = [links.path(f"{loop}/progress.md", "progress.md"),
+               links.path(f"{loop}/outputs/plan-summary.md", "plan summary")]
     if os.path.exists(os.path.join(ws_path, loop, "outputs", "final-report.md")):
-        outputs.append(_path_link(f"{loop}/outputs/final-report.md", "final report"))
+        outputs.append(links.path(f"{loop}/outputs/final-report.md", "final report"))
     if d["openapi_artifact"]:
-        outputs.append(_path_link(f"{loop}/{d['openapi_artifact']['path']}", "OpenAPI document"))
+        outputs.append(links.path(f"{loop}/{d['openapi_artifact']['path']}", "OpenAPI document"))
     if d["ui_url"]:
-        outputs.append(f'UI: <a href="{e(d["ui_url"])}">{e(d["ui_url"])}</a>')
+        outputs.append(f'UI: {links.url(d["ui_url"])}')
     head.append('<p class="outputs">' + " · ".join(outputs) + "</p>")
 
     plan = d["plan"]
@@ -430,13 +484,13 @@ def loop_section(loop, d, ws_path):
 
     body = ["<h3>Milestones</h3>"]
     for m in d["milestones"]:
-        body.append(milestone_card(loop, m))
+        body.append(milestone_card(loop, m, links))
     if not d["milestones"]:
         body.append('<p class="muted">No plan stored yet.</p>')
     return f'<section class="loop">{"".join(head)}{"".join(body)}</section>'
 
 
-def milestone_card(loop, m):
+def milestone_card(loop, m, links=FILE_LINKS):
     last = m["trials"][-1] if m["trials"] else None
     validation = (last or {}).get("validation") or {}
     results = {c["criterion_id"]: c for c in validation.get("criteria", [])}
@@ -472,15 +526,14 @@ def milestone_card(loop, m):
             result = pill("passed" if r["passed"] else "failed", TRIAL_STATUS)
         evidence = ""
         if r and last:
-            links = []
+            items = []
             for item in r.get("evidence") or []:
                 rel = os.path.join(os.path.dirname(last["evidence_dir"]), item)
                 if item.lower().endswith(IMAGE_EXTENSIONS):
-                    links.append(f'<a href="{e(rel)}"><img class="thumb" loading="lazy" '
-                                 f'src="{e(rel)}" alt="{e(os.path.basename(item))}"></a>')
+                    items.append(links.image(rel, os.path.basename(item)))
                 else:
-                    links.append(_path_link(rel, os.path.basename(item)))
-            evidence = " ".join(links)
+                    items.append(links.path(rel, os.path.basename(item)))
+            evidence = " ".join(items)
         parts.append(f'<tr><td><strong>{e(c["id"])}</strong> {e(c["text"])}</td><td>{result}</td>'
                      f'<td>{e((r or {}).get("observed"))}</td><td>{evidence}</td></tr>')
     parts.append("</tbody></table>")
@@ -572,7 +625,7 @@ def questions_section(data):
     return "".join(out) + "</section>"
 
 
-def sessions_section(data):
+def sessions_section(data, links=FILE_LINKS):
     rows, events = [], []
     for loop, d in data["loops"].items():
         for r in d["invocations"]:
@@ -583,7 +636,7 @@ def sessions_section(data):
                 f"<tr><td>{e(loop)}</td><td>{e(r.get('step'))}</td>"
                 f"<td>{e(r.get('milestone_id') or 'planning')}</td><td class='num'>{e(r.get('trial'))}</td>"
                 f"<td><code class='small'>{e(r.get('session_id'))}</code></td>"
-                f"<td>{_path_link(f'{loop}/{prompt}', 'prompt') if prompt else ''}</td>"
+                f"<td>{links.path(f'{loop}/{prompt}', 'prompt') if prompt else ''}</td>"
                 f"<td class='num'>{e(number(tokens))}</td><td class='num'>{e(money(r.get('cost_usd')))}</td>"
                 f"<td class='num'>{e(duration((r.get('duration_ms') or 0) / 1000))}</td>"
                 f"<td>{'' if r.get('failure_class') in (None, 'none') else e(r.get('failure_class'))}"
@@ -770,44 +823,84 @@ JS = """
 """
 
 
-def render_page(data, ws_path):
-    req = data["requirements"]
-    mode = req.get("mode")
-    selection = f" · story {req.get('story_id')}" if req.get("story_id") else ""
+def nav_links(data):
     nav = "".join(f'<a href="#{e(loop)}">{e(loop)}</a>' for loop in data["loops"])
     nav += ('<a href="#timeline">Timeline</a><a href="#decisions">Questions</a>'
             '<a href="#sessions">Sessions</a>')
     if data["orchestrator"]:
         nav = '<a href="#orchestrator">Orchestrator</a>' + nav
-    large = ""
-    if data["large_evidence"]:
-        large = ('<p class="alert"><strong>Review before committing:</strong> evidence files over '
-                 '1 MB, the likeliest place for a secret to hide: '
-                 + ", ".join(_path_link(i["path"]) + f" ({number(i['bytes'])}B)"
-                             for i in data["large_evidence"]) + "</p>")
-    body = [
-        f'<header class="top"><h1>devloops · {e(data["workspace"])}</h1><nav>{nav}</nav>'
-        '<span class="spacer"></span><button class="theme" id="theme" type="button">'
-        'Toggle theme</button></header><main>',
-        f'<p class="meta">Requirements <code>{e(req.get("path"))}</code> · mode '
-        f'{e(mode)}{e(selection)} · generated {e(data["generated_at"])}</p>',
-        kpi_row(data), large,
-    ]
+    return nav
+
+
+def large_evidence_alert(data, links=FILE_LINKS):
+    if not data["large_evidence"]:
+        return ""
+    return ('<p class="alert"><strong>Review before committing:</strong> evidence files over '
+            '1 MB, the likeliest place for a secret to hide: '
+            + ", ".join(links.path(i["path"]) + f" ({number(i['bytes'])}B)"
+                        for i in data["large_evidence"]) + "</p>")
+
+
+def header(title, nav):
+    return (f'<header class="top"><h1>{e(title)}</h1><nav>{nav}</nav>'
+            '<span class="spacer"></span><button class="theme" id="theme" type="button">'
+            'Toggle theme</button></header>')
+
+
+def summary_sections(data, ws_path, links=FILE_LINKS):
+    """The body shared by both dashboards: KPIs, orchestrator, charts, loops, and sessions."""
+    body = [kpi_row(data), large_evidence_alert(data, links)]
     if not data["loops"]:
         body.append('<p class="muted">No loop has started in this workspace yet.</p>')
     body.append(orchestrator_section(data))
     if data["loops"]:
         body.append(charts_section(data))
     for loop, d in data["loops"].items():
-        body.append(loop_section(loop, d, ws_path))
+        body.append(loop_section(loop, d, ws_path, links))
     if data["loops"]:
         body.append(questions_section(data))
-        body.append(sessions_section(data))
-    body.append('</main><div id="tip" role="tooltip"></div>')
+        body.append(sessions_section(data, links))
+    return body
+
+
+def page(title, body, css=""):
+    """A complete page: inline styles, `body` (a list of HTML strings), and the one script."""
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-            f"<title>devloops · {e(data['workspace'])}</title><style>{CSS}</style></head><body>"
-            + "".join(body) + f"<script>{JS}</script></body></html>\n")
+            f"<title>{e(title)}</title><style>{CSS}{css}</style></head><body>"
+            + "".join(body) + f'<div id="tip" role="tooltip"></div><script>{JS}</script>'
+            "</body></html>\n")
+
+
+def full_dashboards_section(data):
+    """Links to the workspace's full dashboards, newest first (002 FR-036a)."""
+    items = data.get("full_dashboards") or []
+    if not items:
+        return ""
+    rows = "".join(f"<li>{_path_link(i['link'], i['name'])} "
+                   f"<span class='muted small'>{e(number(i['bytes']))}B</span></li>"
+                   for i in items)
+    return ('<section><h2 id="full-dashboards">Full dashboards</h2><p class="muted">'
+            'Self-contained pages with every artifact and Claude Code conversation, newest first. '
+            f'They contain full conversations: review before sharing.</p><ul>{rows}</ul></section>')
+
+
+def render_page(data, ws_path):
+    req = data["requirements"]
+    mode = req.get("mode")
+    selection = f" · story {req.get('story_id')}" if req.get("story_id") else ""
+    nav = nav_links(data)
+    if data.get("full_dashboards"):
+        nav += '<a href="#full-dashboards">Full dashboards</a>'
+    body = [
+        header(f"devloops · {data['workspace']}", nav), "<main>",
+        f'<p class="meta">Requirements <code>{e(req.get("path"))}</code> · mode '
+        f'{e(mode)}{e(selection)} · generated {e(data["generated_at"])}</p>',
+        *summary_sections(data, ws_path),
+        full_dashboards_section(data),
+        "</main>",
+    ]
+    return page(f"devloops · {data['workspace']}", body)
 
 
 def write(ws):

@@ -430,7 +430,7 @@ when a run ends, and by `devloops dashboard` (clarifications 1, 6, 7, 8; FR-035 
 
 ### Tests for the full dashboard ⚠️
 
-- [ ] T033 [P] [US2] Write `loops/shared/tests/test_conversations.py`:
+- [X] T033 [P] [US2] Write `loops/shared/tests/test_conversations.py`:
   - **Copying**: after a stub run, each invocation record has `conversation: "copied"` and
     `conversation_path: "state/conversations/<seq>-<step>.jsonl"`. The file equals the fake
     transcript, with the configured secret replaced by `***`.
@@ -438,7 +438,7 @@ when a run ends, and by `devloops dashboard` (clarifications 1, 6, 7, 8; FR-035 
     found, by the `projects/*/<session>.jsonl` fallback.
   - **Missing transcript**: `"transcript": false` gives `conversation: "unavailable"` and
     `conversation_reason: "not-found"`, and the run is unaffected (FR-042).
-- [ ] T034 [P] [US2] Write `loops/shared/tests/test_full_dashboard.py`:
+- [X] T034 [P] [US2] Write `loops/shared/tests/test_full_dashboard.py`:
   - **When it is written**: none at `awaiting-approval` (exit 10). Exactly one new file at
     `completed`. Another new file after `stopped-on-failure` (FR-039).
   - **Naming**: two generations in the same second give `<ts>.html` and `<ts>-2.html`, and
@@ -462,7 +462,7 @@ when a run ends, and by `devloops dashboard` (clarifications 1, 6, 7, 8; FR-035 
 
 ### Implementation for the full dashboard
 
-- [ ] T035 [US2] Copy the conversations in `loops/shared/devloops/claude.py` (research P-9):
+- [X] T035 [US2] Copy the conversations in `loops/shared/devloops/claude.py` (research P-9):
   - **When**: after each call (including failed ones, but not on a kill of the driver),
     `_copy_conversation(seq, step, session_id, cwd)`.
   - **Finding the transcript**:
@@ -474,7 +474,7 @@ when a run ends, and by `devloops dashboard` (clarifications 1, 6, 7, 8; FR-035 
     record.
   - **Schema**: add those three optional fields to `invocation-record.schema.json`, in both
     copies.
-- [ ] T036 [US2] Implement `loops/shared/devloops/fulldash.py`, per
+- [X] T036 [US2] Implement `loops/shared/devloops/fulldash.py`, per
   contracts/full-dashboard.md:
   - **Collecting**:
     - reuse `dashboard.collect(ws)` and `dashboard`'s CSS, theme script, and helpers (factor
@@ -493,7 +493,7 @@ when a run ends, and by `devloops dashboard` (clarifications 1, 6, 7, 8; FR-035 
     bytes, largest, unavailable}`.
   - **Safety**: every embedded string passes through the loop's `Redactor`, built from its frozen
     `effective_config`.
-- [ ] T037 [US2] Wire the full dashboard in `loops/shared/devloops/cli.py` and
+- [X] T037 [US2] Wire the full dashboard in `loops/shared/devloops/cli.py` and
   `loops/shared/devloops/dashboard.py`:
   - **After a final status**: add `_write_full_dashboard(ws, project, announce)`, called in the
     `finally` of `run`/`approve`/`replan`/`retry` when the loop's status is final (`completed`,
@@ -505,7 +505,7 @@ when a run ends, and by `devloops dashboard` (clarifications 1, 6, 7, 8; FR-035 
   - **Lightweight page**: `dashboard.py` lists the full dashboards in a "Full dashboards" section,
     newest first, with relative links.
   - **Status**: `status_object` adds `full_dashboards: {count, bytes, latest}`.
-- [ ] T038 [US2] Run the full-dashboard tests and the full suite. Open one generated full
+- [X] T038 [US2] Run the full-dashboard tests and the full suite. Open one generated full
   dashboard in a browser from a copy in another directory, and check it visually: the
   conversation layout, image thumbnails, and dark mode.
 

@@ -5,7 +5,7 @@ import json
 import os
 import sys
 
-from . import __version__, dashboard, engine, initcmd, orchestrator, state, workspace
+from . import __version__, dashboard, engine, fulldash, initcmd, orchestrator, state, workspace
 from . import project as project_mod
 from .kit import Kit
 from .state import EXIT_USAGE, DevloopsError
@@ -88,8 +88,10 @@ def build_parser():
                             help="write every Claude invocation as CSV (FR-033)")
     export.add_argument("--csv", metavar="FILE", help="output file (default: standard output)")
 
-    sub.add_parser("dashboard", parents=[common],
-                   help="write workspaces/<ws>/dashboard.html from the workspace state")
+    dash = sub.add_parser("dashboard", parents=[common],
+                          help="write a new full dashboard, then refresh <workspace>/dashboard.html")
+    dash.add_argument("--light", action="store_true",
+                      help="only refresh <workspace>/dashboard.html (no full dashboard)")
 
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
@@ -235,9 +237,11 @@ def _dashboard_path(ws):
     return path if os.path.exists(path) else None
 
 
-def _emit(args, ws, loop, message, code):
+def _emit(args, ws, loop, message, code, full=None):
     obj = engine.status_object(ws, loop)
     obj["dashboard"] = _dashboard_path(ws)
+    if full:
+        obj["full_dashboard"] = {"path": full["path"], "bytes": full["bytes"]}
     if args.json:
         obj["exit_code"] = code
         if message:
@@ -247,6 +251,40 @@ def _emit(args, ws, loop, message, code):
         _print_status(obj, message)
         if obj["dashboard"]:
             print(f"dashboard: {obj['dashboard']}")
+        _print_full(full)
+
+
+def _print_full(full, largest=False):
+    if not full:
+        return
+    print(f"full dashboard: {full['path']} ({fulldash.human_bytes(full['bytes'])})")
+    if largest and full["largest"]:
+        print("  largest embedded items:")
+        for item in full["largest"]:
+            print(f"    {item['path']} ({fulldash.human_bytes(item['bytes'])})")
+    if full["unavailable"]:
+        print(f"  {full['unavailable']} conversation(s) unavailable")
+
+
+def _ends_final(error, status):
+    """Whether a command ended in a final status (FR-039).
+
+    Not when it was refused (a lock or a usage error) or interrupted: an interrupt must not wait
+    for a page that embeds every conversation.
+    """
+    if error is not None and (not isinstance(error, DevloopsError) or
+                              isinstance(error, (state.LockHeld, state.UsageError))):
+        return False
+    return fulldash.is_final(status)
+
+
+def _write_full_dashboard(ws, trigger, env):
+    """Write a new full dashboard; a failure only warns, like the lightweight one (FR-039)."""
+    try:
+        return fulldash.write(ws, trigger=trigger, env=env)
+    except Exception as e:  # noqa: BLE001 - a view; the command's result stands
+        print(f"devloops: warning: could not write the full dashboard: {e}", file=sys.stderr)
+        return None
 
 
 def _project_defaults(project, ws, loop, requirements, story_id, story_file):
@@ -292,15 +330,26 @@ def _orchestrate(args, kit, project, env):
         requirements=requirements, story_id=story_id, story_file=story_file,
         backend_target=targets["backend"], frontend_target=targets["frontend"],
         config_path=args.config, force_unlock=args.force_unlock), kit=kit, env=env)
+    error = full = None
     try:
         code = orch.run()
+    except BaseException as e:
+        error = e
+        raise
     finally:
+        # Once, at the end, covering both loops, when the loop this command ran last ended in a
+        # final status: a loop skipped because an earlier run completed it does not count (FR-039).
+        last = orch.last_run
+        if last and _ends_final(error, engine.status_object(ws, last)["status"]):
+            full = _write_full_dashboard(ws, "orchestrate", env)
         _write_dashboard(ws, announce=False)
     loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
     if args.json:
-        _dump(args, {"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
-                     "exit_code": code, "message": orch.message,
-                     "dashboard": _dashboard_path(ws)})
+        obj = {"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
+               "exit_code": code, "message": orch.message, "dashboard": _dashboard_path(ws)}
+        if full:
+            obj["full_dashboard"] = {"path": full["path"], "bytes": full["bytes"]}
+        _dump(args, obj)
     else:
         if orch.message:
             print(orch.message)
@@ -309,6 +358,7 @@ def _orchestrate(args, kit, project, env):
             _print_status(obj)
         if _dashboard_path(ws):
             print(f"dashboard: {_dashboard_path(ws)}")
+        _print_full(full)
     return code
 
 
@@ -379,12 +429,18 @@ def main(argv=None, kit=None, project=None, env=None):
             large = large_evidence(ws, loops)
             if args.json:
                 objs = {loop: engine.status_object(ws, loop) for loop in loops}
-                obj = objs[args.loop] if args.loop else {"workspace": ws.name, "loops": objs}
+                obj = objs[args.loop] if args.loop else {
+                    "workspace": ws.name, "loops": objs,
+                    "full_dashboards": engine.full_dashboards(ws)}
                 obj["large_evidence"] = large
                 _dump(args, obj)
             else:
                 for loop in loops:
                     _print_status(engine.status_object(ws, loop))
+                full = engine.full_dashboards(ws)
+                if full["count"]:
+                    print(f"full dashboards: {full['count']} "
+                          f"({fulldash.human_bytes(full['bytes'])}), latest {full['latest']}")
                 if large:
                     print("evidence files over 1 MB (review them for secrets before committing "
                           "the workspace):")
@@ -394,10 +450,17 @@ def main(argv=None, kit=None, project=None, env=None):
 
         if args.command == "dashboard":
             ws = workspace.open_workspace(args.workspace, project, kit, create=False)
+            full = None if args.light else _write_full_dashboard(ws, "dashboard command", env)
             path = _write_dashboard(ws, announce=not args.json)
             if args.json:
-                _dump(args, {"workspace": ws.name, "dashboard": path})
-            return 0 if path else 1
+                obj = {"workspace": ws.name, "dashboard": path}
+                if not args.light:
+                    obj["full_dashboard"] = full and {k: full[k] for k in
+                                                      ("path", "bytes", "largest", "unavailable")}
+                _dump(args, obj)
+            else:
+                _print_full(full, largest=True)
+            return 0 if path and (args.light or full) else 1
         if args.command == "export-sessions":
             return _export_sessions(args, workspace.open_workspace(args.workspace, project, kit,
                                                                    create=False))
@@ -426,15 +489,21 @@ def main(argv=None, kit=None, project=None, env=None):
             force_unlock=args.force_unlock,
         )
         eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
+        error = full = None
         try:
             if args.command == "retry":
                 code = eng.retry(args.milestone, args.reason, args.trials)
             else:
                 code = {"run": eng.run, "approve": eng.approve,
                         "replan": eng.replan}[args.command]()
+        except BaseException as e:
+            error = e
+            raise
         finally:
+            if _ends_final(error, engine.status_object(ws, args.loop)["status"]):
+                full = _write_full_dashboard(ws, f"{args.command} {args.loop}", env)
             _write_dashboard(ws, announce=False)
-        _emit(args, ws, args.loop, eng.message, code)
+        _emit(args, ws, args.loop, eng.message, code, full)
         return code
     except DevloopsError as e:
         if args.json:

@@ -158,6 +158,25 @@
     "redacted": {
       "type": "boolean",
       "description": "true if any secret values were replaced (FR-070)"
+    },
+    "conversation": {
+      "enum": [
+        "copied",
+        "unavailable"
+      ],
+      "description": "002 FR-042: whether the call's Claude Code transcript was copied into the workspace"
+    },
+    "conversation_path": {
+      "type": "string",
+      "description": "The copy, relative to the loop directory: state/conversations/<seq>-<step>.jsonl"
+    },
+    "conversation_reason": {
+      "enum": [
+        "not-found",
+        "interrupted",
+        "unreadable"
+      ],
+      "description": "Why the conversation is unavailable"
     }
   }
 }
