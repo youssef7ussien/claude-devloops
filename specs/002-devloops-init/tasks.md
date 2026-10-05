@@ -347,7 +347,7 @@ One setting shows the browser.
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T026 [P] [US2] Write `loops/shared/tests/test_project_runs.py`, covering:
+- [X] T026 [P] [US2] Write `loops/shared/tests/test_project_runs.py`, covering:
   - **Defaults from the configuration**: `orchestrate` from `<project>/sub/dir` with no flags
     reaches exit 10. The workspace is `<project>/.devloops/workspaces/main`. `workspace.json`
     stores the targets as `backend`/`frontend` (relative) and the requirements path as relative
@@ -365,7 +365,7 @@ One setting shows the browser.
   - **Bad targets**: a target `.devloops/x` or the kit's `loops/` gives exit 30
     `target-unwritable` (FR-014).
   - **Flags win**: `--workspace other` and `--target` flags override the configuration.
-- [ ] T027 [P] [US2] Extend `loops/shared/tests/test_config.py` for research P-15:
+- [X] T027 [P] [US2] Extend `loops/shared/tests/test_config.py` for research P-15:
   - `config.mcp_command(cfg)` gives `["npx", "@playwright/mcp@latest", "--headless"]` by default;
   - with `headless: false` it drops `--headless`;
   - with `executable_path: "/usr/bin/chromium"` it appends `--executable-path /usr/bin/chromium`;
@@ -374,7 +374,7 @@ One setting shows the browser.
 
 ### Implementation for User Story 2
 
-- [ ] T028 [US2] In `loops/shared/devloops/cli.py` and `loops/shared/devloops/orchestrator.py`,
+- [X] T028 [US2] In `loops/shared/devloops/cli.py` and `loops/shared/devloops/orchestrator.py`,
   default the `run`/`orchestrate` inputs from the project, with command-line flags winning:
   - `--target` from `project.targets[loop]`;
   - `--backend-target` / `--frontend-target` from `project.targets`;
@@ -383,12 +383,12 @@ One setting shows the browser.
   - `--workspace` from `project.default_workspace`.
 
   Resolve every relative value with `project.resolve()`.
-- [ ] T029 [US2] In `loops/shared/devloops/workspace.py`, `Workspace.set_target` and
+- [X] T029 [US2] In `loops/shared/devloops/workspace.py`, `Workspace.set_target` and
   `attach_requirements` store paths with `project.relative_or_absolute()`. Readers
   (`Workspace.target(loop)`, `requirements_path()`, and the orchestrator's
   `_requirements_selection`) resolve relative values against the current `project.root`. Absolute
   values from old workspaces are used unchanged (FR-013, FR-033).
-- [ ] T030 [US2] Implement drift reporting (research P-5):
+- [X] T030 [US2] Implement drift reporting (research P-5):
   - **Recording**: when `engine.py` freezes the configuration, it also stores `config_sources:
     {"devloops.json": sha|null, "devloops.local.json": sha|null, "workspace": sha|null}` in
     `run.json`.
@@ -399,7 +399,7 @@ One setting shows the browser.
     dotted keys.
   - **Reporting**: `engine.status_object` adds `config_drift`, and the `status` text prints it
     when not empty.
-- [ ] T031 [US2] Implement the visible-browser settings (research P-15, FR-017):
+- [X] T031 [US2] Implement the visible-browser settings (research P-15, FR-017):
   - **Defaults**: in `loops/shared/config/defaults.json`, `playwright` becomes `{"headless":
     true, "executable_path": null, "mcp_command": null}`.
   - **Schema**: `config.schema.json` (both copies) gains `headless` (boolean),
@@ -409,7 +409,7 @@ One setting shows the browser.
     `engine.py`/`validators/playwright.py`.
   - **Missing display**: when `headless` is false and the MCP server fails to start, the
     service-error message adds "no display available (playwright.headless is false)".
-- [ ] T032 [US2] Run the US2 tests and the full suite.
+- [X] T032 [US2] Run the US2 tests and the full suite.
 
 **Checkpoint**: US1 and US2 together let a developer set up a project and run both loops with no
 path flags.

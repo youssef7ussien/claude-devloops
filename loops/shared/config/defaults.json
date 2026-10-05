@@ -14,7 +14,9 @@
   },
   "backend": {},
   "playwright": {
-    "mcp_command": ["npx", "@playwright/mcp@latest", "--headless"]
+    "headless": true,
+    "executable_path": null,
+    "mcp_command": null
   },
   "git": {
     "commit_per_milestone": false

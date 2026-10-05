@@ -25,6 +25,7 @@ Answer fields (all optional):
                       "Edit"/"Write"/"MultiEdit"/"NotebookEdit" (the PreToolUse hooks from
                       `--settings` run first; exit 2 blocks the write and records a denial)
   tool_uses           tool names emitted as `tool_use` events (stream-json)
+  mcp_servers         `[{name, status}]` in the stream-json init event (default: [])
   api_error_status    number or null
   is_error            bool (default: false, or true when api_error_status is set)
   subtype             default "success", or "error_during_execution" when is_error
@@ -237,13 +238,14 @@ def build_result(answer, session_id, denials):
     return result
 
 
-def emit_stream(result, tool_uses, session_id, cwd, opts):
+def emit_stream(result, tool_uses, session_id, cwd, opts, mcp_servers=()):
     def out(event):
         sys.stdout.write(json.dumps(event) + "\n")
 
     out({"type": "system", "subtype": "init", "session_id": session_id, "cwd": cwd,
          "model": one(opts, "--model") or "fake", "tools": [],
-         "permissionMode": one(opts, "--permission-mode") or "default"})
+         "permissionMode": one(opts, "--permission-mode") or "default",
+         "mcp_servers": list(mcp_servers)})
     for name in tool_uses or []:
         tool_use_id = "toolu_" + uuid.uuid4().hex[:24]
         out({"type": "assistant", "session_id": session_id, "message": {
@@ -356,7 +358,8 @@ def main(argv):
     write_transcript(scenario, answer, session_id, cwd, prompt, result)
     if not answer.get("no_result"):
         if output_format == "stream-json":
-            emit_stream(result, answer.get("tool_uses"), session_id, cwd, opts)
+            emit_stream(result, answer.get("tool_uses"), session_id, cwd, opts,
+                        answer.get("mcp_servers", []))
         elif output_format == "json":
             sys.stdout.write(json.dumps(result) + "\n")
         else:

@@ -121,6 +121,8 @@ def resolve_for_run(run_state, loop_dir, cli_overrides, defaults_path=DEFAULTS_P
                                f"{k} = {json.dumps(_lookup(effective, k))}" for k in changed),
                            redactor=redactor)
         run_state["effective_config"] = effective
+        run_state["config_cli_keys"] = sorted(set(run_state.get("config_cli_keys") or [])
+                                              | set(changed))
     return effective
 
 
@@ -129,6 +131,64 @@ def _lookup(config, dotted):
     for part in dotted.split("."):
         value = value.get(part) if isinstance(value, dict) else None
     return value
+
+
+PLAYWRIGHT_MCP = ["npx", "@playwright/mcp@latest"]
+
+
+def mcp_command(config):
+    """The Playwright MCP server command (002 research P-15, FR-017).
+
+    An explicit `playwright.mcp_command` list is used exactly as written (every frozen 001
+    configuration has one). Otherwise it is derived: `npx @playwright/mcp@latest`, plus
+    `--headless` unless `headless` is false, plus `--executable-path <p>` when one is set.
+    """
+    playwright = config.get("playwright") or {}
+    if playwright.get("mcp_command") is not None:
+        return list(playwright["mcp_command"])
+    command = list(PLAYWRIGHT_MCP)
+    if playwright.get("headless", True) is not False:
+        command.append("--headless")
+    if playwright.get("executable_path"):
+        command += ["--executable-path", playwright["executable_path"]]
+    return command
+
+
+def dotted_keys(overrides, prefix=""):
+    """The dotted keys an override dict sets (unset `None` values left out)."""
+    keys = []
+    for key, value in _drop_unset(overrides).items():
+        if isinstance(value, dict):
+            keys.extend(dotted_keys(value, f"{prefix}{key}."))
+        else:
+            keys.append(f"{prefix}{key}")
+    return keys
+
+
+def config_sources(project, workspace_config_path):
+    """sha256 (or None) of each configuration file a run reads (002 research P-5)."""
+    return {"devloops.json": file_sha256(project.config_path),
+            "devloops.local.json": file_sha256(project.local_config_path),
+            "workspace": file_sha256(workspace_config_path) if workspace_config_path else None}
+
+
+def drift(run_state, project, workspace_config_path, defaults_path=DEFAULTS_PATH):
+    """The dotted keys whose value would differ if the run started now (FR-015); nothing is
+    applied. Keys the command line set are left out, and so is a run recorded before 002 (no
+    `config_sources`) or whose configuration files are byte-identical to the recorded ones."""
+    recorded = run_state.get("config_sources")
+    frozen = run_state.get("effective_config")
+    if not recorded or not frozen or \
+            config_sources(project, workspace_config_path) == recorded:
+        return []
+    try:
+        now = load_effective(defaults_path, workspace_config_path, {},
+                             project.run_config_layers())
+    except state.DevloopsError:
+        return []  # an invalid file is reported when it is next read; status stays read-only
+    cli = set(run_state.get("config_cli_keys") or [])
+    return [k for k in _changed_keys(frozen, now)
+            if k not in cli and not any(k.startswith(c + ".") for c in cli)]
 
 
 def backend_base_url(config):

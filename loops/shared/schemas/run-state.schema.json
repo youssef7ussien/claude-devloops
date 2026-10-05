@@ -182,6 +182,27 @@
       ],
       "description": "For stopped-on-service-error: state restored on the next run (FR-067)"
     },
+    "project_root": {
+      "type": "string",
+      "description": "002: the project root at the first start; a resume from another root relocates the recorded paths under it (FR-013)"
+    },
+    "config_sources": {
+      "type": "object",
+      "description": "002 research P-5: sha256 (or null) of each configuration file when the configuration was frozen",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "config_cli_keys": {
+      "type": "array",
+      "description": "002 research P-5: the dotted keys the command line set; not reported as drift",
+      "items": {
+        "type": "string"
+      }
+    },
     "grants": {
       "type": "array",
       "description": "FR-063 trial-budget grants",

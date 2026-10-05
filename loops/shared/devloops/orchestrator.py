@@ -50,6 +50,10 @@ class Orchestrator:
                 self.ws.set_target(loop, os.path.abspath(target))
         self.state = state.read_json(self.state_path) or {"status": "running", "steps": [],
                                                            "handoff": None}
+        old_root = self.state.get("project_root")
+        if old_root:  # a moved or cloned project: the handoff's paths follow it (FR-013)
+            self.state = self.ws.project.relocate(self.state, old_root)
+        self.state["project_root"] = self.ws.project.root
         self.state["status"] = "running"
         self._save()
         code = self._run_loop("backend-dev", self._loop_options("backend-dev"))
@@ -120,7 +124,7 @@ class Orchestrator:
         flags still win, and the engine checks them against the recorded ones.
         """
         recorded = self.ws.data.get("requirements") or {}
-        path = self.opts.requirements or recorded.get("path")
+        path = self.opts.requirements or self.ws.requirements_path()
         story_id, story_file = self.opts.story_id, self.opts.story_file
         if story_id is None and not story_file and recorded:
             story_id = recorded.get("story_id")
@@ -133,7 +137,7 @@ class Orchestrator:
             requirements=requirements, story_id=story_id,
             story_file=story_file, config_path=self.opts.config_path,
             force_unlock=self.opts.force_unlock,
-            target=(self.ws.data.get("targets") or {}).get(loop))
+            target=self.ws.target(loop))
         if loop == "frontend-dev":
             handoff = self.state["handoff"]
             opts.api_spec = handoff["api_spec"]["path"]

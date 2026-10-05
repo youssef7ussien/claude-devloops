@@ -121,7 +121,7 @@ class Engine:
         """Start or resume the run; return its exit code (contracts/cli.md)."""
         with self._lock():
             try:
-                self.rs = state.read_json(self.run_path)
+                self._load_run()
                 return self._first_start() if self.rs is None else self._resume()
             except StopRun as stop:
                 return self._stop(stop)
@@ -173,7 +173,7 @@ class Engine:
         answers' fingerprint, which later starts compare against (T055). It starts nothing.
         """
         with self._lock():
-            self.rs = state.read_json(self.run_path)
+            self._load_run()
             status = self.rs["status"] if self.rs else "not started"
             stop_reason = (self.rs or {}).get("status_reason") or {}
             if status == "stopped-on-failure" and \
@@ -241,8 +241,9 @@ class Engine:
 
     def _first_start(self):
         self._event("run-started", "first run")
+        workspace_config = self._workspace_config_path()
         cfg = config.load_effective(self.kit.path("shared", "config", "defaults.json"),
-                                    self._workspace_config_path(), self.opts.cli_overrides,
+                                    workspace_config, self.opts.cli_overrides,
                                     self.project.run_config_layers())
         self._use_config(cfg)
         preflight.check_tools(self.loop_def, cfg, self.env)
@@ -264,6 +265,9 @@ class Engine:
             "planning": {"trials": [], "status": "pending"}, "approval": None,
             "milestones": {}, "invocation_count": 0, "ui_url": None, "openapi_artifact": None,
             "resume_status": None, "grants": [],
+            "project_root": self.project.root,
+            "config_sources": config.config_sources(self.project, workspace_config),
+            "config_cli_keys": config.dotted_keys(self.opts.cli_overrides),
         }
         self._save()
         if api_spec:
@@ -306,6 +310,16 @@ class Engine:
             redactor=self.redactor, project_layers=self.project.run_config_layers()))
         self._save()
         return self._advance()
+
+    def _relocate(self):
+        """Rewrite the recorded paths when the project was moved or cloned (FR-013)."""
+        old = self.rs.get("project_root")
+        if old and os.path.normpath(old) != self.project.root:
+            self.rs = self.project.relocate(self.rs, old)
+            self.rs["project_root"] = self.project.root
+            self._save()
+            self._event("input-check", f"project moved from {old} to {self.project.root}; "
+                                       "recorded paths under it were updated")
 
     def _check_fingerprints(self):
         # Editing answers is expected until an approval records them (FR-051a, T055).
@@ -885,17 +899,22 @@ class Engine:
     def _workspace_config_path(self):
         if self.opts.config_path:
             path = os.path.abspath(self.opts.config_path)
-            if self.ws.data.get("config_path") != path:
-                self.ws.data["config_path"] = path
+            if self.ws.config_path() != path:
+                self.ws.data["config_path"] = self.project.relative_or_absolute(path)
                 self.ws.save()
             return path
-        if self.ws.data.get("config_path"):
-            return self.ws.data["config_path"]
-        default = os.path.join(self.ws.path, "config.json")
-        return default if os.path.exists(default) else None
+        return self.ws.config_path()
+
+    def _load_run(self):
+        """Read `run.json` into `self.rs` (None before the first start), relocating its paths
+        when the project was moved or cloned (FR-013). Every command that reads it uses this."""
+        self.rs = state.read_json(self.run_path)
+        if self.rs is not None:
+            self._relocate()
+        return self.rs
 
     def _require_status(self, command, expected):
-        rs = state.read_json(self.run_path)
+        rs = self._load_run()
         status = rs["status"] if rs else "not started"
         if status != expected:
             raise state.UsageError(f"`{command}` is allowed only when the run is {expected} "
@@ -911,8 +930,8 @@ class Engine:
                             self.rs, env=self.env)
 
     def _snapshot(self):
-        targets = [self.rs["target_dir"]] + [p for loop, p in (self.ws.data.get("targets") or {})
-                                             .items() if loop != self.loop and p]
+        targets = [self.rs["target_dir"]] + [p for loop, p in self.ws.targets().items()
+                                             if loop != self.loop]
         return boundary.snapshot(self.kit, self.loop_dir, targets, self.project.root)
 
     def _check_cap(self):
@@ -959,9 +978,11 @@ def status_object(workspace, loop):
     out = {"workspace": workspace.name, "loop": loop, "status": "not-started",
            "status_reason": None, "next_milestone": None, "trials_used": None,
            "trial_limit": None, "last_failure": None, "ui_url": None, "openapi_artifact": None,
-           "invocation_count": 0, "progress": os.path.join(loop_dir, "progress.md")}
+           "invocation_count": 0, "progress": os.path.join(loop_dir, "progress.md"),
+           "config_drift": []}
     if rs is None:
         return out
+    out["config_drift"] = _config_drift(workspace, rs)
     plan = state.read_json(os.path.join(loop_dir, "state", "plan.json"))
     out.update(status=rs["status"], status_reason=rs.get("status_reason"),
                ui_url=rs.get("ui_url"), openapi_artifact=rs.get("openapi_artifact"),
@@ -984,3 +1005,12 @@ def status_object(workspace, loop):
         out.update(trials_used=len(counted), trial_limit=rs["effective_config"]["max_trials"])
     out["last_failure"] = failures[-1] if failures else None
     return out
+
+
+def _config_drift(workspace, rs):
+    """Keys whose value would differ if this run started now (FR-015); read-only."""
+    project = getattr(workspace, "project", None)
+    if project is None:
+        return []
+    return config.drift(rs, project, workspace.config_path(),
+                        workspace.kit.path("shared", "config", "defaults.json"))

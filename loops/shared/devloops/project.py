@@ -212,6 +212,27 @@ class Project:
         path = os.path.realpath(path)
         return path == self.root or path.startswith(self.root.rstrip(os.sep) + os.sep)
 
+    def relocate(self, obj, old_root):
+        """A copy of `obj` with every string path under `old_root` moved under this root.
+
+        A run records absolute paths in `run.json`; when the project was moved or cloned, they
+        are rewritten on the next start (FR-013). Other strings are unchanged.
+        """
+        old_root = os.path.normpath(old_root)
+        if old_root == self.root:
+            return obj
+        prefix = old_root.rstrip(os.sep) + os.sep
+        if isinstance(obj, dict):
+            return {k: self.relocate(v, old_root) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self.relocate(v, old_root) for v in obj]
+        if isinstance(obj, str):
+            if obj == old_root:
+                return self.root
+            if obj.startswith(prefix):
+                return os.path.join(self.root, obj[len(prefix):])
+        return obj
+
     def relative_or_absolute(self, path):
         """Project-relative for a path inside the project (FR-013), else absolute."""
         absolute = os.path.realpath(self.resolve(path))

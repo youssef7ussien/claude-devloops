@@ -223,6 +223,9 @@ def _print_status(obj, message=None):
         print(f"  UI URL: {obj['ui_url']}")
     if obj.get("openapi_artifact"):
         print(f"  OpenAPI artifact: {obj['openapi_artifact'].get('path')}")
+    if obj.get("config_drift"):
+        print(f"  configuration changed since the first run (not applied): "
+              f"{', '.join(obj['config_drift'])}")
     if obj["status"] != "not-started":
         print(f"  progress: {obj['progress']}")
 
@@ -246,6 +249,31 @@ def _emit(args, ws, loop, message, code):
             print(f"dashboard: {obj['dashboard']}")
 
 
+def _project_defaults(project, ws, loop, requirements, story_id, story_file):
+    """Fill `loop`'s target and requirements the command line left out (FR-011).
+
+    What the workspace recorded comes first (a first start that stopped early still recorded
+    it), then the project configuration. So a later edit of the configuration is drift, not a
+    mismatch (FR-015). Returns `(target, requirements, story_id, story_file)`; the spec-kit form
+    of the configured requirements is not a file (T050).
+    """
+    target = ws.target(loop) or project.targets.get(loop)
+    if requirements:
+        return target, requirements, story_id, story_file
+    recorded = ws.data.get("requirements") or {}
+    configured = project.requirements or {}
+    no_story_flags = story_id is None and not story_file
+    if recorded:
+        requirements = ws.requirements_path()
+        if no_story_flags:
+            story_id, story_file = recorded.get("story_id"), recorded.get("mode") == "story-file"
+    elif configured.get("path"):
+        requirements = configured["path"]
+        if no_story_flags:
+            story_file = bool(configured.get("story_file"))
+    return target, requirements, story_id, story_file
+
+
 def _orchestrate(args, kit, project, env):
     for loop in orchestrator.LOOP_ORDER:
         engine.load_loop_def(kit, loop)  # before a workspace is created
@@ -255,8 +283,13 @@ def _orchestrate(args, kit, project, env):
         targets[name] = os.path.abspath(given) if given else \
             (os.path.join(root, name) if root else None)
     ws = workspace.open_workspace(args.workspace, project, kit, create=True)
+    requirements, story_id, story_file = args.requirements, args.story_id, args.story_file
+    for name, loop in (("backend", "backend-dev"), ("frontend", "frontend-dev")):
+        target, requirements, story_id, story_file = _project_defaults(
+            project, ws, loop, requirements, story_id, story_file)
+        targets[name] = targets[name] or target
     orch = orchestrator.Orchestrator(ws, orchestrator.OrchestrateOptions(
-        requirements=args.requirements, story_id=args.story_id, story_file=args.story_file,
+        requirements=requirements, story_id=story_id, story_file=story_file,
         backend_target=targets["backend"], frontend_target=targets["frontend"],
         config_path=args.config, force_unlock=args.force_unlock), kit=kit, env=env)
     try:
@@ -374,11 +407,19 @@ def main(argv=None, kit=None, project=None, env=None):
         engine.load_loop_def(kit, args.loop)  # before a workspace is created
         ws = workspace.open_workspace(args.workspace, project, kit,
                                       create=args.command == "run")
+        requirements = getattr(args, "requirements", None)
+        story_id = getattr(args, "story_id", None)
+        story_file = getattr(args, "story_file", False)
+        target = getattr(args, "target", None)
+        if args.command == "run":
+            default_target, requirements, story_id, story_file = _project_defaults(
+                project, ws, args.loop, requirements, story_id, story_file)
+            target = target or default_target
         options = engine.Options(
-            requirements=getattr(args, "requirements", None),
-            story_id=getattr(args, "story_id", None),
-            story_file=getattr(args, "story_file", False),
-            target=getattr(args, "target", None),
+            requirements=requirements,
+            story_id=story_id,
+            story_file=story_file,
+            target=target,
             api_spec=getattr(args, "api_spec", None),
             config_path=args.config,
             cli_overrides={"max_trials": getattr(args, "max_trials", None)},

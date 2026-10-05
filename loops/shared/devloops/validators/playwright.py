@@ -57,7 +57,7 @@ def _record_ui_url(ctx, ui_url):
 # --- the validate-ui call --------------------------------------------------------------------------
 
 def _write_mcp_config(ctx):
-    command = list((ctx.config.get("playwright") or {}).get("mcp_command") or [])
+    command = config_mod.mcp_command(ctx.config)
     if not command:
         raise ValueError("playwright.mcp_command is empty")
     path = os.path.join(ctx.trial_dir, "mcp.json")
@@ -88,7 +88,23 @@ def _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path):
     if not out.ok:
         raise ValidateUIError(out.failure_reason, f"validate-ui failed: {out.failure_detail}",
                               out.failure_class)
+    _check_mcp_started(ctx, out)
     return out
+
+
+def _check_mcp_started(ctx, out):
+    """A Playwright MCP server that did not start is a service error: the trial is voided, not
+    failed (002 FR-017, spec edge case "visible browser without a display")."""
+    server = next((s for s in out.mcp_servers if s.get("name") == "playwright"), None)
+    used = any((name or "").startswith(PLAYWRIGHT_TOOL_PREFIX) for name in out.tool_uses)
+    # Only a clear "failed" voids the trial. "pending" (still connecting at init) and any other
+    # status are left to the normal checks, which fail the criteria if no browser tool ran.
+    if server is None or server.get("status") != "failed" or used:
+        return
+    detail = f"the Playwright MCP server did not start (status {server.get('status')!r})"
+    if (ctx.config.get("playwright") or {}).get("headless") is False:
+        detail += "; no display available (playwright.headless is false)"
+    raise ValidateUIError("service-unavailable", detail, "service")
 
 
 def _tool_problems(out):

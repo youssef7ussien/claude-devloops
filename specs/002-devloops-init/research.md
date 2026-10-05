@@ -183,6 +183,16 @@ overlap).
 **Rationale**: Paths stored relative to the project let a moved or cloned project resume (US2
 scenario 6).
 
+**Implementation notes**:
+- **`run.json` keeps absolute paths**: the engine reads its target, inputs, and answers paths in
+  many places. So `run.json` keeps absolute paths and records `project_root`. When a start finds a
+  different project root, every recorded path under the old root is rewritten under the new one,
+  and an `input-check` event records the move. `orchestrator/state.json` (the handoff) is
+  relocated the same way.
+- **Which defaults apply**: the configured target and requirements fill in only what the command
+  line leaves out and the workspace has not recorded. So editing them after the first run is
+  reported as drift (FR-015), not as a `workspace-mismatch`.
+
 **Alternatives**: Allowing the project root as a target by excluding `.devloops/` from the audit.
 Rejected for now: it breaks 001's "workspace not inside the target" rule, which the write guard
 depends on. This is a known limitation, recorded in plan.md.

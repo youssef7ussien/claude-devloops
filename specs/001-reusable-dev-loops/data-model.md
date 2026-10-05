@@ -52,13 +52,15 @@ One loop's run within a workspace. File: `workspaces/<ws>/<loop>/state/run.json`
 | `status_reason` | Code + message when stopped. Codes by outcome: **stopped-on-failure**: `trials-exhausted`, `planning-trials-exhausted`, `invocation-cap`, `needs-input`. **stopped-on-input-error**: `missing-input`, `story-not-found`, `invalid-api-spec`, `missing-tool`, `input-changed`, `workspace-mismatch`, `target-unwritable`. **stopped-on-service-error**: `service-unavailable`, `rate-limited`, `auth-failed`. See [run-state.schema.json](./contracts/run-state.schema.json). Boundary violations are trial-level failure reasons |
 | `inputs` | `{requirements: {path, sha256}, api_spec?: {path, sha256}}`. `api_spec` is required for frontend-dev (FR-011) |
 | `target_dir` | The only root that application code may be written to (D-7) |
-| `effective_config` | The merged configuration (defaults < workspace < CLI), frozen at the first run. Later CLI overrides are recorded as events |
+| `effective_config` | The merged configuration (defaults < workspace < CLI; 002 adds the project's `devloops.json` and `devloops.local.json` after the defaults), frozen at the first run. Later CLI overrides are recorded as events |
 | `planning` | `{trials: [Trial], status}` |
 | `approval` | `Approval` or null |
 | `invocation_count` | Checked against `max_invocations_per_run` |
 | `ui_url` | frontend-dev only: the URL where the built UI is served (D-2) |
 | `openapi_artifact` | backend-dev only: `{path, sha256}` of `outputs/openapi.json` |
 | `grants[]` | Trial-budget grants (FR-063): `{milestone_id, granted_at, reason, extra_trials}` |
+| `project_root` | Added by 002: the project root at the first start. A resume from another root rewrites the recorded paths under it (002 FR-013) |
+| `config_sources`, `config_cli_keys` | Added by 002: the sha256 of each configuration file when the configuration was frozen, and the keys the command line set. `status` uses them to report `config_drift` (002 FR-015) |
 
 ### LoopRun state machine
 

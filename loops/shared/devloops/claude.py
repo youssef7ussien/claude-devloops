@@ -132,6 +132,7 @@ class CallResult:
     failure_reason: str = None      # timeout | claude-error | invalid-output | a void reason
     failure_detail: str = ""
     tool_uses: Counter = field(default_factory=Counter)
+    mcp_servers: list = field(default_factory=list)  # stream-json init: [{name, status}]
     snapshot_before: dict = None
     snapshot_after: dict = None
 
@@ -272,6 +273,7 @@ class ClaudeRunner:
 
         stream = STEPS[step].get("stream", False)
         result, out.tool_uses = _parse_stream(stdout) if stream else (_parse_json(stdout), Counter())
+        out.mcp_servers = _mcp_servers(stdout) if stream else []
         if stream and trial_dir:
             os.makedirs(trial_dir, exist_ok=True)
             with open(os.path.join(trial_dir, "stream.jsonl"), "w", encoding="utf-8") as f:
@@ -410,6 +412,20 @@ def _parse_json(stdout):
         if isinstance(obj, dict):
             return obj
     return None
+
+
+def _mcp_servers(stdout):
+    """The `mcp_servers` list (`[{name, status}]`) of a stream-json log's init event, or []."""
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "system" and \
+                event.get("subtype") == "init":
+            servers = event.get("mcp_servers")
+            return [s for s in servers if isinstance(s, dict)] if isinstance(servers, list) else []
+    return []
 
 
 def _parse_stream(stdout):

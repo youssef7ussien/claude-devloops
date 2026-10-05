@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 
+from .config import mcp_command
 from .state import input_error
 
 VERSION_TIMEOUT_SECONDS = 30
@@ -50,10 +51,10 @@ def check_tools(loop_def, config, env=None):
                 raise input_error("missing-tool", "curl not available: 'curl --version' failed",
                                   tool="curl")
         elif tool == "playwright-mcp":
-            command = ((config.get("playwright") or {}).get("mcp_command") or [None])[0]
+            command = (mcp_command(config) or [None])[0]
             if not command or not shutil.which(command, path=env.get("PATH", os.defpath)):
                 raise input_error("missing-tool",
                                   f"Playwright MCP server not available: {command!r} is not on "
-                                  "PATH (config playwright.mcp_command)", tool="playwright-mcp")
+                                  "PATH (config playwright.mcp_command, or npx for the default)", tool="playwright-mcp")
         elif not shutil.which(tool, path=env.get("PATH", os.defpath)):
             raise input_error("missing-tool", f"required tool {tool!r} is not on PATH", tool=tool)

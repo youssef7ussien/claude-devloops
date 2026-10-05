@@ -77,6 +77,33 @@ class Workspace:
     def save(self):
         state.write_json_atomic(self.json_path, self.data)
 
+    # Paths are stored relative to the project root when inside it, so a moved or cloned project
+    # resumes (002 FR-013). Absolute values (every pre-002 workspace) are read unchanged.
+
+    def target(self, loop):
+        """`loop`'s recorded target as an absolute path, or None."""
+        recorded = (self.data.get("targets") or {}).get(loop)
+        return self.project.resolve(recorded) if recorded else None
+
+    def targets(self):
+        """`{loop: absolute path}` of every recorded target."""
+        return {loop: self.target(loop) for loop in (self.data.get("targets") or {})
+                if self.target(loop)}
+
+    def config_path(self):
+        """The workspace configuration file: the recorded `--config` (absolute), else
+        `<workspace>/config.json` if it exists, else None."""
+        recorded = self.data.get("config_path")
+        if recorded:
+            return self.project.resolve(recorded)
+        default = os.path.join(self.path, "config.json")
+        return default if os.path.exists(default) else None
+
+    def requirements_path(self):
+        """The recorded requirements file as an absolute path, or None."""
+        path = (self.data.get("requirements") or {}).get("path")
+        return self.project.resolve(path) if path else None
+
     def attach_requirements(self, requirements):
         """Record the requirements identity on first use; afterwards it must match (FR-051).
 
@@ -86,7 +113,8 @@ class Workspace:
         """
         recorded = self.data.get("requirements")
         if not recorded:
-            self.data["requirements"] = dict(requirements)
+            self.data["requirements"] = dict(
+                requirements, path=self.project.relative_or_absolute(requirements["path"]))
             self.save()
             return
         if (recorded.get("mode"), recorded.get("story_id")) != \
@@ -109,8 +137,8 @@ class Workspace:
             raise state.UsageError(f"unknown loop {loop!r}")
         targets = self.data.setdefault("targets", {})
         target = check_target(path, self.project, self.kit, self.path,
-                              [(other, p) for other, p in targets.items() if other != loop])
-        recorded = targets.get(loop)
+                              [(other, p) for other, p in self.targets().items() if other != loop])
+        recorded = self.target(loop)
         if recorded and os.path.realpath(recorded) != target:
             raise input_error("workspace-mismatch",
                               f"workspace {self.name!r} records {recorded} as the {loop} target, "
@@ -122,8 +150,9 @@ class Workspace:
                               f"target {target} cannot be created: {e.strerror or e}")
         if not os.access(target, os.W_OK | os.X_OK):
             raise input_error("target-unwritable", f"target {target} is not writable")
-        if recorded != target:
-            targets[loop] = target
+        stored = self.project.relative_or_absolute(target)
+        if targets.get(loop) != stored and not recorded:
+            targets[loop] = stored
             self.save()
         return target
 

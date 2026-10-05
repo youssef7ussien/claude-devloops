@@ -123,16 +123,29 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "headless": {
+          "type": "boolean",
+          "default": true,
+          "description": "false shows the browser window (002 FR-017); used only when mcp_command is null"
+        },
+        "executable_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Browser binary passed as --executable-path; used only when mcp_command is null"
+        },
         "mcp_command": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
-          "default": [
-            "npx",
-            "@playwright/mcp@latest",
-            "--headless"
-          ]
+          "default": null,
+          "description": "Explicit MCP server command, used as written. null derives npx @playwright/mcp@latest [--headless] [--executable-path <p>] (002 research P-15)"
         }
       }
     },

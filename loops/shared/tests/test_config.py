@@ -103,5 +103,44 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(run["effective_config"]["max_trials"], 3)
 
 
+
+class McpCommandTest(unittest.TestCase):
+    """The derived Playwright MCP command (002 research P-15, FR-017)."""
+
+    def cfg(self, **playwright):
+        return {"playwright": playwright}
+
+    def test_default_is_headless_npx(self):
+        defaults = state.read_json(config.DEFAULTS_PATH)
+        self.assertEqual(config.mcp_command(defaults),
+                         ["npx", "@playwright/mcp@latest", "--headless"])
+        self.assertEqual(config.mcp_command({}), ["npx", "@playwright/mcp@latest", "--headless"])
+
+    def test_visible_browser_drops_headless(self):
+        self.assertEqual(config.mcp_command(self.cfg(headless=False)),
+                         ["npx", "@playwright/mcp@latest"])
+
+    def test_executable_path_is_appended(self):
+        self.assertEqual(config.mcp_command(self.cfg(executable_path="/usr/bin/chromium")),
+                         ["npx", "@playwright/mcp@latest", "--headless", "--executable-path",
+                          "/usr/bin/chromium"])
+
+    def test_an_explicit_command_is_used_unchanged(self):
+        explicit = ["my-mcp", "--port", "1"]
+        self.assertEqual(config.mcp_command(self.cfg(mcp_command=explicit, headless=False,
+                                                     executable_path="/x")), explicit)
+
+    def test_a_frozen_001_configuration_behaves_as_before(self):
+        frozen = {"playwright": {"mcp_command": ["npx", "@playwright/mcp@latest", "--headless"]}}
+        self.assertEqual(schema.validate(frozen, "config.schema.json"), [])
+        self.assertEqual(config.mcp_command(frozen),
+                         ["npx", "@playwright/mcp@latest", "--headless"])
+
+    def test_the_new_keys_validate(self):
+        self.assertEqual(schema.validate(self.cfg(headless=False, executable_path=None,
+                                                  mcp_command=None), "config.schema.json"), [])
+        self.assertNotEqual(schema.validate(self.cfg(headless="no"), "config.schema.json"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

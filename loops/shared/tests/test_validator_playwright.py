@@ -275,6 +275,29 @@ class PlaywrightValidatorTest(unittest.TestCase):
             playwright.validate(self.ctx())
         self.assertEqual(cm.exception.reason, "claude-error")
 
+    def test_an_mcp_server_that_did_not_start_is_a_service_error(self):
+        self.use_backend(None)
+        answer = dict(self.answer(tool_uses=["Read"]),
+                      mcp_servers=[{"name": "playwright", "status": "failed"}])
+        self.config["playwright"]["headless"] = False
+        with self.assertRaises(playwright.ValidateUIError) as cm:
+            self.validate(answer)
+        self.assertEqual((cm.exception.reason, cm.exception.failure_class),
+                         ("service-unavailable", "service"))
+        self.assertIn("no display available (playwright.headless is false)", cm.exception.detail)
+
+    def test_a_pending_mcp_server_without_browser_calls_fails_the_trial(self):
+        self.use_backend(None)
+        answer = dict(self.answer(tool_uses=["Read"]),
+                      mcp_servers=[{"name": "playwright", "status": "pending"}])
+        result = self.validate(answer)
+        self.assertTrue(all(not c["passed"] for c in result["criteria"]), result["criteria"])
+
+    def test_a_connected_mcp_server_is_not_a_service_error(self):
+        self.use_backend("start")
+        answer = dict(self.answer(), mcp_servers=[{"name": "playwright", "status": "connected"}])
+        self.assertTrue(self.verdict(self.validate(answer))[0])
+
     def test_runtimes_are_stopped_after_validation(self):
         self.use_backend("start")
         self.validate(self.answer())
