@@ -220,7 +220,7 @@ anything, and can ask for the targets and requirements.
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T017 [P] [US1] Write `loops/shared/tests/test_init.py`, covering:
+- [X] T017 [P] [US1] Write `loops/shared/tests/test_init.py`, covering:
   - **Fresh `init --no-prompt --json`**: the set of all files under the directory afterwards is
     exactly:
     - `.devloops/devloops.json`;
@@ -252,7 +252,7 @@ anything, and can ask for the targets and requirements.
   - **`--no-prompt` with no requirements**: the output says how to set them, and
     `devloops.json` has `requirements: null`.
   - **Next steps**: the output names `devloops check` and the permission rule `Bash(<command> *)`.
-- [ ] T018 [P] [US1] Write `loops/shared/tests/test_repo_skills.py`:
+- [X] T018 [P] [US1] Write `loops/shared/tests/test_repo_skills.py`:
   - this repository's `.claude/skills/devloops-*/SKILL.md` are byte-identical to what
     `initcmd.render_skills(kit, project_root=<repo>)` produces (FR-022);
   - no `.claude/skills/loops-*` directory remains;
@@ -260,7 +260,7 @@ anything, and can ask for the targets and requirements.
 
 ### Implementation for User Story 1
 
-- [ ] T019 [P] [US1] Create the seven skill templates
+- [X] T019 [P] [US1] Create the seven skill templates
   `loops/shared/skills/devloops-{run,approve,replan,retry,status,orchestrate,dashboard}/SKILL.md`,
   exactly per contracts/skills.md:
   - **Frontmatter**: `name`, `description`, `argument-hint`, `user-invocable: true`,
@@ -268,11 +268,11 @@ anything, and can ask for the targets and requirements.
   - **Body**: one command, `{{DEVLOOPS}} <cmd> $ARGUMENTS --json`, followed by the summary
     instructions and the exit-code explanations (10/20/30/40/50, as in `loops/README.md`).
   - **Rules**: no loop logic, and no second command.
-- [ ] T020 [P] [US1] Create `loops/shared/project/prompts/README.md`, the file `init` installs as
+- [X] T020 [P] [US1] Create `loops/shared/project/prompts/README.md`, the file `init` installs as
   `.devloops/prompts/README.md`. It explains the override paths from contracts/project-layout.md
   ("Prompt override paths"), that overrides apply from the next start and are recorded, and that
   other files are ignored.
-- [ ] T021 [US1] Implement `loops/shared/devloops/initcmd.py` (research P-12, data-model
+- [X] T021 [US1] Implement `loops/shared/devloops/initcmd.py` (research P-12, data-model
   "Install manifest"):
   - `render_skills(kit, project_root)` returns `{rel_path: text}`, with `{{DEVLOOPS}}` replaced by
     `kit.command_for(project_root)`.
@@ -282,8 +282,9 @@ anything, and can ask for the targets and requirements.
     `schema_version`, `workspace: "main"`, `workspaces_dir`, `dashboards_dir`, `targets` (stored
     relative), `requirements`, and `config: {}`.
   - `init(project_root, kit, opts) -> result dict`:
-    1. **Already initialized**: if `.devloops/devloops.json` exists and no `--upgrade` or
-       `--allow-skills` was given, return the "already initialized" result.
+    1. **Already initialized**: if `.devloops/manifest.json` exists and no `--upgrade` or
+       `--allow-skills` was given, return the "already initialized" result. A `devloops.json`
+       without a manifest is kept, and the rest is installed (research P-17).
     2. **Targets**: validate them with `workspace.check_target` (the project not yet saved).
     3. **Conflicts**: compute them (an existing file with different content); any conflict raises
        `input_error("init-conflict", …)` with the paths, before any write.
@@ -293,7 +294,7 @@ anything, and can ask for the targets and requirements.
     5. **`.gitignore`**: append the marked block (contracts/project-layout.md) unless the marker
        is already present.
     6. **Result**: `created`, `changed`, `permission_rule`, `next`, and `message`.
-- [ ] T022 [US1] Add the interactive questions to `loops/shared/devloops/initcmd.py` (research
+- [X] T022 [US1] Add the interactive questions to `loops/shared/devloops/initcmd.py` (research
   P-13):
   - **When**: `ask_missing(opts, project_root, kit, stdin, stdout)` runs only when
     `stdin.isatty() and stdout.isatty() and not opts.no_prompt`.
@@ -307,7 +308,7 @@ anything, and can ask for the targets and requirements.
     prints the reason and asks again.
   - **Mapping answers**: a directory containing `spec.md`, or `active`, maps to
     `{"speckit_feature": …}`; a file maps to `{"path": …}`.
-- [ ] T023 [US1] Add the `init [DIR]` subcommand to `loops/shared/devloops/cli.py`:
+- [X] T023 [US1] Add the `init [DIR]` subcommand to `loops/shared/devloops/cli.py`:
   - **Options**: `--backend-target`, `--frontend-target`, `--requirements`,
     `--speckit-feature [DIR]` (`nargs="?"`, `const="active"`), `--no-prompt`,
     `--track-workspaces`, `--track-dashboards`, `--json`.
@@ -316,7 +317,7 @@ anything, and can ask for the targets and requirements.
     command.
   - **`--json`**: per contracts/cli.md.
   - **Exit codes**: 0 / 30 / 2.
-- [ ] T024 [US1] Migrate this repository (research P-17):
+- [X] T024 [US1] Migrate this repository (research P-17):
   1. Run `bin/devloops init --no-prompt --track-workspaces` at the repository root.
   2. Edit `.devloops/devloops.json`: set `workspaces_dir` to `"workspaces"`, and `targets` to
      `null`.
@@ -324,7 +325,7 @@ anything, and can ask for the targets and requirements.
   4. Keep the existing `.gitignore` rules.
 
   Check that `bin/devloops status --workspace smoke` still works.
-- [ ] T025 [US1] Run the US1 tests and the full suite. Then run `bin/devloops init --no-prompt` in
+- [X] T025 [US1] Run the US1 tests and the full suite. Then run `bin/devloops init --no-prompt` in
   a scratch directory and inspect the files by hand.
 
 **Checkpoint**: US1 is independently usable. A project can be set up, and its skills call devloops.

@@ -58,3 +58,8 @@ desktop.ini
 # Office lock files (LibreOffice, Microsoft Office)
 .~lock.*#
 ~$*
+
+# >>> devloops (added by "devloops init")
+.devloops/dashboards/
+.devloops/devloops.local.json
+# <<< devloops

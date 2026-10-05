@@ -5,7 +5,7 @@ import json
 import os
 import sys
 
-from . import __version__, dashboard, engine, orchestrator, state, workspace
+from . import __version__, dashboard, engine, initcmd, orchestrator, state, workspace
 from . import project as project_mod
 from .kit import Kit
 from .state import EXIT_USAGE, DevloopsError
@@ -93,6 +93,22 @@ def build_parser():
 
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
+
+    init = sub.add_parser("init", help="set up a directory as a devloops project")
+    init.add_argument("dir", nargs="?", default=".", help="the project root (default: .)")
+    init.add_argument("--backend-target", help="backend-dev's target (default: backend)")
+    init.add_argument("--frontend-target", help="frontend-dev's target (default: frontend)")
+    req = init.add_mutually_exclusive_group()
+    req.add_argument("--requirements", help="default requirements file (PRD or story)")
+    req.add_argument("--speckit-feature", nargs="?", const="active", metavar="DIR",
+                     help="default spec-kit feature folder (no value: the active feature)")
+    init.add_argument("--no-prompt", action="store_true",
+                      help="never ask (implied when stdin or stdout is not a terminal)")
+    init.add_argument("--track-workspaces", action="store_true",
+                      help="do not git-ignore the workspaces folder")
+    init.add_argument("--track-dashboards", action="store_true",
+                      help="do not git-ignore the full dashboards folder")
+    init.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser
 
 
@@ -275,12 +291,47 @@ def _write_dashboard(ws, announce):
     return path
 
 
+def _init(args, kit):
+    """`devloops init` (contracts/cli.md): needs no project; exit 0, 30, or 2."""
+    opts = initcmd.InitOptions(
+        backend_target=args.backend_target, frontend_target=args.frontend_target,
+        requirements=args.requirements, speckit_feature=args.speckit_feature,
+        no_prompt=args.no_prompt or args.json, track_workspaces=args.track_workspaces,
+        track_dashboards=args.track_dashboards)
+    root = os.path.abspath(args.dir)
+    try:
+        answers = None
+        # Nothing to ask once the project is initialized, or when devloops.json is kept as it is.
+        if not any(os.path.exists(os.path.join(root, project_mod.DIRNAME, name))
+                   for name in (project_mod.MANIFEST_NAME, project_mod.CONFIG_NAME)):
+            answers = initcmd.ask_missing(opts, root, kit, sys.stdin, sys.stdout)
+        result = initcmd.init(root, kit, opts, answers)
+    except (initcmd.InitError, state.StopRun, project_mod.ProjectConfigError) as e:
+        message = f"{e.code}: {e.message}" if isinstance(e, state.StopRun) else e.message
+        if not args.json:
+            print(f"devloops: {message}", file=sys.stderr)
+            return e.exit_code
+        result = initcmd._result(project_mod.Project(root), kit, exit_code=e.exit_code,
+                                 message=message, conflicts=getattr(e, "conflicts", []))
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        initcmd.print_result(result, sys.stdout)
+    return result["exit_code"]
+
+
 def main(argv=None, kit=None, project=None, env=None):
     """Run one command. `kit`, `project`, and `env` are for tests; by default the kit this
     devloops runs from, the project found from the current directory (FR-008), and os.environ."""
     args = build_parser().parse_args(argv)
     env = os.environ if env is None else env
     kit = kit or Kit.resolve()
+    if args.command == "init":
+        try:
+            return _init(args, kit)
+        except DevloopsError as e:
+            print(f"devloops: {e.message}", file=sys.stderr)
+            return e.exit_code
     try:
         project = project or project_mod.find(os.getcwd(), env)
         project.merged  # validate both configuration files before anything is written (FR-016)

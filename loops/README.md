@@ -354,9 +354,11 @@ cost, start, and end.
 
 ## Claude Code skills
 
-`.claude/skills/loops-backend-dev`, `loops-frontend-dev`, and `loops-orchestrate` let you start a
-loop from Claude Code (`/loops-backend-dev --workspace myapp ...`). Each runs one `bin/devloops`
-command with `--json` and summarizes the result. They contain no loop logic.
+`devloops init` installs seven skills in `.claude/skills/`: `devloops-run`, `devloops-orchestrate`,
+`devloops-approve`, `devloops-replan`, `devloops-retry`, `devloops-status`, and
+`devloops-dashboard` (for example `/devloops-run backend-dev --workspace myapp ...`). Each runs one
+devloops command with `--json` and summarizes the result. They contain no loop logic. The
+templates are in `loops/shared/skills/`; this repository's copies are rendered from them.
 
 ## Repository layout
 

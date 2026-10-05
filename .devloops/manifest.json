@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "devloops_version": "0.2.0",
+  "kit_mode": "source",
+  "command": "bin/devloops",
+  "installed_at": "2026-10-05T21:54:19.915Z",
+  "upgraded_at": null,
+  "ignore_rules": [
+    ".devloops/dashboards/",
+    ".devloops/devloops.local.json"
+  ],
+  "files": {
+    ".claude/skills/devloops-approve/SKILL.md": "c8ade161dfcd316ce73ebea636ef45fe40f3186472f9fbcfc72d34631c27f2e4",
+    ".claude/skills/devloops-dashboard/SKILL.md": "d8d6191c2fa1eb02770a8d3bdf8fe88a60af819a5c6c85de7491ccf08a7e6a05",
+    ".claude/skills/devloops-orchestrate/SKILL.md": "5f3746d07f1a00d4515f81221443f74d417f0dda18e412d3d84619665b38d151",
+    ".claude/skills/devloops-replan/SKILL.md": "1cee169ea7fe3c2d7050c37db96aca2e24a98751f413afc2dd37263c41855499",
+    ".claude/skills/devloops-retry/SKILL.md": "eadc9cc68c4a61a3791f891cafc46c8ba1e7f5d3641198222589d3c726106c8c",
+    ".claude/skills/devloops-run/SKILL.md": "5cdc6970decb5778b73053520d2f663f6ee6202070ba9bcfe3d18cd5da2748b5",
+    ".claude/skills/devloops-status/SKILL.md": "fe13f50341f5c5ed65f95bba3125c93cb2fa7930b670055b6f18f9d267ca13c9",
+    ".devloops/prompts/README.md": "b213a801cb34b1f308afa1249ab6d91fcb2039b8321eb29352bb1e1885f4357d"
+  }
+}
