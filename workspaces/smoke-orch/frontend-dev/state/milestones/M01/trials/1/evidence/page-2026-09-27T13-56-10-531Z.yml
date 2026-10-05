@@ -1,5 +1,0 @@
-- main [ref=e2]:
-  - heading "Service status" [level=1] [ref=e3]
-  - paragraph [ref=e4]:
-    - text: "Status:"
-    - generic [ref=e5]: ok
