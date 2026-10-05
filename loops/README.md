@@ -88,6 +88,7 @@ the text summary.
 | `status [<loop>]` | Show the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, and evidence files over 1 MB. Read-only |
 | `orchestrate` | Run `backend-dev`, then `frontend-dev` ([orchestrator/README.md](orchestrator/README.md)) |
 | `export-sessions [--csv <file>]` | Write every Claude invocation as CSV (standard output by default) |
+| `dashboard` | Rewrite `workspaces/<ws>/dashboard.html` now (it is also rewritten after every other command) |
 
 `approve`, `replan`, `retry`, and `run` also take `--force-unlock` (see [Recovery](#recovery)).
 
@@ -227,6 +228,29 @@ sequenceDiagram
     Orch-->>Dev: exit 0
 ```
 
+## Dashboard
+
+Every command that touches a workspace (`run`, `approve`, `replan`, `retry`, `orchestrate`) rewrites
+`workspaces/<ws>/dashboard.html`, so after each pause, stop, or completion one page shows
+everything without opening the files one by one. Open it in a browser; it is a single offline
+file (no network), with a light/dark toggle:
+
+- **Overview**: status, milestones achieved, first-try pass rate, trials, Claude calls, cost,
+  tokens, and elapsed time, and the next action when a loop is paused or stopped.
+- **Trial timeline** (every planning and milestone trial, colored and labeled by result), **cost by
+  milestone**, and **cost by step**, each with a table view.
+- **Per loop**: stack and runtime, links to the outputs (progress, plan summary, final report,
+  OpenAPI document, UI URL), and per milestone its tasks, acceptance-criteria results with
+  observations and evidence (screenshots as thumbnails), the exact curl commands or the browser's
+  network requests, the API contract result, and every trial with its failure detail, duration,
+  cost, and session IDs.
+- **Questions, assumptions, and retries**, the **orchestrator** steps and handoff, every **Claude
+  call**, and the **event log**.
+
+The page is a view: it is built from `state/` only and never read back. Writing it can never change
+a run's outcome; if it fails, the command prints a warning. `devloops dashboard --workspace <ws>`
+rebuilds it on demand.
+
 ## Approval, replan, and open questions
 
 At the pause, review:
@@ -305,6 +329,7 @@ the likeliest place for a secret to hide.
 workspaces/<name>/
 ├── workspace.json            # requirements fingerprint, mode, story ID, targets, config path
 ├── config.json               # optional workspace config
+├── dashboard.html            # the overview page, rewritten after every command
 ├── backend-dev/
 │   ├── task.md               # the rendered assignment
 │   ├── progress.md           # action items; per-milestone start, end, tokens, cost, sessions

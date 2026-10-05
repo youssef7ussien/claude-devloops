@@ -5,7 +5,7 @@ import json
 import os
 import sys
 
-from . import __version__, engine, orchestrator, state, workspace
+from . import __version__, dashboard, engine, orchestrator, state, workspace
 from .state import EXIT_USAGE, DevloopsError
 
 LOOPS = ("backend-dev", "frontend-dev")
@@ -84,6 +84,9 @@ def build_parser():
     export = sub.add_parser("export-sessions", parents=[common],
                             help="write every Claude invocation as CSV (FR-033)")
     export.add_argument("--csv", metavar="FILE", help="output file (default: standard output)")
+
+    sub.add_parser("dashboard", parents=[common],
+                   help="write workspaces/<ws>/dashboard.html from the workspace state")
 
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
@@ -193,8 +196,14 @@ def _print_status(obj, message=None):
         print(f"  progress: {obj['progress']}")
 
 
+def _dashboard_path(ws):
+    path = os.path.join(ws.path, dashboard.FILENAME)
+    return path if os.path.exists(path) else None
+
+
 def _emit(args, ws, loop, message, code):
     obj = engine.status_object(ws, loop)
+    obj["dashboard"] = _dashboard_path(ws)
     if args.json:
         obj["exit_code"] = code
         if message:
@@ -202,6 +211,8 @@ def _emit(args, ws, loop, message, code):
         print(json.dumps(obj, indent=2))
     else:
         _print_status(obj, message)
+        if obj["dashboard"]:
+            print(f"dashboard: {obj['dashboard']}")
 
 
 def _orchestrate(args, repo_root):
@@ -217,18 +228,36 @@ def _orchestrate(args, repo_root):
         requirements=args.requirements, story_id=args.story_id, story_file=args.story_file,
         backend_target=targets["backend"], frontend_target=targets["frontend"],
         config_path=args.config, force_unlock=args.force_unlock), repo_root=repo_root)
-    code = orch.run()
+    try:
+        code = orch.run()
+    finally:
+        _write_dashboard(ws, announce=False)
     loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
     if args.json:
         print(json.dumps({"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
-                          "exit_code": code, "message": orch.message}, indent=2))
+                          "exit_code": code, "message": orch.message,
+                          "dashboard": _dashboard_path(ws)}, indent=2))
     else:
         if orch.message:
             print(orch.message)
         print(f"orchestrator: {orch.state['status']}")
         for obj in loops.values():
             _print_status(obj)
+        if _dashboard_path(ws):
+            print(f"dashboard: {_dashboard_path(ws)}")
     return code
+
+
+def _write_dashboard(ws, announce):
+    """Refresh the workspace dashboard. A failure only warns: it never changes a run's outcome."""
+    try:
+        path = dashboard.write(ws)
+    except Exception as e:  # noqa: BLE001 - the dashboard is a view; the run's result stands
+        print(f"devloops: warning: could not write the dashboard: {e}", file=sys.stderr)
+        return None
+    if announce:
+        print(f"dashboard: {path}")
+    return path
 
 
 def main(argv=None, repo_root=None):
@@ -254,6 +283,12 @@ def main(argv=None, repo_root=None):
                         print(f"  {item['path']} ({item['bytes']} bytes)")
             return 0
 
+        if args.command == "dashboard":
+            ws = workspace.open_workspace(args.workspace, repo_root, create=False)
+            path = _write_dashboard(ws, announce=not args.json)
+            if args.json:
+                print(json.dumps({"workspace": ws.name, "dashboard": path}, indent=2))
+            return 0 if path else 1
         if args.command == "export-sessions":
             return _export_sessions(args, workspace.open_workspace(args.workspace, repo_root,
                                                                    create=False))
@@ -273,10 +308,14 @@ def main(argv=None, repo_root=None):
             force_unlock=args.force_unlock,
         )
         eng = engine.Engine(args.loop, ws, options, repo_root=repo_root)
-        if args.command == "retry":
-            code = eng.retry(args.milestone, args.reason, args.trials)
-        else:
-            code = {"run": eng.run, "approve": eng.approve, "replan": eng.replan}[args.command]()
+        try:
+            if args.command == "retry":
+                code = eng.retry(args.milestone, args.reason, args.trials)
+            else:
+                code = {"run": eng.run, "approve": eng.approve,
+                        "replan": eng.replan}[args.command]()
+        finally:
+            _write_dashboard(ws, announce=False)
         _emit(args, ws, args.loop, eng.message, code)
         return code
     except DevloopsError as e:

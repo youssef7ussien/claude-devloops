@@ -20,6 +20,7 @@ loops/
 │   │   ├── runtime.py                # Start/ready/stop the app under test
 │   │   ├── boundary.py               # Pre/post snapshots, violation detection (R-11)
 │   │   ├── render.py                 # Milestone files, progress.md, task.md, open-questions.md, final report
+│   │   ├── dashboard.py              # workspaces/<ws>/dashboard.html: one offline overview page
 │   │   ├── openapi.py                # OpenAPI 3 JSON parse check (FR-013a), path/operation matching
 │   │   ├── redact.py                 # Secret redaction before any write (FR-070)
 │   │   ├── preflight.py              # Required-tool checks (FR-013b)
@@ -52,6 +53,7 @@ loops/
 workspaces/<name>/
 ├── workspace.json                    # Identity: requirements fingerprint, mode, story ID, targets
 ├── config.json                       # Optional workspace config
+├── dashboard.html                    # Rendered overview page (devloops/dashboard.py), rewritten after every command
 ├── backend-dev/
 │   ├── task.md                       # Rendered run assignment
 │   ├── progress.md                   # Rendered: action items + per-milestone start/end/tokens/cost/sessions

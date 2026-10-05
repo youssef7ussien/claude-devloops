@@ -94,6 +94,14 @@ developer guidance.
 Writes a table of every invocation (workspace, loop, step, milestone, trial, session ID, prompt
 path, tokens, cost, start, end). This is the input for the prompts/session-ID spreadsheet (FR-033).
 
+### `dashboard`
+
+Writes `workspaces/<ws>/dashboard.html` from the workspace state: one self-contained page with the
+overview statistics, the trial timeline, costs, every milestone's criteria, checks, evidence, and
+trials, the questions and answers, the orchestrator handoff, and every Claude call and event.
+`run`, `approve`, `replan`, `retry`, and `orchestrate` rewrite it after they finish; a failure to
+write it prints a warning and never changes their exit code.
+
 ## Optional Claude Code skills [RD + RC, research R-16]
 
 The skills `.claude/skills/loops-backend-dev`, `loops-frontend-dev`, and `loops-orchestrate` each
