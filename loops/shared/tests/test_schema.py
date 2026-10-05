@@ -18,6 +18,9 @@ class EverySchemaFileTest(unittest.TestCase):
         "invocation-record.schema.json": (samples.invocation_record,
                                           lambda d: d["tokens"].update(input=-1)),
         "run-state.schema.json": (samples.run_state, lambda d: d.update(status="running")),
+        "project-config.schema.json": (samples.project_config,
+                                       lambda d: d["config"].update(max_trials=0)),
+        "manifest.schema.json": (samples.manifest, lambda d: d["files"].update(x="not-a-sha")),
     }
 
     def test_cases_cover_every_schema_file(self):

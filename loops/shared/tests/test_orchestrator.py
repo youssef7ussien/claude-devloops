@@ -250,11 +250,11 @@ class OrchestratorTest(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), \
                     contextlib.redirect_stderr(io.StringIO()):
                 return cli.main(["orchestrate", "--workspace", WS, "--requirements", self.prd,
-                                 "--target-root", self.target_root], repo_root=self.t.root)
+                                 "--target-root", self.target_root], kit=self.t.kit(), project=self.t.project())
 
         def approve(loop):
             with contextlib.redirect_stdout(io.StringIO()):
-                return cli.main(["approve", loop, "--workspace", WS], repo_root=self.t.root)
+                return cli.main(["approve", loop, "--workspace", WS], kit=self.t.kit(), project=self.t.project())
 
         with mock.patch.dict(os.environ, self.t.env, clear=True), \
                 mock.patch.object(engine, "Engine", SpyEngine):

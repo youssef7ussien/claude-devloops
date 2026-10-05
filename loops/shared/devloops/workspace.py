@@ -1,6 +1,7 @@
 """Workspaces: create or attach, identity, per-loop targets, and the run lock.
 
-FR-035a–d, FR-049–051, FR-065. A workspace is `workspaces/<name>/` with `workspace.json`.
+FR-035a–d, FR-049–051, FR-065. A workspace is `<project workspaces_dir>/<name>/` with
+`workspace.json` (002 FR-012).
 """
 import json
 import os
@@ -9,6 +10,7 @@ import socket
 import tempfile
 
 from . import state
+from .kit import Kit
 from .state import input_error
 
 NAME_RE = re.compile(r"^[a-z0-9-]+$")
@@ -23,11 +25,43 @@ def _overlaps(a, b):
     return _is_within(a, b) or _is_within(b, a)
 
 
+def check_target(path, project, kit, workspace_path, other_targets=()):
+    """Return the real path of a usable target, or raise `target-unwritable` (002 FR-014).
+
+    A target must not overlap the kit, the project's `.devloops/`, the workspace, or another
+    loop's target. Existence and writability are checked by `Workspace.set_target`.
+    """
+    if not path or not os.path.isabs(path):
+        raise input_error("target-unwritable", f"target {path!r} must be an absolute path")
+    target = os.path.realpath(path)
+    for reserved in kit.reserved:
+        if _overlaps(target, reserved):
+            raise input_error("target-unwritable",
+                              f"target {target} overlaps the reusable loop files ({reserved})")
+    if project is not None and _overlaps(target, os.path.realpath(project.dir)):
+        raise input_error("target-unwritable",
+                          f"target {target} overlaps the project's devloops folder {project.dir}")
+    if workspace_path and _overlaps(target, os.path.realpath(workspace_path)):
+        raise input_error("target-unwritable",
+                          f"target {target} overlaps the workspace {workspace_path}")
+    for other, other_path in other_targets:
+        if other_path and _overlaps(target, os.path.realpath(other_path)):
+            raise input_error("target-unwritable",
+                              f"target {target} overlaps the {other} target {other_path}")
+    return target
+
+
 class Workspace:
-    def __init__(self, path, repo_root, data):
+    def __init__(self, path, project, kit, data):
         self.path = path
-        self.repo_root = repo_root
+        self.project = project
+        self.kit = kit
         self.data = data
+
+    @property
+    def repo_root(self):
+        """Deprecated alias of the project root, for callers not yet converted."""
+        return self.project.root
 
     @property
     def name(self):
@@ -73,22 +107,9 @@ class Workspace:
         """Record `loop`'s target directory (FR-035a–d); stop with an input error if unusable."""
         if loop not in LOOPS:
             raise state.UsageError(f"unknown loop {loop!r}")
-        if not path or not os.path.isabs(path):
-            raise input_error("target-unwritable", f"target {path!r} must be an absolute path")
-        target = os.path.realpath(path)
-        repo = os.path.realpath(self.repo_root)
-        for reserved in (os.path.join(repo, "loops"), os.path.join(repo, "bin")):
-            if _overlaps(target, reserved):
-                raise input_error("target-unwritable",
-                                  f"target {target} overlaps the reusable loop files ({reserved})")
-        if _overlaps(target, os.path.realpath(self.path)):
-            raise input_error("target-unwritable",
-                              f"target {target} overlaps the workspace {self.path}")
         targets = self.data.setdefault("targets", {})
-        for other, other_path in targets.items():
-            if other != loop and other_path and _overlaps(target, os.path.realpath(other_path)):
-                raise input_error("target-unwritable",
-                                  f"target {target} overlaps the {other} target {other_path}")
+        target = check_target(path, self.project, self.kit, self.path,
+                              [(other, p) for other, p in targets.items() if other != loop])
         recorded = targets.get(loop)
         if recorded and os.path.realpath(recorded) != target:
             raise input_error("workspace-mismatch",
@@ -107,38 +128,50 @@ class Workspace:
         return target
 
 
-def resolve_path(name_or_path, repo_root):
-    """A bare name maps to `<repo>/workspaces/<name>`; anything with a separator is a path."""
+def resolve_path(name_or_path, project):
+    """A bare name maps to `<project workspaces_dir>/<name>`; anything with a separator is a path
+    (relative to the current directory)."""
     if os.sep in name_or_path or name_or_path.startswith("."):
         path = os.path.abspath(name_or_path)
     else:
-        path = os.path.join(os.path.abspath(repo_root), "workspaces", name_or_path)
+        path = os.path.join(project.workspaces_dir, name_or_path)
     name = os.path.basename(os.path.normpath(path))
     if not NAME_RE.match(name):
         raise state.UsageError(f"workspace name {name!r} must match {NAME_RE.pattern}")
     return path, name
 
 
-def open_workspace(name_or_path, repo_root, create=True):
-    """Open a workspace, creating `workspace.json` on the first run (D-3)."""
-    path, name = resolve_path(name_or_path, repo_root)
-    repo = os.path.realpath(repo_root)
-    for reserved in (os.path.join(repo, "loops"), os.path.join(repo, "bin")):
-        if _overlaps(os.path.realpath(path), reserved):
+def open_workspace(name_or_path, project, kit=None, create=True):
+    """Open a workspace, creating `workspace.json` on the first run (D-3).
+
+    A workspace must not overlap the kit, nor lie in the project's `.devloops/` outside its
+    workspaces directory.
+    """
+    kit = kit or Kit.resolve()
+    path, name = resolve_path(name_or_path, project)
+    real = os.path.realpath(path)
+    for reserved in kit.reserved:
+        if _overlaps(real, reserved):
             raise state.UsageError(f"workspace {path} must not be inside {reserved}")
+    devloops_dir = os.path.realpath(project.dir)
+    workspaces_dir = os.path.realpath(project.workspaces_dir)
+    in_workspaces_dir = _is_within(real, workspaces_dir) and real != workspaces_dir
+    if _overlaps(real, devloops_dir) and not in_workspaces_dir:
+        raise state.UsageError(f"workspace {path} must not be inside {devloops_dir} (except in "
+                               f"the workspaces folder {project.workspaces_dir})")
     data = state.read_json(os.path.join(path, "workspace.json"))
     if data is None:
         if not create:
             raise state.UsageError(f"workspace {path} does not exist")
         data = {"name": name, "created_at": state.now_iso(), "requirements": None,
                 "targets": {}, "config_path": None}
-        ws = Workspace(path, repo_root, data)
+        ws = Workspace(path, project, kit, data)
         ws.save()
         return ws
     if data.get("name") != name:
         raise input_error("workspace-mismatch",
                           f"{path}/workspace.json names workspace {data.get('name')!r}, not {name!r}")
-    return Workspace(path, repo_root, data)
+    return Workspace(path, project, kit, data)
 
 
 # --- Lock (FR-065) -------------------------------------------------------------------------------

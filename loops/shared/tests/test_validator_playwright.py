@@ -105,11 +105,11 @@ class PlaywrightValidatorTest(unittest.TestCase):
 
     def ctx(self):
         return types.SimpleNamespace(
-            loop="frontend-dev", loop_dir=self.loop_dir, repo_root=self.t.root, workspace=None,
+            loop="frontend-dev", loop_dir=self.loop_dir, kit=self.t.kit(), workspace=None,
             run_state=self.run_state, plan=self.plan, milestone=MILESTONE, trial=1,
             trial_dir=self.trial_dir, evidence_dir=self.evidence_dir,
             target_dir=self.t.target_dir, config=self.config, runtime=self.plan["runtime"],
-            runner=ClaudeRunner(self.t.root, "frontend-dev", self.loop_dir, self.config,
+            runner=ClaudeRunner(self.t.kit(), "frontend-dev", self.loop_dir, self.config,
                                 Redactor(self.config), self.run_state, env=self.t.env),
             redactor=Redactor(self.config), env=self.t.env, api_spec_path=None, input_dirs=[],
             context=None)

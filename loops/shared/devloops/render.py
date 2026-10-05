@@ -364,7 +364,7 @@ def load_validations(loop_dir, run):
     return out
 
 
-def render_all(loop_dir, loop, workspace_name, repo_root, final=False, questions=None):
+def render_all(loop_dir, loop, workspace_name, kit, final=False, questions=None):
     """Re-render every view of one loop run from its state.
 
     `questions` (a list) rewrites `outputs/open-questions.md`; the engine passes it only when it
@@ -394,7 +394,7 @@ def render_all(loop_dir, loop, workspace_name, repo_root, final=False, questions
     state.write_text_atomic(os.path.join(loop_dir, "progress.md"),
                             render_progress(loop, workspace_name, run, plan, events, invocations,
                                             trials))
-    template = os.path.join(repo_root, "loops", loop, "task.md")
+    template = kit.path(loop, "task.md")
     if run and os.path.exists(template):
         with open(template, encoding="utf-8") as f:
             text = render_task(f.read(), task_values(run, workspace_name))

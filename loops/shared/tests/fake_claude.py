@@ -36,6 +36,12 @@ Answer fields (all optional):
                       `null` omits `usage` entirely
   total_cost_usd, num_turns, duration_ms, permission_denials
 
+Transcripts: with `$CLAUDE_CONFIG_DIR` set, each call writes a Claude Code-style transcript to
+`$CLAUDE_CONFIG_DIR/projects/<encoded cwd>/<session-id>.jsonl`, where `<encoded cwd>` is the cwd
+with every non-alphanumeric character replaced by `-`. Scenario keys (top level, or per answer,
+the answer winning): `"transcript": false` writes none; `"transcript_dir": "<name>"` uses that
+directory name instead of the encoded cwd (Claude Code's truncated long paths).
+
 Each call is appended to `$DEVLOOPS_FAKE_LOG` (JSONL) with its argv, step, call number, cwd,
 session ID, pid, and prompt. Per-step call counters live next to the scenario in `<scenario>.calls`.
 """
@@ -251,6 +257,41 @@ def emit_stream(result, tool_uses, session_id, cwd, opts):
     out(result)
 
 
+def write_transcript(scenario, answer, session_id, cwd, prompt, result):
+    """Write the call's transcript where Claude Code keeps it, unless disabled (module docstring)."""
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+
+    def setting(key, default):
+        return answer.get(key, scenario.get(key, default))
+
+    if not config_dir or setting("transcript", True) is False:
+        return None
+    directory = setting("transcript_dir", None) or re.sub(r"[^A-Za-z0-9]", "-", cwd)
+    path = os.path.join(config_dir, "projects", directory, session_id + ".jsonl")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tool_use_id = "toolu_" + uuid.uuid4().hex[:24]
+    base = {"sessionId": session_id, "cwd": cwd, "version": VERSION.split()[0]}
+    records = [
+        dict(base, type="user", uuid=str(uuid.uuid4()),
+             message={"role": "user", "content": [{"type": "text", "text": prompt}]}),
+        dict(base, type="assistant", uuid=str(uuid.uuid4()),
+             message={"role": "assistant", "content": [
+                 {"type": "tool_use", "id": tool_use_id, "name": "Read",
+                  "input": {"file_path": os.path.join(cwd, "README.md")}}]}),
+        dict(base, type="user", uuid=str(uuid.uuid4()),
+             message={"role": "user", "content": [
+                 {"type": "tool_result", "tool_use_id": tool_use_id, "content": "ok"}]}),
+        dict(base, type="assistant", uuid=str(uuid.uuid4()),
+             message={"role": "assistant", "content": [
+                 {"type": "text", "text": str(result.get("result") or "")}]}),
+        {"type": "fake-internal", "x": 1},
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record) + "\n")
+    return path
+
+
 def main(argv):
     if argv and argv[0] in ("--version", "-v"):
         print(VERSION)
@@ -312,6 +353,7 @@ def main(argv):
         sys.stderr.write(answer["stderr"] + "\n")
 
     result = build_result(answer, session_id, denials)
+    write_transcript(scenario, answer, session_id, cwd, prompt, result)
     if not answer.get("no_result"):
         if output_format == "stream-json":
             emit_stream(result, answer.get("tool_uses"), session_id, cwd, opts)

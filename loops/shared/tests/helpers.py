@@ -61,6 +61,10 @@ class TempEnv:
       target/          target directory for the loop under test (`self.target_dir`)
       frontend-target/ second target, for tests that run both loops (`self.frontend_target_dir`)
       fake/            fake-Claude scenario and call log
+      claude-config/   `CLAUDE_CONFIG_DIR`, where the fake Claude writes transcripts
+
+`repo/` is also a devloops project: `.devloops/devloops.json` keeps workspaces at
+`repo/workspaces/`, as in this repository (002 research P-17).
 
     `self.env` is a copy of `os.environ` wired to the fake Claude binary. Copying is the default
     so that tests which write into `loops/` or `bin/` (boundary audits) cannot touch the real repo.
@@ -86,6 +90,7 @@ class TempEnv:
         self.fake_dir = os.path.join(self.base, "fake")
         for d in (self.target_dir, self.frontend_target_dir, self.fake_dir):
             os.makedirs(d)
+        self.make_project(self.root, {"workspaces_dir": "workspaces"})
         self.workspace_dir = os.path.join(self.root, "workspaces", self.workspace_name)
         self.fake_log = os.path.join(self.fake_dir, "calls.jsonl")
 
@@ -96,6 +101,8 @@ class TempEnv:
         self.env["DEVLOOPS_FAKE_LOG"] = self.fake_log
         self.env.pop("DEVLOOPS_FAKE_SCENARIO", None)
         self.env.pop("DEVLOOPS_ALLOWED_ROOTS", None)
+        self.env.pop("DEVLOOPS_PROJECT", None)
+        self.env["CLAUDE_CONFIG_DIR"] = os.path.join(self.base, "claude-config")
         return self
 
     def __exit__(self, *exc):
@@ -105,9 +112,33 @@ class TempEnv:
     def write_scenario(self, scenario):
         return write_scenario(scenario, env=self.env, directory=self.fake_dir)
 
-    def run_cli(self, args, timeout=120, extra_env=None):
+    def run_cli(self, args, timeout=120, extra_env=None, cwd=None):
         env = dict(self.env, **(extra_env or {}))
-        return run_cli(args, env=env, root=self.root, timeout=timeout)
+        return run_cli(args, env=env, root=self.root, timeout=timeout, cwd=cwd)
+
+    def make_project(self, path, config=None):
+        """Make `path` a devloops project: write `.devloops/devloops.json` (schema_version 1,
+        plus `config`'s keys). Return the file's path."""
+        data = dict({"schema_version": 1}, **(config or {}))
+        file = os.path.join(path, ".devloops", "devloops.json")
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        with open(file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        return file
+
+    def kit(self):
+        """The kit of this temp checkout (`repo/loops`, reserving `repo/loops` and `repo/bin`)."""
+        from devloops import kit
+        return kit.Kit.from_checkout(self.root)
+
+    def project(self):
+        from devloops import project
+        return project.Project(self.root)
+
+    @staticmethod
+    def read_json(path):
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
 
     def fake_calls(self):
         """The fake-Claude call log as a list of dicts (empty if no call was made)."""

@@ -1,0 +1,43 @@
+# Packaging for `uv tool install` / `pip install` (specs/002-devloops-init research P-1).
+# The runtime is standard-library only; setuptools is used only to build.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devloops"
+dynamic = ["version"]
+description = "Reusable development loops driven by headless Claude Code"
+readme = "loops/README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+devloops = "devloops.cli:entry"
+
+[tool.setuptools]
+# Two packages mapped onto the existing layout, with no file moves: the driver code, and the kit
+# (loop definitions, prompts, schemas, hooks, defaults, skill and project templates) as data only.
+packages = ["devloops", "devloops.validators", "devloops_kit"]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+devloops = "loops/shared/devloops"
+devloops_kit = "loops"
+
+[tool.setuptools.package-data]
+devloops_kit = [
+    "backend-dev/*",
+    "frontend-dev/*",
+    "orchestrator/*",
+    "shared/prompts/*.md",
+    "shared/prompts/steps/*.md",
+    "shared/schemas/*.json",
+    "shared/hooks/*.py",
+    "shared/config/*.json",
+    "shared/skills/*/SKILL.md",
+    "shared/project/**/*",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "devloops.__version__"}

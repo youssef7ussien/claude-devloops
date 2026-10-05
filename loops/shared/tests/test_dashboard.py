@@ -16,7 +16,8 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
             return f.read()
 
     def data(self):
-        return dashboard.collect(workspace.open_workspace(WS, self.t.root, create=False))
+        return dashboard.collect(workspace.open_workspace(WS, self.t.project(), self.t.kit(),
+                                                         create=False))
 
     def test_written_at_the_approval_pause(self):
         self.assertEqual(self.first_run(), 10, self.last_output)

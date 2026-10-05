@@ -18,17 +18,16 @@ from dataclasses import dataclass, field
 from . import boundary, config, inputs, preflight, render, schema, selector, state
 from . import plan as plan_mod
 from .claude import CallFailed, ClaudeRunner
+from .kit import Kit
 from .redact import Redactor
 from .runtime import RuntimeStartFailed
 from .state import EXIT_CODES, TERMINAL_STATUSES, StopRun, input_error
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
 ADAPTER_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
-def load_loop_def(repo_root, loop):
-    path = os.path.join(repo_root, "loops", loop, "loop.json")
+def load_loop_def(kit, loop):
+    path = kit.path(loop, "loop.json")
     loop_def = state.read_json(path)
     if loop_def is None:
         raise state.UsageError(f"loop definition {path} not found")
@@ -97,11 +96,12 @@ def compute_pass(milestone, result, trial_dir):
 
 
 class Engine:
-    def __init__(self, loop_name, workspace, options=None, repo_root=REPO_ROOT, env=None):
+    def __init__(self, loop_name, workspace, options=None, kit=None, project=None, env=None):
         self.loop = loop_name
         self.ws = workspace
         self.opts = options or Options()
-        self.repo_root = os.path.realpath(repo_root)
+        self.kit = kit or getattr(workspace, "kit", None) or Kit.resolve()
+        self.project = project or workspace.project
         self.env = dict(os.environ if env is None else env)
         self.loop_dir = workspace.loop_dir(loop_name)
         self.state_dir = os.path.join(self.loop_dir, "state")
@@ -113,7 +113,7 @@ class Engine:
         self.config = None
         self.redactor = Redactor()
         self.message = ""
-        self.loop_def = load_loop_def(self.repo_root, loop_name)
+        self.loop_def = load_loop_def(self.kit, loop_name)
 
     # --- commands ----------------------------------------------------------------------------------
 
@@ -241,8 +241,9 @@ class Engine:
 
     def _first_start(self):
         self._event("run-started", "first run")
-        cfg = config.load_effective(config.DEFAULTS_PATH, self._workspace_config_path(),
-                                    self.opts.cli_overrides)
+        cfg = config.load_effective(self.kit.path("shared", "config", "defaults.json"),
+                                    self._workspace_config_path(), self.opts.cli_overrides,
+                                    self.project.run_config_layers())
         self._use_config(cfg)
         preflight.check_tools(self.loop_def, cfg, self.env)
         requirements = inputs.requirements_input(self.opts.requirements, self.opts.story_id,
@@ -299,8 +300,10 @@ class Engine:
         self._restore_after_service_error()
         self._recover_interrupted()
         self._event("run-started", f"resumed in status {self.rs['status']}")
-        self._use_config(config.resolve_for_run(self.rs, self.loop_dir, self.opts.cli_overrides,
-                                                redactor=self.redactor))
+        self._use_config(config.resolve_for_run(
+            self.rs, self.loop_dir, self.opts.cli_overrides,
+            defaults_path=self.kit.path("shared", "config", "defaults.json"),
+            redactor=self.redactor, project_layers=self.project.run_config_layers()))
         self._save()
         return self._advance()
 
@@ -846,7 +849,7 @@ class Engine:
 
     def _adapter_context(self, milestone, n, trial_dir):
         return types.SimpleNamespace(
-            loop=self.loop, loop_dir=self.loop_dir, repo_root=self.repo_root, workspace=self.ws,
+            loop=self.loop, loop_dir=self.loop_dir, kit=self.kit, project=self.project, workspace=self.ws,
             run_state=self.rs, plan=self.plan, milestone=milestone, trial=n, trial_dir=trial_dir,
             evidence_dir=os.path.join(trial_dir, "evidence") if trial_dir else None,
             target_dir=self.rs["target_dir"], config=self.config,
@@ -904,13 +907,13 @@ class Engine:
         self.redactor = Redactor(cfg, environ=self.env)
 
     def _runner(self):
-        return ClaudeRunner(self.repo_root, self.loop, self.loop_dir, self.config, self.redactor,
+        return ClaudeRunner(self.kit, self.loop, self.loop_dir, self.config, self.redactor,
                             self.rs, env=self.env)
 
     def _snapshot(self):
         targets = [self.rs["target_dir"]] + [p for loop, p in (self.ws.data.get("targets") or {})
                                              .items() if loop != self.loop and p]
-        return boundary.snapshot(self.repo_root, self.loop_dir, targets)
+        return boundary.snapshot(self.kit, self.loop_dir, targets, self.project.root)
 
     def _check_cap(self):
         cap = self.config["max_invocations_per_run"]
@@ -943,7 +946,7 @@ class Engine:
                            redactor=self.redactor)
 
     def _render(self, final=False, questions=None):
-        render.render_all(self.loop_dir, self.loop, self.ws.name, self.repo_root, final=final,
+        render.render_all(self.loop_dir, self.loop, self.ws.name, self.kit, final=final,
                           questions=questions)
 
 

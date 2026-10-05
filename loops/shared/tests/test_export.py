@@ -54,7 +54,7 @@ class ExportSessionsTest(StubLoopMixin, unittest.TestCase):
 
     def test_a_loop_that_never_ran_adds_no_rows(self):
         self.completed()
-        ws = workspace.open_workspace(WS, self.t.root, create=False)
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
         self.assertEqual({r["loop"] for r in cli.session_rows(ws)}, {"backend-dev"})
 
     def test_an_unknown_workspace_is_a_usage_error(self):

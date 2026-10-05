@@ -143,8 +143,8 @@ class ClaudeRunner:
     before every call.
     """
 
-    def __init__(self, repo_root, loop, loop_dir, config, redactor, run_state, env=None):
-        self.repo_root = os.path.realpath(repo_root)
+    def __init__(self, kit, loop, loop_dir, config, redactor, run_state, env=None):
+        self.kit = kit
         self.loop = loop
         self.loop_dir = loop_dir
         self.config = config
@@ -164,11 +164,10 @@ class ClaudeRunner:
     # --- prompt ----------------------------------------------------------------------------------
 
     def compose_prompt(self, step, context):
-        shared = os.path.join(self.repo_root, "loops", "shared", "prompts")
         parts = [f"<!-- step: {step} -->"]
-        for path in (os.path.join(shared, "common.md"),
-                     os.path.join(self.repo_root, "loops", self.loop, "Loop-instructions.md"),
-                     os.path.join(shared, "steps", f"{step}.md")):
+        for path in (self.kit.path("shared", "prompts", "common.md"),
+                     self.kit.path(self.loop, "Loop-instructions.md"),
+                     self.kit.path("shared", "prompts", "steps", f"{step}.md")):
             with open(path, encoding="utf-8") as f:
                 parts.append(f.read().strip())
         parts.append("## Context\n\n```json\n" + json.dumps(context, indent=2, ensure_ascii=False)
@@ -191,7 +190,7 @@ class ClaudeRunner:
         return {k: v for k, v in self.step_schema(step).items() if k not in ("$schema", "$id")}
 
     def settings(self):
-        guard = os.path.join(self.repo_root, "loops", "shared", "hooks", "guard_writes.py")
+        guard = self.kit.path("shared", "hooks", "guard_writes.py")
         return {"hooks": {"PreToolUse": [{
             "matcher": "|".join(WRITE_TOOLS),
             "hooks": [{"type": "command",

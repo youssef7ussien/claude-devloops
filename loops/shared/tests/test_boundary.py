@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 import helpers  # noqa: F401
-from devloops import boundary
+from devloops import boundary, kit
 
 
 def git(cwd, *args):
@@ -46,7 +46,8 @@ class BoundaryTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def snap(self, targets=None):
-        return boundary.snapshot(self.repo, self.loop_dir, targets or [self.target])
+        return boundary.snapshot(kit.Kit.from_checkout(self.repo), self.loop_dir,
+                                 targets or [self.target], self.repo)
 
     def audit(self, change, allowed_extra=(), targets=None):
         before = self.snap(targets)

@@ -361,7 +361,8 @@ class EngineCoreTest(unittest.TestCase):
         self.assertEqual((obj["status"], obj["exit_code"]), ("awaiting-approval", 10))
 
     def test_usage_errors_exit_2(self):
-        self.assertEqual(self.t.run_cli(["run", "backend-dev"])[0], 2)  # no --workspace
+        # Outside any project (002 FR-008).
+        self.assertEqual(self.t.run_cli(["status", "--workspace", WS], cwd=self.t.base)[0], 2)
         self.assertEqual(self.cli("run", "other-loop"), 2)
         self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "0"), 2)
         self.assertEqual(self.t.run_cli(["status", "--workspace", "missing"])[0], 2)

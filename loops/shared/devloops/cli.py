@@ -6,6 +6,8 @@ import os
 import sys
 
 from . import __version__, dashboard, engine, orchestrator, state, workspace
+from . import project as project_mod
+from .kit import Kit
 from .state import EXIT_USAGE, DevloopsError
 
 LOOPS = ("backend-dev", "frontend-dev")
@@ -36,8 +38,9 @@ def _add_story_options(cmd):
 
 def build_parser():
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--workspace", required=True,
-                        help="workspace name (under workspaces/) or path; created on the first run")
+    common.add_argument("--workspace",
+                        help="workspace name (under the project's workspaces_dir) or path; created "
+                             "on the first run (default: the project's `workspace`, else main)")
     common.add_argument("--config", help="config file merged over the defaults")
     common.add_argument("--json", action="store_true", help="print one JSON status object")
 
@@ -157,17 +160,29 @@ def _export_sessions(args, ws):
     finally:
         if args.csv:
             out.close()
-    if args.csv:
-        print(f"{len(rows)} invocation(s) written to {os.path.abspath(args.csv)}"
-              if not args.json else json.dumps({"workspace": ws.name, "csv":
-                                                os.path.abspath(args.csv),
-                                                "invocations": len(rows)}, indent=2))
+    if args.csv and args.json:
+        _dump(args, {"workspace": ws.name, "csv": os.path.abspath(args.csv),
+                     "invocations": len(rows)})
+    elif args.csv:
+        print(f"{len(rows)} invocation(s) written to {os.path.abspath(args.csv)}")
     return 0
 
 
-def _repo_root():
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__)))))
+def _version_warnings(project, kit):
+    """The FR-029 warning when the project was set up with another devloops version."""
+    manifest = project.manifest() if project else None
+    installed = (manifest or {}).get("devloops_version")
+    if installed and installed != kit.version:
+        return [f"this project was set up with devloops {installed}; running {kit.version}. "
+                f'Run "devloops init --upgrade".']
+    return []
+
+
+def _dump(args, obj):
+    """Print one `--json` object, with the command's warnings (FR-029) when there are any."""
+    if getattr(args, "warnings", None):
+        obj = dict(obj, warnings=list(args.warnings))
+    print(json.dumps(obj, indent=2))
 
 
 def _print_status(obj, message=None):
@@ -208,35 +223,35 @@ def _emit(args, ws, loop, message, code):
         obj["exit_code"] = code
         if message:
             obj["message"] = message
-        print(json.dumps(obj, indent=2))
+        _dump(args, obj)
     else:
         _print_status(obj, message)
         if obj["dashboard"]:
             print(f"dashboard: {obj['dashboard']}")
 
 
-def _orchestrate(args, repo_root):
+def _orchestrate(args, kit, project, env):
     for loop in orchestrator.LOOP_ORDER:
-        engine.load_loop_def(repo_root, loop)  # before a workspace is created
+        engine.load_loop_def(kit, loop)  # before a workspace is created
     root = os.path.abspath(args.target_root) if args.target_root else None
     targets = {"backend": args.backend_target, "frontend": args.frontend_target}
     for name, given in targets.items():
         targets[name] = os.path.abspath(given) if given else \
             (os.path.join(root, name) if root else None)
-    ws = workspace.open_workspace(args.workspace, repo_root, create=True)
+    ws = workspace.open_workspace(args.workspace, project, kit, create=True)
     orch = orchestrator.Orchestrator(ws, orchestrator.OrchestrateOptions(
         requirements=args.requirements, story_id=args.story_id, story_file=args.story_file,
         backend_target=targets["backend"], frontend_target=targets["frontend"],
-        config_path=args.config, force_unlock=args.force_unlock), repo_root=repo_root)
+        config_path=args.config, force_unlock=args.force_unlock), kit=kit, env=env)
     try:
         code = orch.run()
     finally:
         _write_dashboard(ws, announce=False)
     loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
     if args.json:
-        print(json.dumps({"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
-                          "exit_code": code, "message": orch.message,
-                          "dashboard": _dashboard_path(ws)}, indent=2))
+        _dump(args, {"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
+                     "exit_code": code, "message": orch.message,
+                     "dashboard": _dashboard_path(ws)})
     else:
         if orch.message:
             print(orch.message)
@@ -260,19 +275,29 @@ def _write_dashboard(ws, announce):
     return path
 
 
-def main(argv=None, repo_root=None):
+def main(argv=None, kit=None, project=None, env=None):
+    """Run one command. `kit`, `project`, and `env` are for tests; by default the kit this
+    devloops runs from, the project found from the current directory (FR-008), and os.environ."""
     args = build_parser().parse_args(argv)
-    repo_root = repo_root or _repo_root()
+    env = os.environ if env is None else env
+    kit = kit or Kit.resolve()
     try:
+        project = project or project_mod.find(os.getcwd(), env)
+        project.merged  # validate both configuration files before anything is written (FR-016)
+        args.warnings = _version_warnings(project, kit)
+        for warning in args.warnings if not args.json else ():
+            print(f"devloops: warning: {warning}", file=sys.stderr)
+        args.workspace = args.workspace or project.default_workspace
+
         if args.command == "status":
-            ws = workspace.open_workspace(args.workspace, repo_root, create=False)
+            ws = workspace.open_workspace(args.workspace, project, kit, create=False)
             loops = [args.loop] if args.loop else list(LOOPS)
             large = large_evidence(ws, loops)
             if args.json:
                 objs = {loop: engine.status_object(ws, loop) for loop in loops}
                 obj = objs[args.loop] if args.loop else {"workspace": ws.name, "loops": objs}
                 obj["large_evidence"] = large
-                print(json.dumps(obj, indent=2))
+                _dump(args, obj)
             else:
                 for loop in loops:
                     _print_status(engine.status_object(ws, loop))
@@ -284,19 +309,20 @@ def main(argv=None, repo_root=None):
             return 0
 
         if args.command == "dashboard":
-            ws = workspace.open_workspace(args.workspace, repo_root, create=False)
+            ws = workspace.open_workspace(args.workspace, project, kit, create=False)
             path = _write_dashboard(ws, announce=not args.json)
             if args.json:
-                print(json.dumps({"workspace": ws.name, "dashboard": path}, indent=2))
+                _dump(args, {"workspace": ws.name, "dashboard": path})
             return 0 if path else 1
         if args.command == "export-sessions":
-            return _export_sessions(args, workspace.open_workspace(args.workspace, repo_root,
+            return _export_sessions(args, workspace.open_workspace(args.workspace, project, kit,
                                                                    create=False))
         if args.command == "orchestrate":
-            return _orchestrate(args, repo_root)
+            return _orchestrate(args, kit, project, env)
 
-        engine.load_loop_def(repo_root, args.loop)  # before a workspace is created
-        ws = workspace.open_workspace(args.workspace, repo_root, create=args.command == "run")
+        engine.load_loop_def(kit, args.loop)  # before a workspace is created
+        ws = workspace.open_workspace(args.workspace, project, kit,
+                                      create=args.command == "run")
         options = engine.Options(
             requirements=getattr(args, "requirements", None),
             story_id=getattr(args, "story_id", None),
@@ -307,7 +333,7 @@ def main(argv=None, repo_root=None):
             cli_overrides={"max_trials": getattr(args, "max_trials", None)},
             force_unlock=args.force_unlock,
         )
-        eng = engine.Engine(args.loop, ws, options, repo_root=repo_root)
+        eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
         try:
             if args.command == "retry":
                 code = eng.retry(args.milestone, args.reason, args.trials)
@@ -320,7 +346,7 @@ def main(argv=None, repo_root=None):
         return code
     except DevloopsError as e:
         if args.json:
-            print(json.dumps({"error": e.message, "exit_code": e.exit_code}, indent=2))
+            _dump(args, {"error": e.message, "exit_code": e.exit_code})
         else:
             print(f"devloops: {e.message}", file=sys.stderr)
         return e.exit_code
@@ -329,5 +355,14 @@ def main(argv=None, repo_root=None):
         return 130
 
 
+def entry():
+    """The installed `devloops` console script (pyproject.toml); `bin/devloops` from a checkout."""
+    if sys.version_info < (3, 10):
+        sys.stderr.write("devloops: Python 3.10 or newer is required (found %d.%d)\n"
+                         % sys.version_info[:2])
+        sys.exit(2)
+    sys.exit(main(sys.argv[1:]))
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    entry()

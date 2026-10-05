@@ -30,10 +30,10 @@ class OrchestrateOptions:
 
 
 class Orchestrator:
-    def __init__(self, workspace, options=None, repo_root=engine.REPO_ROOT, env=None):
+    def __init__(self, workspace, options=None, kit=None, env=None):
         self.ws = workspace
         self.opts = options or OrchestrateOptions()
-        self.repo_root = repo_root
+        self.kit = kit or workspace.kit
         self.env = env
         self.dir = os.path.join(workspace.path, "orchestrator")
         self.state_path = os.path.join(self.dir, "state.json")
@@ -79,7 +79,7 @@ class Orchestrator:
         self._save()  # written before the action it records
         eng = None
         try:
-            eng = engine.Engine(loop, self.ws, options, repo_root=self.repo_root, env=self.env)
+            eng = engine.Engine(loop, self.ws, options, kit=self.kit, env=self.env)
             code = eng.run()
         except DevloopsError as e:  # usage error or lock held: nothing ran; record and re-raise
             self._finish_step(step, loop, e.message)

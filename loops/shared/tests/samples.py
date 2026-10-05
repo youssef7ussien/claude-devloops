@@ -143,3 +143,25 @@ def run_state():
 
 def config():
     return copy.deepcopy(_CONFIG)
+
+
+def project_config():
+    """A `.devloops/devloops.json` with every key (002 contracts/project-config.schema.json)."""
+    return {
+        "schema_version": 1, "workspace": "main", "workspaces_dir": ".devloops/workspaces",
+        "dashboards_dir": ".devloops/dashboards",
+        "targets": {"backend-dev": "backend", "frontend-dev": None},
+        "requirements": {"speckit_feature": "active"},
+        "config": {"max_invocations_per_run": 40, "git": {"commit_per_milestone": True}},
+    }
+
+
+def manifest():
+    """A `.devloops/manifest.json` (002 contracts/manifest.schema.json)."""
+    return {
+        "schema_version": 1, "devloops_version": "0.2.0", "kit_mode": "installed",
+        "command": "devloops", "installed_at": "2026-10-06T10:00:00.000Z", "upgraded_at": None,
+        "ignore_rules": [".devloops/workspaces/", ".devloops/dashboards/",
+                         ".devloops/devloops.local.json"],
+        "files": {".claude/skills/devloops-run/SKILL.md": "a" * 64},
+    }

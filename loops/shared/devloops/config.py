@@ -1,13 +1,17 @@
-"""Effective configuration: defaults < workspace config.json < CLI flags."""
+"""Effective configuration (002 research P-4), each layer overriding the one before:
+packaged defaults < project `devloops.json` `config` < `devloops.local.json` `config` <
+workspace `config.json` / `--config` < CLI flags.
+"""
 import copy
+import hashlib
 import json
 import os
 from urllib.parse import urlsplit
 
 from . import schema, state
+from .kit import Kit
 
-DEFAULTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                             "config", "defaults.json")
+DEFAULTS_PATH = Kit.resolve().path("shared", "config", "defaults.json")
 
 
 class ConfigError(state.UsageError):
@@ -62,9 +66,22 @@ def _validated(config):
     return config
 
 
-def load_effective(defaults_path, workspace_config_path, cli_overrides):
-    """Merge defaults < workspace `config.json` < CLI overrides, then validate (exit 2 on error)."""
+def file_sha256(path):
+    """Hex sha256 of a file's bytes, or None when it is missing or unreadable."""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def load_effective(defaults_path, workspace_config_path, cli_overrides, project_layers=()):
+    """Merge defaults < project layers < workspace `config.json` < CLI overrides, then validate
+    (exit 2 on error). `project_layers` are the shared and local `config` blocks, in that order;
+    they were validated with the project files."""
     merged = _read_config_file(defaults_path)
+    for layer in project_layers:
+        merged = deep_merge(merged, layer or {})
     if workspace_config_path is not None:
         merged = deep_merge(merged, _read_config_file(workspace_config_path))
     merged = deep_merge(merged, _drop_unset(cli_overrides))
@@ -83,7 +100,7 @@ def _changed_keys(before, after, prefix=""):
 
 
 def resolve_for_run(run_state, loop_dir, cli_overrides, defaults_path=DEFAULTS_PATH,
-                    workspace_config_path=None, redactor=None):
+                    workspace_config_path=None, redactor=None, project_layers=()):
     """Return the effective config for this start and store it in `run_state["effective_config"]`.
 
     The first run freezes the full merge. Later starts reuse the frozen config (later edits to
@@ -92,7 +109,8 @@ def resolve_for_run(run_state, loop_dir, cli_overrides, defaults_path=DEFAULTS_P
     """
     frozen = run_state.get("effective_config")
     if not frozen:
-        effective = load_effective(defaults_path, workspace_config_path, cli_overrides)
+        effective = load_effective(defaults_path, workspace_config_path, cli_overrides,
+                                   project_layers)
         run_state["effective_config"] = effective
         return effective
     effective = _validated(deep_merge(frozen, _drop_unset(cli_overrides)))

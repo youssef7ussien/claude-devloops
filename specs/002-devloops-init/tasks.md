@@ -53,7 +53,7 @@ to US2 (acceptance scenario 7). It has its own phase because it is large.
 
 **Purpose**: Packaging, version, schema copies, and test harness additions.
 
-- [ ] T001 Create `pyproject.toml` at the repository root, per research P-1:
+- [X] T001 Create `pyproject.toml` at the repository root, per research P-1:
   - **Build system**: `[build-system] requires = ["setuptools>=68"]`,
     `build-backend = "setuptools.build_meta"`.
   - **Project**: `[project] name = "devloops"`, `dynamic = ["version"]`,
@@ -68,11 +68,11 @@ to US2 (acceptance scenario 7). It has its own phase because it is large.
     "shared/schemas/*.json", "shared/hooks/*.py", "shared/config/*.json",
     "shared/skills/*/SKILL.md", "shared/project/**/*"]`.
   - **Version**: `[tool.setuptools.dynamic] version = {attr = "devloops.__version__"}`.
-- [ ] T002 Add `entry()` to `loops/shared/devloops/cli.py`. It performs the same Python ≥ 3.10
+- [X] T002 Add `entry()` to `loops/shared/devloops/cli.py`. It performs the same Python ≥ 3.10
   check as `bin/devloops`, then calls `sys.exit(main(sys.argv[1:]))`, as the console-script
   target.
-- [ ] T003 [P] Set `__version__ = "0.2.0"` in `loops/shared/devloops/__init__.py` (research P-18).
-- [ ] T004 [P] Copy the two new schemas into `loops/shared/schemas/`:
+- [X] T003 [P] Set `__version__ = "0.2.0"` in `loops/shared/devloops/__init__.py` (research P-18).
+- [X] T004 [P] Copy the two new schemas into `loops/shared/schemas/`:
   `specs/002-devloops-init/contracts/project-config.schema.json` and `manifest.schema.json`.
   Then extend `loops/shared/tests/test_schemas_sync.py`:
   - `SCHEMA_NAMES` becomes a mapping from schema name to contracts directory: 001 for `config`,
@@ -80,7 +80,7 @@ to US2 (acceptance scenario 7). It has its own phase because it is large.
     `project-config` and `manifest`;
   - the byte-identity check uses that mapping;
   - the missing/extra check covers the union of both directories' schemas.
-- [ ] T005 [P] Make `loops/shared/tests/fake_claude.py` write a transcript after each call:
+- [X] T005 [P] Make `loops/shared/tests/fake_claude.py` write a transcript after each call:
   - **Where**: `$CLAUDE_CONFIG_DIR/projects/<encoded cwd>/<session-id>.jsonl`. `<encoded cwd>` is
     the call's working directory with every non-alphanumeric character replaced by `-`.
   - **Records**:
@@ -93,7 +93,7 @@ to US2 (acceptance scenario 7). It has its own phase because it is large.
     `"transcript": false`.
   - **Long paths**: when the scenario sets `"transcript_dir": "<name>"`, use that directory name
     instead of `<encoded cwd>`, to simulate Claude Code's truncated long paths.
-- [ ] T006 Extend `loops/shared/tests/helpers.py`:
+- [X] T006 Extend `loops/shared/tests/helpers.py`:
   - `TempEnv.__enter__` writes `<root>/.devloops/devloops.json` = `{"schema_version": 1,
     "workspaces_dir": "workspaces"}`. With it, every existing test runs inside a project whose
     workspaces stay at `<root>/workspaces/` (research P-17).
@@ -112,7 +112,7 @@ depends on this.
 
 **⚠️ CRITICAL**: The whole 001 suite (312 tests) must be green at the end of this phase (SC-008).
 
-- [ ] T007 [P] Write `loops/shared/tests/test_kit.py`:
+- [X] T007 [P] Write `loops/shared/tests/test_kit.py`:
   - `Kit.resolve()` from this checkout gives `mode == "source"`, `root == <repo>/loops`, and
     `reserved == [<repo>/loops, <repo>/bin]`.
   - `Kit.path("shared", "prompts", "common.md")` exists.
@@ -120,7 +120,7 @@ depends on this.
     `<rel>/bin/devloops` when the checkout is inside the project, and an absolute path otherwise.
   - The installed mode, simulated by `Kit(root=<tmp copy of loops/>, mode="installed",
     reserved=[...])`, returns `devloops` as the command.
-- [ ] T008 [P] Write `loops/shared/tests/test_project.py`:
+- [X] T008 [P] Write `loops/shared/tests/test_project.py`:
   - `project.find(start)` finds the nearest `.devloops/devloops.json` from a nested subfolder, and
     the nearest of two nested projects wins.
   - `DEVLOOPS_PROJECT` overrides the search. With no project, it raises `state.UsageError` whose
@@ -137,7 +137,7 @@ depends on this.
     the project and keep outside paths absolute.
   - `Project.workspaces_dir` and `dashboards_dir` default to `.devloops/workspaces` and
     `.devloops/dashboards`.
-- [ ] T009 Implement `loops/shared/devloops/kit.py` (research P-2):
+- [X] T009 Implement `loops/shared/devloops/kit.py` (research P-2):
   - **Class**: `Kit(root, mode, reserved)` with `path(*parts)`, `version`, and
     `command_for(project_root)`.
   - **`resolve()`**:
@@ -145,7 +145,7 @@ depends on this.
       with the root `<checkout>/loops` and `reserved = [<checkout>/loops, <checkout>/bin]`.
     - Otherwise it imports `devloops_kit` and uses `devloops_kit.__path__[0]`, with
       `reserved = [<site>/devloops_kit, <site>/devloops]`.
-- [ ] T010 Implement `loops/shared/devloops/project.py` (research P-3, P-4, P-6, data-model
+- [X] T010 Implement `loops/shared/devloops/project.py` (research P-3, P-4, P-6, data-model
   "Project"):
   - `find(start, env)`.
   - `Project(root)`, with:
@@ -157,7 +157,7 @@ depends on this.
     - `manifest()`, which returns the parsed `manifest.json` or `None`;
     - `resolve()` and `relative_or_absolute()`.
   - Paths are not required to exist here.
-- [ ] T011 Change `loops/shared/devloops/config.py`:
+- [X] T011 Change `loops/shared/devloops/config.py`:
   - `load_effective(defaults_path, workspace_config_path, cli_overrides, project_layers=())`
     merges in this order: `defaults < project_layers[0] < project_layers[1] < workspace
     config.json/--config < cli` (research P-4).
@@ -165,7 +165,7 @@ depends on this.
     "defaults.json")`.
   - `resolve_for_run` passes `project_layers` through.
   - Add `file_sha256(path)`, which returns a hex digest or `None` when the file is missing.
-- [ ] T012 Change `loops/shared/devloops/workspace.py`:
+- [X] T012 Change `loops/shared/devloops/workspace.py`:
   - `resolve_path(name_or_path, project)`: a bare name goes to `<project.workspaces_dir>/<name>`.
   - `open_workspace(name_or_path, project, kit, create)`: its reserved check uses
     `kit.reserved + [<project>/.devloops]`, but allows `<project>/.devloops/workspaces/…`.
@@ -174,7 +174,7 @@ depends on this.
   - Add `check_target(path, project, kit, workspace_path, other_targets)`, which returns the real
     path or raises `input_error("target-unwritable", …)`. It rejects overlap with `kit.reserved`,
     `<project>/.devloops`, the workspace, and the other targets (FR-014). `set_target` calls it.
-- [ ] T013 Replace `repo_root` path building with `Kit`:
+- [X] T013 Replace `repo_root` path building with `Kit`:
   - `loops/shared/devloops/engine.py`: `load_loop_def(kit, loop)`; `Engine(loop, workspace,
     options, kit=None, project=None, env=None)`, where `kit` defaults to `Kit.resolve()` and
     `project` defaults to `workspace.project`; and `_workspace_config_path`.
@@ -188,7 +188,7 @@ depends on this.
 
   Pass the project's `run_config_layers()` into `config.load_effective` / `resolve_for_run` in
   `engine.py`.
-- [ ] T014 Change `loops/shared/devloops/cli.py`:
+- [X] T014 Change `loops/shared/devloops/cli.py`:
   - `main(argv=None, kit=None, project=None, env=None)` resolves `kit` (`Kit.resolve()`) and,
     for every command except `init` and `check`, `project.find(os.getcwd(), env)`. An error exits
     2 with the FR-008 message.
@@ -197,11 +197,11 @@ depends on this.
     differs from `kit.version`, it returns the warning text from contracts/cli.md. The text goes to
     stderr in text mode and into a `warnings` array in `--json` output (FR-029).
   - Remove `_repo_root()`. `bin/devloops` keeps calling `cli.main(sys.argv[1:])`.
-- [ ] T015 Update every test that passes `repo_root=` to `Engine`, `Orchestrator`,
+- [X] T015 Update every test that passes `repo_root=` to `Engine`, `Orchestrator`,
   `open_workspace`, `ClaudeRunner`, `render_all`, or `cli.main` (find them with `grep -rn
   "repo_root" loops/shared/tests`), so they pass a `Kit` and a `Project` built from the `TempEnv`
   root instead. Keep `loops/shared/tests/stub_loop.py` working.
-- [ ] T016 Run `python3 -m unittest discover -s loops/shared/tests` and fix failures until all 001
+- [X] T016 Run `python3 -m unittest discover -s loops/shared/tests` and fix failures until all 001
   tests, plus `test_kit` and `test_project`, pass. **Checkpoint**: there is no behavior change for
   existing workspaces.
 

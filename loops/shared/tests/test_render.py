@@ -5,7 +5,7 @@ import unittest
 
 import helpers
 import samples
-from devloops import render, state
+from devloops import kit, render, state
 
 GOLDEN_DIR = os.path.join(helpers.FIXTURES_DIR, "golden")
 REGEN = os.environ.get("DEVLOOPS_REGEN_GOLDEN") == "1"
@@ -106,7 +106,8 @@ class RenderGoldenTest(unittest.TestCase):
         with open(os.path.join(self.repo, "loops", "backend-dev", "task.md"), "w") as f:
             f.write(TEMPLATE)
         self.plan = build_state(self.loop_dir)
-        render.render_all(self.loop_dir, "backend-dev", "golden", self.repo, final=True,
+        render.render_all(self.loop_dir, "backend-dev", "golden", kit.Kit.from_checkout(self.repo),
+                          final=True,
                           questions=self.plan["open_questions"])
 
     def tearDown(self):
@@ -139,7 +140,7 @@ class RenderGoldenTest(unittest.TestCase):
         path = os.path.join(self.loop_dir, "outputs", "milestone-01-list-items.md")
         with open(path, "a") as f:
             f.write("hand edit\n")
-        render.render_all(self.loop_dir, "backend-dev", "golden", self.repo)
+        render.render_all(self.loop_dir, "backend-dev", "golden", kit.Kit.from_checkout(self.repo))
         with open(path) as f:
             self.assertNotIn("hand edit", f.read())
 
@@ -147,7 +148,7 @@ class RenderGoldenTest(unittest.TestCase):
         path = os.path.join(self.loop_dir, "outputs", "open-questions.md")
         with open(path, "a") as f:
             f.write("note\n")
-        render.render_all(self.loop_dir, "backend-dev", "golden", self.repo)
+        render.render_all(self.loop_dir, "backend-dev", "golden", kit.Kit.from_checkout(self.repo))
         with open(path) as f:
             self.assertTrue(f.read().endswith("note\n"))
 

@@ -79,19 +79,22 @@ def _git_status(toplevel):
     return entries
 
 
-def snapshot(repo_root, workspace_loop_dir, targets):
-    repo_root = os.path.realpath(repo_root)
+def snapshot(kit, workspace_loop_dir, targets, project_root=None):
+    """Fingerprint what a step must not change: the kit's reserved files and the loop's `state/`
+    by manifest, and every git repository holding the kit, the project, the loop, or a target by
+    `git status`."""
     workspace_loop_dir = os.path.realpath(workspace_loop_dir)
     snap = {
-        "manifest": _manifest([os.path.join(repo_root, "loops"), os.path.join(repo_root, "bin"),
-                               os.path.join(workspace_loop_dir, "state")]),
+        "manifest": _manifest([*kit.reserved, os.path.join(workspace_loop_dir, "state")]),
         "git": {},
         "git_unavailable": shutil.which("git") is None,
     }
     if snap["git_unavailable"]:
         return snap
     tops = set()
-    for directory in [repo_root, workspace_loop_dir, *targets]:
+    for directory in [*kit.reserved, project_root, workspace_loop_dir, *targets]:
+        if not directory:
+            continue
         top = _git_toplevel(directory)
         if top:
             tops.add(top)

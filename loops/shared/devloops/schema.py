@@ -9,7 +9,9 @@ import json
 import os
 import re
 
-SCHEMAS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schemas")
+from .kit import Kit
+
+SCHEMAS_DIR = Kit.resolve().path("shared", "schemas")
 
 _cache = {}
 

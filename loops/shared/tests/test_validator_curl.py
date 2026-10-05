@@ -113,7 +113,7 @@ class CurlValidatorTest(unittest.TestCase):
         self.t.write_file("openapi.json", json.dumps(TARGET_OPENAPI), base=self.t.target_dir)
 
     def runner(self):
-        return ClaudeRunner(self.t.root, "backend-dev", self.loop_dir, self.config,
+        return ClaudeRunner(self.t.kit(), "backend-dev", self.loop_dir, self.config,
                             Redactor(self.config), self.run_state, env=self.t.env)
 
     def ctx(self, milestone=None, trial=1):
@@ -121,7 +121,7 @@ class CurlValidatorTest(unittest.TestCase):
         trial_dir = os.path.join(self.loop_dir, "state", "milestones", milestone["id"], "trials",
                                  str(trial))
         return types.SimpleNamespace(
-            loop="backend-dev", loop_dir=self.loop_dir, repo_root=self.t.root, workspace=None,
+            loop="backend-dev", loop_dir=self.loop_dir, kit=self.t.kit(), workspace=None,
             run_state=self.run_state, plan=self.plan, milestone=milestone, trial=trial,
             trial_dir=trial_dir, evidence_dir=os.path.join(trial_dir, "evidence"),
             target_dir=self.t.target_dir, config=self.config, runtime=self.plan["runtime"],

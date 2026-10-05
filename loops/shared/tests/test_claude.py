@@ -31,7 +31,7 @@ class ClaudeRunnerTest(unittest.TestCase):
 
     def runner(self, secrets=None):
         config = dict(self.config, secrets=secrets or {"env": [], "literals": []})
-        return claude.ClaudeRunner(self.t.root, "backend-dev", self.loop_dir, config,
+        return claude.ClaudeRunner(self.t.kit(), "backend-dev", self.loop_dir, config,
                                    Redactor(config), self.run_state, env=self.t.env)
 
     def call(self, step, answer, runner=None, **kw):

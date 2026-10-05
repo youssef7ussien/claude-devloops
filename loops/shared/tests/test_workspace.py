@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 import helpers  # noqa: F401
-from devloops import state, workspace
+from devloops import kit, project, state, workspace
 
 
 class WorkspaceTest(unittest.TestCase):
@@ -17,12 +17,17 @@ class WorkspaceTest(unittest.TestCase):
         self.repo = os.path.join(self.base, "repo")
         for d in ("loops", "bin", "workspaces"):
             os.makedirs(os.path.join(self.repo, d))
+        os.makedirs(os.path.join(self.repo, ".devloops"))
+        with open(os.path.join(self.repo, ".devloops", "devloops.json"), "w") as f:
+            json.dump({"schema_version": 1, "workspaces_dir": "workspaces"}, f)
+        self.project = project.Project(self.repo)
+        self.kit = kit.Kit.from_checkout(self.repo)
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def open(self, name="app-1"):
-        return workspace.open_workspace(name, self.repo)
+        return workspace.open_workspace(name, self.project, self.kit)
 
     # --- create and attach ---
 
@@ -38,7 +43,8 @@ class WorkspaceTest(unittest.TestCase):
         self.assertEqual(self.open().data["created_at"], created)
 
     def test_path_form(self):
-        ws = workspace.open_workspace(os.path.join(self.base, "elsewhere", "ws-b"), self.repo)
+        ws = workspace.open_workspace(os.path.join(self.base, "elsewhere", "ws-b"), self.project,
+                                     self.kit)
         self.assertEqual(ws.name, "ws-b")
 
     def test_invalid_name(self):
@@ -48,7 +54,7 @@ class WorkspaceTest(unittest.TestCase):
 
     def test_workspace_inside_loops_is_refused(self):
         with self.assertRaises(state.UsageError):
-            workspace.open_workspace(os.path.join(self.repo, "loops", "ws"), self.repo)
+            workspace.open_workspace(os.path.join(self.repo, "loops", "ws"), self.project, self.kit)
 
     def test_requirements_identity(self):
         ws = self.open()

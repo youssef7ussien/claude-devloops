@@ -497,6 +497,12 @@ existing tests keep their `workspaces/` paths (SC-008).
 
 **Rationale**: This is the smallest migration, and it keeps 001 A-4 (workspaces committed here).
 
+**Interim step**: Phase 2 makes every command require a project, before `init` exists. So this
+repository commits that minimal `.devloops/devloops.json` ahead of the rest. For this reason, a
+project counts as initialized only when `.devloops/manifest.json` exists. When `devloops.json` is
+there without a manifest, `init` keeps it (it belongs to the developer, FR-028) and installs the
+rest.
+
 ## P-18 Version and minimum Claude Code version
 
 **Decision**: `devloops.__version__` becomes `0.2.0` for this feature. The minimum supported Claude

@@ -19,7 +19,7 @@ import sys
 import unittest
 
 import helpers
-from devloops import boundary, state
+from devloops import boundary, kit, state
 
 PLAYWRIGHT_TOOLS = ["mcp__playwright__browser_navigate", "mcp__playwright__browser_snapshot"]
 
@@ -148,7 +148,8 @@ def implemented(files):
 
 def loops_and_bin(root):
     """The `boundary.snapshot` manifest of `loops/` and `bin/` alone (no loop `state/` dir)."""
-    return boundary.snapshot(root, os.path.join(root, "no-such-loop-dir"), [])["manifest"]
+    return boundary.snapshot(kit.Kit.from_checkout(root), os.path.join(root, "no-such-loop-dir"),
+                             [])["manifest"]
 
 
 def files_under(directory):
