@@ -298,7 +298,8 @@ class EngineCoreTest(unittest.TestCase):
     def test_replan_uses_the_answers_and_pauses_again(self):
         plan = samples.plan()
         plan["open_questions"] = [{"id": "OQ1", "question": "Which port?", "context": "c",
-                                   "affects": ["M01"]}]
+                                   "affects": ["M01"], "suggested_answer": "",
+                                   "suggestion_reason": ""}]
         self.scenario({"plan": {"structured_output": plan},
                        "replan": {"structured_output": samples.plan()}})
         self.assertEqual(self.first_run(), 10)

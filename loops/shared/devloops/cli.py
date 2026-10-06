@@ -45,6 +45,16 @@ def _add_story_options(cmd):
                        help="--requirements is a standalone story file")
 
 
+def _add_questions_option(parser):
+    parser.add_argument("--accept-suggested", action="store_true",
+                        help="accept Claude's suggested answers to open questions instead of "
+                             "pausing (sets questions: accept-suggested; review them afterwards)")
+
+
+def _questions_override(args):
+    return "accept-suggested" if getattr(args, "accept_suggested", False) else None
+
+
 def build_parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workspace",
@@ -65,6 +75,7 @@ def build_parser():
     run.add_argument("--target", help="directory for this loop's application code (first run)")
     run.add_argument("--api-spec", help="OpenAPI JSON document (required for frontend-dev)")
     run.add_argument("--max-trials", type=_positive_int, help="override max_trials")
+    _add_questions_option(run)
     run.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     orch = sub.add_parser("orchestrate", parents=[common],
@@ -75,6 +86,7 @@ def build_parser():
                       help="default targets: <dir>/backend and <dir>/frontend (first run)")
     orch.add_argument("--backend-target", help="backend-dev's target (overrides --target-root)")
     orch.add_argument("--frontend-target", help="frontend-dev's target (overrides --target-root)")
+    _add_questions_option(orch)
     orch.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     for name, text in (("approve", "accept the stored plan and the answers"),
@@ -388,7 +400,8 @@ def _orchestrate(args, kit, project, env):
         requirements=requirements, speckit_feature=feature, story_id=story_id,
         story_file=story_file,
         backend_target=targets["backend"], frontend_target=targets["frontend"],
-        config_path=args.config, force_unlock=args.force_unlock), kit=kit, env=env)
+        config_path=args.config, force_unlock=args.force_unlock,
+        questions=_questions_override(args)), kit=kit, env=env)
     orch.on_progress = _follow(ws)
     error = full = None
     before = _event_marks(ws, orchestrator.LOOP_ORDER)
@@ -617,7 +630,8 @@ def main(argv=None, kit=None, project=None, env=None):
             target=target,
             api_spec=getattr(args, "api_spec", None),
             config_path=args.config,
-            cli_overrides={"max_trials": getattr(args, "max_trials", None)},
+            cli_overrides={"max_trials": getattr(args, "max_trials", None),
+                           "questions": _questions_override(args)},
             force_unlock=args.force_unlock,
         )
         eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)

@@ -37,7 +37,8 @@ When the Context block has a `story_scope` block, the run covers one user story 
 - When something is ambiguous but a reasonable reading keeps within the requirements, proceed and
   record it as an assumption. Never make a silent assumption.
 - When proceeding would add, remove, or contradict a requirement, do not proceed on that point:
-  report it as a question (`needs_input` during implementation, `open_questions` during planning).
+  report it as a question (`needs_input` during implementation, `open_questions` during planning),
+  with the answer you would suggest.
 
 ## Result
 

@@ -49,9 +49,11 @@ IMPLEMENT_RESULT_SCHEMA = {
                            "affects": {"type": "array", "items": {"type": "string"}}}}},
         "needs_input": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["question", "requirement_refs"],
+            "required": ["question", "requirement_refs", "suggested_answer", "suggestion_reason"],
             "properties": {"question": {"type": "string"},
-                           "requirement_refs": {"type": "array", "items": {"type": "string"}}}}},
+                           "requirement_refs": {"type": "array", "items": {"type": "string"}},
+                           "suggested_answer": {"type": "string"},
+                           "suggestion_reason": {"type": "string"}}}},
         "files_changed": {"type": "array", "items": {"type": "string"}},
     },
 }

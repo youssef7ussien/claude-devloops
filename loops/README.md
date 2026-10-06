@@ -209,6 +209,7 @@ version is newer, install that version.
 | `--target <dir>` | Where this loop writes application code. Default: the project's `targets.<loop>`. It is created if missing. It must be writable, outside the project's `.devloops/` and the installed devloops files, and must not overlap the other loop's target |
 | `--api-spec <file>` | The backend's OpenAPI 3 JSON document. **Required for `frontend-dev`** run on its own |
 | `--max-trials <n>` | Override `max_trials` for this start |
+| `--accept-suggested` | Accept Claude's suggested answers instead of pausing (`questions: accept-suggested`, see [Open questions](#approval-replan-and-open-questions)). Also allowed on a later start, for example at the approval pause |
 
 On later starts, omit the flags or repeat them unchanged. Different story options are refused
 (exit 2) and leave the run as it was. Changed requirement or API-spec bytes stop the run for good
@@ -218,7 +219,7 @@ On later starts, omit the flags or repeat them unchanged. Different story option
 
 `--requirements` / `--speckit-feature`, `--story-id` / `--story-file` (passed to both loops),
 `--target-root <dir>` (targets `<dir>/backend` and `<dir>/frontend`), `--backend-target`,
-`--frontend-target`, and `--force-unlock`. Without them, the project's targets and requirements
+`--frontend-target`, `--accept-suggested` (for both loops), and `--force-unlock`. Without them, the project's targets and requirements
 are used. Targets and inputs are recorded on the first call, so later calls need no flags.
 
 ### frontend-dev on its own
@@ -417,20 +418,48 @@ At the pause, review:
 - `outputs/plan-summary.md`: the stack and where it came from, conflicts, the runtime, and the
   milestone list;
 - `outputs/milestone-NN-<slug>.md`: one file per milestone, with its tasks and criteria;
-- `outputs/open-questions.md`: the model's questions. Write each answer after its `**Answer:**`
-  marker.
+- `outputs/open-questions.md`: the model's questions. Each has the answer Claude suggests and
+  why (`**Suggested answer:**`, `**Why:**`). Leave `**Answer:**` empty to accept the suggestion, or
+  write your own answer after the marker.
 
 Then either:
 
-- `approve <loop>`: accept the plan together with your answers. The answers become part of every
-  later prompt. After approval, `open-questions.md` is fingerprinted: editing it stops the run
-  with `input-changed`, except as part of a `retry` (below).
+- `approve <loop>`: accept the plan together with your answers. Each suggestion you left
+  unanswered is copied into its answer and marked with an `**Answer source:**` line, so the file
+  says exactly what the run uses. The answers become part of
+  every later prompt. After approval, `open-questions.md` is fingerprinted: editing it stops the
+  run with `input-changed`, except as part of a `retry` (below).
 - `replan <loop>`: plan again with your answers, then pause again. This uses a planning trial. If
   no valid plan comes back within the limit, the previous plan still awaits approval.
 
 When an `implement` or `fix` call raises a question that the requirements cannot answer, the
 milestone fails at once (`needs-input`, exit 20). The question is appended to
-`open-questions.md` as a new `OQ<n>`. Answer it, then `retry` the milestone.
+`open-questions.md` as a new `OQ<n>`, with Claude's suggested answer. Answer it, or leave the
+answer empty to accept the suggestion, then `retry` the milestone.
+
+Why Claude does not just answer: it already settles every ambiguity it can within the
+requirements, and records each as an assumption. A question is raised only when every answer
+would add, remove, or contradict a requirement, so it is a decision about the product (FR-055a).
+
+### Accepting suggestions automatically
+
+For unattended runs, set `"questions": "accept-suggested"` in the config, or pass
+`--accept-suggested` to `run` or `orchestrate`. Then:
+
+- at the approval pause, the plan is approved automatically (`approval.action: auto-approve`),
+  with the suggestions accepted, and implementation starts in the same command. This includes a
+  stack Claude proposed (FR-058);
+- a `needs-input` question no longer stops the run: its suggestion is accepted, that trial fails
+  with `needs-input` and counts, and the next trial (a `fix`) gets the answer. On the milestone's
+  last trial no trial is left to use it, so the run stops with `needs-input` as under `ask`;
+  `retry` then accepts the suggestions you leave unanswered;
+- a question without a suggested answer still pauses or stops the run as with `ask`.
+
+Every suggestion accepted this way is marked `accepted automatically` in `open-questions.md`, is
+recorded in `run.json` (`approval.accepted_suggestions`, `auto_answers`) and as an `approved` or
+`answers-accepted` event, and is listed under **Suggested answers accepted** in
+`final-report.md`. The dashboards show it under **Needs attention**. Review these answers like
+assumptions: they decided something the requirements left open.
 
 ## Recovery
 
@@ -438,7 +467,7 @@ milestone fails at once (`needs-input`, exit 20). The question is appended to
 |-----------|------------|
 | The driver was killed or the machine stopped mid-trial | Run the same command again. The unfinished trial is recorded as failed (`interrupted`) and counts toward the limit |
 | A milestone used all its trials (exit 20, `trials-exhausted`) | Read the last trial's `validation.json` and `evidence/`, then `retry <loop> --milestone <id> --reason "<guidance>" [--trials n]` and `run` |
-| A question stopped the run (exit 20, `needs-input`) | Answer it in `open-questions.md`, then `retry` (refused until every question is answered) and `run` |
+| A question stopped the run (exit 20, `needs-input`) | Answer it in `open-questions.md`, or leave the answer empty to accept Claude's suggestion, then `retry` and `run`. `retry` is refused while a question has neither an answer nor a suggestion |
 | Planning failed `max_trials` times (`planning-trials-exhausted`) | Final: start a new workspace, perhaps with clearer requirements |
 | Claude Code outage, rate limit, or expired login (exit 50) | Fix the cause (for example, log in again), then run again. No trial was used; the same trial number is retried |
 | `max_invocations_per_run` reached (`invocation-cap`) | Final for this run: the config is frozen at the first start and no milestone is left failed, so `retry` has nothing to grant. Start a new workspace with a higher limit in its config |
@@ -462,6 +491,7 @@ to that run: `status` lists the keys that would now differ (`config_drift`). CLI
 | `invocation_timeout_seconds` | 1800 | A call that runs longer fails its trial (`timeout`) |
 | `max_budget_usd_per_invocation` | null | Passed to Claude Code as a per-call budget when set |
 | `model` | null | Passed as `--model` when set |
+| `questions` | ask | `ask`: open questions pause the run. `accept-suggested`: Claude's suggested answers are accepted automatically and flagged for review (see [Open questions](#approval-replan-and-open-questions)) |
 | `implement_tools` | Read, Edit, Write, Glob, Grep, Bash | Tools allowed in `implement` and `fix` calls |
 | `unit_tests.enabled` / `unit_tests.command` | false / null | Run unit tests as part of validation; the command defaults to the plan's `runtime.unit_test_command` |
 | `runtime.*` | `ready_timeout_seconds`: 120 | Overrides for the plan's runtime: `start_command`, `cwd`, `base_url`, `ready_url`, `openapi_path`. Dependencies are installed by the `implement` step, not by the driver |

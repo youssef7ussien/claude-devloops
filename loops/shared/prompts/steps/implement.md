@@ -18,6 +18,10 @@ Implement the milestone given in the Context block, in the target directory.
 - `assumptions`: every ambiguity you resolved yourself, as `{text, affects}` where `affects` lists
   task or criterion IDs. Each one is shown to the developer for review.
 - `needs_input`: questions you cannot resolve without adding, removing, or contradicting a
-  requirement, as `{question, requirement_refs}`. Anything that would change the requirements goes
-  here, never into `assumptions`. A non-empty list stops the milestone until the developer answers.
+  requirement, as `{question, requirement_refs, suggested_answer, suggestion_reason}`. Anything
+  that would change the requirements goes here, never into `assumptions`. A non-empty list stops
+  the milestone until the developer answers. `suggested_answer` is the answer you would choose,
+  concrete enough to use as written (the developer may accept it unchanged), and
+  `suggestion_reason` says why; leave `suggested_answer` empty only when no answer can reasonably
+  be recommended.
 - `files_changed`: the paths you created or modified, relative to the target directory.

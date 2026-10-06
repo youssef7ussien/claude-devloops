@@ -26,6 +26,10 @@ You have read-only tools. Do not write any file. Return a plan as structured out
     code. "It compiles", "it starts", or "the code exists" are never acceptance criteria.
 - **open_questions**: questions whose answers would change the plan (`OQ1`, `OQ2`, ...), each with
   context and the milestone IDs it affects. The developer answers them before implementation.
+  Give each one a `suggested_answer`: the answer you would choose, stated so it can be used as
+  written, and a `suggestion_reason` saying why. The developer may accept it unchanged, so make it
+  concrete and keep it as close to the requirements as you can. Leave `suggested_answer` empty only
+  when no answer can reasonably be recommended.
 - **assumptions**: every assumption the plan relies on, stated explicitly, with its source.
 
 ## Spec-kit feature

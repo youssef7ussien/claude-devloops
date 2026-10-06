@@ -429,6 +429,11 @@ changing only the inputs and configuration. No loop instructions or shared infra
   developer answers the questions or approves the plan. The developer MAY either approve (the
   answers become binding context) or request replanning with the answers (the loop pauses again).
   Both actions and the answers MUST be recorded [R, CHK030].
+- **FR-053a** [D-12]: Every open question, at planning and as *needs-input*, MUST carry the
+  answer the loop suggests and why. An answer the developer leaves empty accepts the suggestion
+  when they approve (or `retry` after *needs-input*): the suggestion is written into the answers
+  file, marked as an accepted suggestion, before the file is fingerprinted. A question with neither
+  an answer nor a suggestion still blocks `retry`.
 - **FR-054** [D-4, plus FR-030]: The planning pause MUST be recorded in state, so that starting the
   loop again after approval continues with implementation instead of replanning.
 - **FR-055** [D-4]: After approval, a loop that finds a new ambiguity MUST record an explicit
@@ -438,6 +443,14 @@ changing only the inputs and configuration. No loop instructions or shared infra
   NOT be made after approval. Instead, the milestone MUST fail immediately with reason
   *needs-input*, without using its remaining trials. That ends the run (D-1), and the developer can
   continue under FR-063.
+- **FR-055c** [D-12]: An opt-in setting (`questions: accept-suggested`, default `ask`) MAY replace
+  the developer's acceptance with an automatic one. Then the planning pause approves the plan
+  with the suggested answers and implementation continues, and a *needs-input* trial fails alone
+  (it counts) while its suggestions are accepted for the next trial, instead of ending the run. A
+  question without a suggestion, or one raised on the milestone's last trial, still pauses or stops
+  the run as under FR-053 and FR-055a. Every
+  automatically accepted answer MUST be marked in the answers file, recorded in state and events,
+  listed for review in the final report, and flagged in the dashboards.
 - **FR-056** [I — from D-4 plus FR-040]: Under the orchestrator, each loop's planning pause MUST
   also pause the orchestrated run. Work that depends on the paused loop MUST NOT start.
 
@@ -660,6 +673,9 @@ below). No open questions remain.
 - **D-11 (was Q-8) Token measurement**: Taken from the usage report of each Claude Code call and
   summed per milestone, with "unavailable" when missing (plan R-13; adopted per R, CHK014). Applied
   in FR-004a.
+- **D-12 Suggested answers** (decided 2026-10-06): Claude suggests an answer to each open question;
+  an empty answer accepts it, and `questions: accept-suggested` accepts suggestions without the
+  developer for unattended runs. Applied in FR-053a and FR-055c.
 - **Review decisions**: Items marked **[R]** adopt the recommended fixes from
   `checklists/loops-review.md` (2026-09-27). They also settle plan decisions U-1 (FR-016), U-2
   (FR-030a), U-3 (FR-039), U-4 (FR-071), U-5 (FR-063), and U-6 (A-6).

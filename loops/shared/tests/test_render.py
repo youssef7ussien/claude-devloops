@@ -38,7 +38,10 @@ def build_state(loop_dir):
     plan = samples.plan()
     plan["stack"]["conflicts"] = ["The requirements mention a database; none is configured"]
     plan["open_questions"] = [{"id": "OQ1", "question": "Which database?",
-                               "context": "Stack conflict", "affects": ["M02"]}]
+                               "context": "Stack conflict", "affects": ["M02"],
+                               "suggested_answer": "SQLite, in a file under the target.",
+                               "suggestion_reason": "no database is configured and it needs no "
+                                                    "server"}]
     run = samples.run_state()
     run.update(
         status="stopped-on-failure",

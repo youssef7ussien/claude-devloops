@@ -34,6 +34,7 @@ Starts or resumes one loop directly (FR-039, FR-040).
 | `--target <dir>` | This loop's directory for application code (D-7, FR-035a) | Required on the first run; created if missing; must be writable, outside `loops/`, and not the other loop's target |
 | `--api-spec <file>` | An OpenAPI JSON document | **Required for `frontend-dev`** (FR-011) |
 | `--max-trials <n>` | Overrides `max_trials` (FR-006) | Integer ≥ 1 |
+| `--accept-suggested` | Sets `questions: accept-suggested` (FR-055c) | Also allowed on a later start; recorded as a `config-override` |
 
 **Behavior** (see the iteration model in [plan.md](../plan.md#iteration-model)):
 - A run exits when it reaches `awaiting-approval`, a terminal state, `stopped-on-service-error`, or
@@ -56,7 +57,10 @@ Starts or resumes one loop directly (FR-039, FR-040).
 
 Accepts the stored plan together with any answers written in `outputs/open-questions.md`, and moves
 the run to `implementing`. It is allowed only in `awaiting-approval`. It records `Approval`
-(FR-053, FR-054). It does not start implementation; call `run` afterwards.
+(FR-053, FR-054). An empty answer under a suggested answer accepts the suggestion: it is copied
+into the answer and marked `**Answer source:**` before the file is fingerprinted, and its ID is
+listed in `approval.accepted_suggestions` (FR-053a). It does not start implementation; call `run`
+afterwards.
 
 ### `replan <loop>`
 
@@ -78,6 +82,7 @@ research R-15).
 | `--requirements`, `--story-id`, `--story-file` | Passed to both loops |
 | `--target-root <dir>` | The default targets are `<dir>/backend` and `<dir>/frontend` [RC] |
 | `--backend-target`, `--frontend-target` | Override the per-loop targets |
+| `--accept-suggested` | Passed to both loops (FR-055c) |
 
 - The orchestrator stops and uses the same exit codes as `run`: 10 if a loop is awaiting
   approval, 20 or 30 if a loop stopped, 50 on a service error.
@@ -90,8 +95,11 @@ Moves a `stopped-on-failure` run back to `implementing`, granting `n` more trial
 `retry-granted` event, with its time and reason. The reason text is passed to later fix prompts as
 developer guidance.
 
-- For a `needs-input` stop (FR-055a), answer the questions in `outputs/open-questions.md` first.
-  Their fingerprint is recorded with the grant.
+- For a `needs-input` stop (FR-055a), answer the questions in `outputs/open-questions.md` first,
+  or leave an answer empty to accept its suggested answer (FR-053a); `retry` copies accepted
+  suggestions into the file and lists them in the grant's `accepted_suggestions`. It is refused
+  while a question has neither an answer nor a suggestion. The file's fingerprint is recorded with
+  the grant.
 - `retry` is refused for a run stopped with `planning-trials-exhausted`. That stop is final
   (FR-061), and the message says to start a new workspace.
 - `retry` is refused for any other status. Without a grant, `run` on a stopped workspace makes no

@@ -23,7 +23,8 @@ class PlanValidationTest(unittest.TestCase):
         for mutate in (lambda p: p["milestones"][0]["tasks"][0].update(id="M01-1"),
                        lambda p: p["milestones"][0]["acceptance_criteria"][0].update(id="AC1"),
                        lambda p: p["open_questions"].append(
-                           {"id": "Q1", "question": "?", "context": "", "affects": []})):
+                           {"id": "Q1", "question": "?", "context": "", "affects": [],
+                            "suggested_answer": "", "suggestion_reason": ""})):
             plan = samples.plan()
             mutate(plan)
             self.assertNotEqual(self.errors(plan), [])
@@ -81,7 +82,8 @@ class PlanValidationTest(unittest.TestCase):
         plan["stack"]["conflicts"] = ["PRD says Go, the code is Python"]
         self.assertEqual(len(self.errors(plan)), 1)
         plan["open_questions"] = [{"id": "OQ1", "question": "Which stack?", "context": "conflict",
-                                   "affects": ["M01"]}]
+                                   "affects": ["M01"], "suggested_answer": "Keep Python.",
+                                   "suggestion_reason": "the code already uses it"}]
         self.assertEqual(self.errors(plan), [])
 
     def test_openapi_path_required_only_when_the_loop_says_so(self):

@@ -28,6 +28,7 @@ class OrchestrateOptions:
     frontend_target: str = None
     config_path: str = None
     force_unlock: bool = False
+    questions: str = None  # "accept-suggested" from --accept-suggested; None keeps the config's
 
 
 class Orchestrator:
@@ -146,10 +147,11 @@ class Orchestrator:
             story_file=story_file, config_path=self.opts.config_path,
             force_unlock=self.opts.force_unlock,
             target=self.ws.target(loop))
+        opts.cli_overrides = {"questions": self.opts.questions}
         if loop == "frontend-dev":
             handoff = self.state["handoff"]
             opts.api_spec = handoff["api_spec"]["path"]
-            opts.cli_overrides = {"backend": dict(handoff["backend_runtime"])}
+            opts.cli_overrides["backend"] = dict(handoff["backend_runtime"])
         return opts
 
     def _handoff(self):

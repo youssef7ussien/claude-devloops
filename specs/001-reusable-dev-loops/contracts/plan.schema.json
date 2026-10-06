@@ -222,7 +222,9 @@
           "id",
           "question",
           "context",
-          "affects"
+          "affects",
+          "suggested_answer",
+          "suggestion_reason"
         ],
         "properties": {
           "id": {
@@ -240,6 +242,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "suggested_answer": {
+            "type": "string",
+            "description": "The answer Claude recommends; \"\" only when it cannot suggest one. Leaving the developer's answer empty accepts it (FR-053)"
+          },
+          "suggestion_reason": {
+            "type": "string",
+            "description": "Why Claude recommends the suggested answer"
           }
         }
       }

@@ -195,6 +195,20 @@ class OrchestratorTest(unittest.TestCase):
         self.assertEqual(os.path.realpath(handoff["backend_runtime"]["cwd"]),
                          os.path.realpath(self.backend_target))
 
+    def test_accept_suggested_runs_both_loops_without_pausing(self):
+        backend = backend_plan()
+        backend["open_questions"] = [{"id": "OQ1", "question": "Which port?", "context": "c",
+                                      "affects": ["M01"], "suggested_answer": "8765",
+                                      "suggestion_reason": "the plan's runtime uses it"}]
+        self.scenario(plan=[{"structured_output": backend}, {"structured_output": frontend_plan()}])
+        self.assertEqual(self.orchestrate("--accept-suggested"), 0, self.last_output)
+        self.assertEqual(self.orch_state()["status"], "completed")
+        for loop in ("backend-dev", "frontend-dev"):
+            rs = self.run_state(loop)
+            self.assertEqual((rs["status"], rs["approval"]["action"]), ("completed", "auto-approve"))
+            self.assertEqual(rs["effective_config"]["questions"], "accept-suggested")
+        self.assertEqual(self.run_state("backend-dev")["approval"]["accepted_suggestions"], ["OQ1"])
+
     def test_rerunning_resumes_each_loop_from_its_own_state(self):
         self.to_completion()
         # Each loop planned once and each milestone was implemented once: nothing restarted.

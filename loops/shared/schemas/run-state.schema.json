@@ -182,7 +182,8 @@
         "action": {
           "enum": [
             "approve",
-            "replan"
+            "replan",
+            "auto-approve"
           ]
         },
         "answers_path": {
@@ -190,8 +191,22 @@
         },
         "answers_sha256": {
           "type": "string"
+        },
+        "accepted_suggestions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Question IDs whose suggested answer the approval accepted (an empty answer)"
         }
       }
+    },
+    "answers_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "T055: the answers fingerprint later starts compare against; set by the approval, each retry, and each automatic answer"
     },
     "milestones": {
       "type": "object",
@@ -267,6 +282,13 @@
           "extra_trials": {
             "type": "integer",
             "minimum": 1
+          },
+          "accepted_suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "needs-input question IDs whose suggested answer this retry accepted"
           }
         }
       }
@@ -301,6 +323,42 @@
           "sha256": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "auto_answers": {
+      "type": "array",
+      "description": "needs-input questions answered with Claude's suggestions under questions: accept-suggested",
+      "items": {
+        "type": "object",
+        "required": [
+          "milestone_id",
+          "trial",
+          "question_ids",
+          "answered_at",
+          "answers_sha256"
+        ],
+        "properties": {
+          "milestone_id": {
+            "type": "string"
+          },
+          "trial": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "question_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "answered_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answers_sha256": {
+            "type": "string"
           }
         }
       }

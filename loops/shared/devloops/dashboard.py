@@ -93,11 +93,7 @@ def collect_loop(ws, loop):
     plan = state.read_json(os.path.join(state_dir, "plan.json")) or {}
     invocations = state.read_jsonl(os.path.join(state_dir, "invocations.jsonl"))
     events = state.read_jsonl(os.path.join(state_dir, "events.jsonl"))
-    try:
-        with open(os.path.join(loop_dir, "outputs", "open-questions.md"), encoding="utf-8") as f:
-            answers = render.parse_answers(f.read())
-    except OSError:
-        answers = {}
+    questions = render.load_questions(loop_dir)
 
     by_milestone = {}
     for rec in invocations:
@@ -165,7 +161,7 @@ def collect_loop(ws, loop):
         "loop": loop, "status": run.get("status"), "status_reason": run.get("status_reason"),
         "plan": plan, "milestones": milestones, "planning": planning,
         "planning_cost": _cost(planning_calls), "planning_tokens": _tokens(planning_calls),
-        "invocations": invocations, "events": events, "answers": answers,
+        "invocations": invocations, "events": events, "questions": questions,
         "grants": run.get("grants") or [], "approval": run.get("approval"),
         "ui_url": run.get("ui_url"), "openapi_artifact": run.get("openapi_artifact"),
         "target_dir": run.get("target_dir"),
@@ -487,10 +483,12 @@ def _next_action(loop, d):
     code = reason.get("code")
     if status == "awaiting-approval":
         return (f"Review <code>{e(loop)}/outputs/</code>, answer "
-                f"<code>open-questions.md</code>, then <code>devloops approve {e(loop)}</code> "
+                f"<code>open-questions.md</code> (an empty answer accepts Claude's suggestion), "
+                f"then <code>devloops approve {e(loop)}</code> "
                 f"or <code>devloops replan {e(loop)}</code>.")
     if status == "stopped-on-failure" and code == "needs-input":
-        return (f"Answer the new questions in <code>open-questions.md</code>, then "
+        return (f"Answer the new questions in <code>open-questions.md</code> (an empty answer "
+                f"accepts Claude's suggestion), then "
                 f"<code>devloops retry {e(loop)} --milestone {e(reason.get('milestone_id'))} "
                 f"--reason \"…\"</code>.")
     if status == "stopped-on-failure" and code in ("trials-exhausted",):
@@ -512,7 +510,8 @@ def attention(data, links=FILE_LINKS, call_href=None):
     """What a reader should look at first: `[(tone, html)]`, most urgent first.
 
     Stopped or paused loops and their next action; acceptance criteria failing on a milestone's
-    latest trial; unanswered questions while a loop is not done; failed calls; large evidence
+    latest trial; suggested answers accepted automatically; unanswered questions and suggestions
+    not accepted yet while a loop is not done; failed calls; large evidence
     files; and milestones that passed only after failed or voided trials. `call_href(loop,
     record)` links a call (the full dashboard); otherwise calls link to the calls view.
     """
@@ -543,13 +542,23 @@ def attention(data, links=FILE_LINKS, call_href=None):
                 reasons = sorted({t["reason"] for t in bad if t.get("reason")})
                 items.append(("info", f'{where} passed after {e(kinds)} trial(s)'
                               + (f' ({e(", ".join(reasons))})' if reasons else "")))
+        sources = {qid: question_answer(d, qid)[1][1] for qid in question_ids(d)}
+        auto = [qid for qid, src in sources.items()
+                if src == "accepted" and "automatically" in d["questions"][qid]["source"]]
+        if auto:
+            items.append(("warning", f'<a href="#questions">{e(loop)}: {len(auto)} suggested '
+                                     f'answer(s) accepted automatically</a> ({e(", ".join(auto))});'
+                                     ' review them like assumptions'))
         if status != "completed":
-            planned = {q["id"] for q in (d["plan"].get("open_questions") or [])}
-            open_ = [q for q in dict.fromkeys(list(planned) + list(d["answers"]))
-                     if not (d["answers"].get(q) or (None, ""))[1]]
+            open_ = [qid for qid, src in sources.items() if src is None]
             if open_:
                 items.append(("warning", f'<a href="#questions">{e(loop)}: {len(open_)} unanswered '
                                          f'question(s)</a> ({e(", ".join(open_))})'))
+            pending = [qid for qid, src in sources.items() if src == "suggested"]
+            if pending:
+                items.append(("info", f'<a href="#questions">{e(loop)}: {len(pending)} suggested '
+                                      f'answer(s) not yet accepted</a> ({e(", ".join(pending))});'
+                                      ' an empty answer accepts the suggestion'))
         for r in d["invocations"]:
             failure = r.get("failure_class")
             if failure not in (None, "none"):
@@ -796,17 +805,46 @@ def loop_view(loop, d, ws_path, links=FILE_LINKS, call_ref=None, files_view=Fals
     return ui.view(loop, loop, "".join(parts), badge=pill(d["status"], RUN_STATUS))
 
 
+ANSWER_SOURCE = {
+    "developer": ("Your answer", "✓", "good"),
+    "accepted": ("Suggestion accepted", "!", "warning"),
+    "suggested": ("Suggested, not accepted yet", "◷", "neutral"),
+    "none": ("Unanswered", "•", "critical"),
+}
+
+
+def question_ids(d):
+    """A loop's question IDs: the plan's, then those only in open-questions.md (needs-input)."""
+    planned = [q["id"] for q in d["plan"].get("open_questions") or []]
+    return list(dict.fromkeys(planned + list(d["questions"])))
+
+
+def question_answer(d, qid):
+    """`(question, (answer, source), suggestion_reason)` of one question; see
+    `render.effective_answer`. A planned question missing from the file uses the plan's text."""
+    planned = {q["id"]: q for q in d["plan"].get("open_questions") or []}.get(qid, {})
+    q = d["questions"].get(qid) or {
+        "question": planned.get("question", ""), "answer": "", "source": "",
+        "suggested": planned.get("suggested_answer", ""),
+        "reason": planned.get("suggestion_reason", "")}
+    return q["question"], render.effective_answer(q), q
+
+
 def questions_view(data):
     rows = []
     for loop, d in data["loops"].items():
-        planned = {q["id"]: q for q in (d["plan"].get("open_questions") or [])}
-        for qid in dict.fromkeys(list(planned) + list(d["answers"])):
-            q = planned.get(qid, {})
-            question, answer = d["answers"].get(qid, (q.get("question"), ""))
+        for qid in question_ids(d):
+            question, (answer, source), q = question_answer(d, qid)
+            cell = pill(source or "none", ANSWER_SOURCE)
+            if answer:
+                cell += (f'<div class="muted">{e(answer)}</div>' if source == "suggested"
+                         else f"<div>{e(answer)}</div>")
+            if source in ("suggested", "accepted") and q.get("reason"):
+                cell += f'<div class="muted small">Why: {e(q["reason"])}</div>'
+            if source == "accepted":
+                cell += f'<div class="muted small">{e(q["source"])}</div>'
             rows.append(f"<tr><td>{e(loop)}</td><td><strong>{e(qid)}</strong></td>"
-                        f"<td>{e(question or q.get('question'))}</td>"
-                        f"<td>{e(answer) if answer else '<span class=muted>Unanswered</span>'}"
-                        f"</td></tr>")
+                        f"<td>{e(question)}</td><td>{cell}</td></tr>")
     assumptions = [f"<tr><td>{e(loop)}</td><td><strong>{e(a['id'])}</strong></td><td>{e(a['text'])}"
                    f"</td><td class='muted small'>{e(a.get('source'))}</td></tr>"
                    for loop, d in data["loops"].items() for a in d["plan"].get("assumptions") or []]

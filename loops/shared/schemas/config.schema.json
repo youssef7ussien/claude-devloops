@@ -195,6 +195,14 @@
           "description": "Extra paths inside audited repositories that tools may write to (for example, a cache directory)"
         }
       }
+    },
+    "questions": {
+      "enum": [
+        "ask",
+        "accept-suggested"
+      ],
+      "default": "ask",
+      "description": "ask: open questions pause the run for the developer (FR-053, FR-055a). accept-suggested: Claude's suggested answers are accepted automatically and flagged for review; a question without a suggestion still pauses"
     }
   }
 }

@@ -27,6 +27,7 @@ EVENT_TYPES = {
     "approved", "trial-started", "trial-voided", "task-implemented", "validation-passed",
     "validation-failed", "needs-input", "retry-granted", "service-error", "boundary-violation",
     "milestone-achieved", "git-commit", "stopped", "completed", "prompt-sources-changed",
+    "answers-accepted",
 }
 
 

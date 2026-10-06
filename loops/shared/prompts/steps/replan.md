@@ -5,7 +5,8 @@ The developer reviewed your previous plan and answered its open questions. Plan 
 - The Context block gives the path of the answers file and its content, and the path of the
   previous plan. Read both.
 - Treat every answer as authoritative. Apply it to the stack, runtime, milestones, tasks, and
-  acceptance criteria it affects.
+  acceptance criteria it affects. An empty `**Answer:**` under a `**Suggested answer:**` means
+  the developer accepts that suggestion; treat it as the answer.
 - Keep what the answers do not affect. Do not reorganize the plan without a reason.
 - Drop questions that are now answered. Ask new questions only if the answers raise them.
 - You have read-only tools. Do not write any file.
@@ -18,6 +19,6 @@ Return a complete plan in the same structured format and under the same rules as
 - the runtime commands;
 - milestones in dependency order, each with tasks and observable acceptance criteria, every one
   citing requirement references from the inventory;
-- open questions and explicit assumptions.
+- open questions, each with a suggested answer and its reason, and explicit assumptions.
 - for a spec-kit feature (`speckit` in the Context block), the same `speckit_phase`,
   `speckit_tasks`, and `speckit_omitted` rules as the `plan` step: follow `speckit.rule`.

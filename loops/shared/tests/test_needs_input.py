@@ -97,7 +97,8 @@ class NeedsInputTest(StubLoopMixin, unittest.TestCase):
     def test_editing_answers_while_awaiting_approval_is_expected(self):
         plan = samples.plan()
         plan["open_questions"] = [{"id": "OQ1", "question": "Which port?", "context": "runtime",
-                                   "affects": ["M01"]}]
+                                   "affects": ["M01"], "suggested_answer": "",
+                                   "suggestion_reason": ""}]
         self.scenario({"plan": {"structured_output": plan}})
         self.assertEqual(self.first_run(), 10, self.last_output)
 

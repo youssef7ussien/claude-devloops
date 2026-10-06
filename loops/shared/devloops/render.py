@@ -282,46 +282,101 @@ def task_values(run, workspace_name):
 # --- open-questions.md ---------------------------------------------------------------------------
 
 ANSWER_MARK = "**Answer:**"
+SOURCE_MARK = "**Answer source:**"
+_ANSWER_RE = re.compile(r"(?m)^\*\*Answer:\*\*")
+_FIELDS = {"Question": "question", "Context": "context", "Affects": "affects",
+           "Suggested answer": "suggested", "Why": "reason", "Answer source": "source"}
+# Only these labels start a field, so a `**Note:**` line inside a suggestion stays part of it.
+_FIELD_RE = re.compile(r"(?m)^\*\*(" + "|".join(_FIELDS) + r"):\*\* ?")
+
+
+def _split_blocks(text):
+    """`[preamble, "### OQ1...", "### OQ2...", ...]`; joining the list gives `text` back."""
+    return re.split(r"(?m)^(?=### )", text or "")
+
+
+def parse_questions(text):
+    """Map question ID -> `{question, context, affects, suggested, reason, source, answer}` from
+    open-questions.md. A field runs until the next `**Field:**` line; the answer is everything
+    after the `**Answer:**` marker. Blocks without that marker are skipped."""
+    out = {}
+    for block in _split_blocks(text)[1:]:
+        qid = block[4:].split("\n", 1)[0].strip()
+        answer = _ANSWER_RE.search(block)
+        if not answer:
+            continue
+        head = block[:answer.start()]
+        fields = dict.fromkeys(_FIELDS.values(), "")
+        marks = list(_FIELD_RE.finditer(head))
+        for i, m in enumerate(marks):
+            key = _FIELDS.get(m.group(1))
+            if key:
+                stop = marks[i + 1].start() if i + 1 < len(marks) else len(head)
+                fields[key] = head[m.end():stop].strip()
+        fields["answer"] = block[answer.end():].strip()
+        out[qid] = fields
+    return out
 
 
 def parse_answers(text):
     """Map question ID -> (question text, answer text) from an existing open-questions.md."""
-    answers = {}
-    for block in re.split(r"(?m)^### ", text or "")[1:]:
-        qid = block.split("\n", 1)[0].strip()
-        question = re.search(r"(?m)^\*\*Question:\*\* (.*)$", block)
-        if ANSWER_MARK not in block:
-            continue
-        answer = block.split(ANSWER_MARK, 1)[1].strip()
-        answers[qid] = (question.group(1).strip() if question else "", answer)
-    return answers
+    return {qid: (q["question"], q["answer"]) for qid, q in parse_questions(text).items()}
+
+
+def effective_answer(q):
+    """What a question's answer is, and where it came from: `(text, "developer" | "suggested" |
+    "accepted" | None)`. An empty answer stands for the suggestion until something accepts it.
+    An accepted suggestion the developer has since rewritten is theirs: the `**Answer source:**`
+    line counts only while the answer is still the suggestion."""
+    if q["answer"]:
+        accepted = q["source"] and q["answer"] == q["suggested"]
+        return q["answer"], ("accepted" if accepted else "developer")
+    if q["suggested"]:
+        return q["suggested"], "suggested"
+    return "", None
+
+
+def _question_lines(qid, question, context, affects, suggested, reason, answer="", source=""):
+    lines = [f"### {qid}", "", f"**Question:** {question}", f"**Context:** {context or 'none'}",
+             f"**Affects:** {_refs(affects)}"]
+    if suggested:
+        lines += [f"**Suggested answer:** {suggested}", f"**Why:** {reason or 'not given'}"]
+    if source:
+        lines.append(f"{SOURCE_MARK} {source}")
+    return lines + ["", f"{ANSWER_MARK} {answer}".rstrip(), ""]
+
+
+def _intro(loop, workspace_name):
+    return [f"# Open questions: {loop}", "",
+            f"Claude suggests an answer where it can. Leave {ANSWER_MARK} empty to accept the "
+            f"suggestion, or write your own answer after the marker (more lines are fine). Then "
+            f"run `devloops approve {loop} --workspace {workspace_name}` to accept the plan, or "
+            f"`devloops replan {loop} --workspace {workspace_name}` to plan again with the "
+            f"answers. Approving (or `retry` after a needs-input stop) copies each accepted "
+            f"suggestion into its answer and marks it with {SOURCE_MARK}.", ""]
 
 
 def render_open_questions(loop, workspace_name, questions, existing_text=None):
-    """`questions` are `{id, question, context, affects}`; kept answers need the same ID and text."""
-    previous = parse_answers(existing_text)
-    lines = [f"# Open questions: {loop}", "",
-             f"Write each answer after its {ANSWER_MARK} marker (more lines are fine), then run "
-             f"`devloops approve {loop} --workspace {workspace_name}` to accept the plan, or "
-             f"`devloops replan {loop} --workspace {workspace_name}` to plan again with the "
-             "answers.", ""]
+    """`questions` are plan `open_questions`; kept answers need the same ID and text."""
+    previous = parse_questions(existing_text)
+    lines = _intro(loop, workspace_name)
     if not questions:
         lines.append("_No open questions._")
     for q in questions:
         kept = previous.get(q["id"])
-        answer = kept[1] if kept and kept[0] == q["question"].strip() else ""
-        lines += [f"### {q['id']}", "", f"**Question:** {q['question']}",
-                  f"**Context:** {q.get('context') or 'none'}",
-                  f"**Affects:** {_refs(q.get('affects'))}", "",
-                  f"{ANSWER_MARK} {answer}".rstrip(), ""]
+        same = kept and kept["question"] == q["question"].strip()
+        lines += _question_lines(q["id"], q["question"], q.get("context"), q.get("affects"),
+                                 q.get("suggested_answer"), q.get("suggestion_reason"),
+                                 kept["answer"] if same else "", kept["source"] if same else "")
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
 def append_open_questions(existing_text, questions, context):
     """Append `needs_input` questions to open-questions.md as new `OQ<n>`, each unanswered.
 
-    `questions` are `{question, requirement_refs}`; numbering continues after the highest `OQ<n>`
-    already in the file. Returns `(text, ids)`. Answers already written are kept as they are.
+    `questions` are `{question, requirement_refs, suggested_answer, suggestion_reason}`;
+    numbering continues after the highest `OQ<n>` already in the file. Returns `(text, ids)`.
+    Answers already written are kept as they are.
     """
     text = (existing_text or "").replace("_No open questions._\n", "").rstrip("\n")
     numbers = [int(n) for n in re.findall(r"(?m)^### OQ(\d+)\s*$", text)]
@@ -331,16 +386,38 @@ def append_open_questions(existing_text, questions, context):
     for i, q in enumerate(questions):
         qid = f"OQ{next_n + i}"
         ids.append(qid)
-        lines += [f"### {qid}", "", f"**Question:** {q['question']}",
-                  f"**Context:** {context}", f"**Affects:** {_refs(q.get('requirement_refs'))}", "",
-                  ANSWER_MARK, ""]
+        lines += _question_lines(qid, q["question"], context, q.get("requirement_refs"),
+                                 q.get("suggested_answer"), q.get("suggestion_reason"))
     return "\n".join(lines).rstrip("\n") + "\n", ids
+
+
+def accept_suggestions(text, how, ids=None):
+    """Copy each suggestion whose answer is empty into the answer, marked `**Answer source:**
+    suggested answer, accepted <how>`. `ids` limits it to those questions. Returns `(text,
+    accepted_ids)`; the text is unchanged when nothing was accepted."""
+    blocks = _split_blocks(text)
+    questions = parse_questions(text)
+    accepted = []
+    for i, block in enumerate(blocks[1:], 1):
+        qid = block[4:].split("\n", 1)[0].strip()
+        q = questions.get(qid)
+        if not q or q["answer"] or not q["suggested"] or (ids is not None and qid not in ids):
+            continue
+        head = block[:_ANSWER_RE.search(block).start()].rstrip("\n")
+        blocks[i] = (f"{head}\n{SOURCE_MARK} suggested answer, accepted {how}\n\n"
+                     f"{ANSWER_MARK} {q['suggested']}\n\n")
+        accepted.append(qid)
+    if not accepted:
+        return text, []
+    return "".join(blocks).rstrip("\n") + "\n", accepted
 
 
 # --- final-report.md ----------------------------------------------------------------------------
 
-def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validations):
-    """`validations` maps milestone ID -> the last trial's validation result (or None)."""
+def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validations,
+                        questions=None):
+    """`validations` maps milestone ID -> the last trial's validation result (or None);
+    `questions` is `parse_questions` of open-questions.md."""
     lines = [f"# Final report: {loop}", "", f"- **Workspace**: {workspace_name}",
              f"- **Outcome**: {run.get('status')}"]
     reason = run.get("status_reason")
@@ -374,6 +451,14 @@ def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validati
                      ("exit " + str(unit.get("exit_code"))) if unit.get("enabled") else "disabled"])
     lines.append(_table(["Milestone", "Validation", "Criteria passed", "Contract", "Unit tests"],
                         rows))
+    accepted = [(qid, q) for qid, q in (questions or {}).items()
+                if effective_answer(q)[1] == "accepted"]
+    if accepted:
+        lines += ["", "## Suggested answers accepted", "",
+                  "Claude suggested these answers and nobody wrote a different one; review them "
+                  "like assumptions.", ""]
+        lines += [f"- **{qid}** {q['question']} **Answer:** {q['answer']} ({q['source']})"
+                  for qid, q in accepted]
     lines += ["", "## Assumptions for review", ""]
     items = [f"- **{a['id']}** (planning) {a['text']} (source: {a['source']})"
              for a in plan["assumptions"]]
@@ -397,6 +482,15 @@ def load_trials(loop_dir, run):
             docs.append(state.read_json(path, default=dict(summary)))
         trials[mid] = docs
     return trials
+
+
+def load_questions(loop_dir):
+    """`parse_questions` of the loop's open-questions.md; `{}` when there is none."""
+    try:
+        with open(os.path.join(loop_dir, "outputs", "open-questions.md"), encoding="utf-8") as f:
+            return parse_questions(f.read())
+    except OSError:
+        return {}
 
 
 def load_validations(loop_dir, run):
@@ -452,7 +546,8 @@ def render_all(loop_dir, loop, workspace_name, kit, final=False, questions=None)
     if final and plan:
         state.write_text_atomic(os.path.join(outputs, "final-report.md"),
                                 render_final_report(loop, workspace_name, run, plan, trials,
-                                                    load_validations(loop_dir, run)))
+                                                    load_validations(loop_dir, run),
+                                                    load_questions(loop_dir)))
 
 
 # --- Orchestrator progress -----------------------------------------------------------------------------

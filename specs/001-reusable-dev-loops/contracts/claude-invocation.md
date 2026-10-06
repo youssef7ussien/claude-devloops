@@ -44,7 +44,7 @@ claude -p "<composed prompt>" \
 | Step | Loop | Tools | Permission mode | Structured result |
 |------|------|-------|-----------------|-------------------|
 | `plan` / `replan` | both | `Read Glob Grep` | default; write tools and `Bash` in `--disallowedTools` | [plan.schema.json](./plan.schema.json) |
-| `implement` / `fix` | both | `Read Edit Write Glob Grep Bash` (configurable) | `acceptEdits` | `{tasks: [{task_id, status: implemented\|not-implemented, note}], assumptions: [{text, affects}], needs_input: [{question, requirement_refs}], files_changed: [path]}`. Put anything that would add, remove, or contradict a requirement in `needs_input`, never in `assumptions` (FR-055a) |
+| `implement` / `fix` | both | `Read Edit Write Glob Grep Bash` (configurable) | `acceptEdits` | `{tasks: [{task_id, status: implemented\|not-implemented, note}], assumptions: [{text, affects}], needs_input: [{question, requirement_refs, suggested_answer, suggestion_reason}], files_changed: [path]}`. Put anything that would add, remove, or contradict a requirement in `needs_input`, never in `assumptions` (FR-055a) |
 | `author-checks` | backend-dev | `Read Glob Grep` | default; write tools and `Bash` in `--disallowedTools` | [checks.schema.json](./checks.schema.json) |
 | `validate-ui` | frontend-dev | `Read` + `mcp__playwright__*` | default; write tools and `Bash` in `--disallowedTools` | `criteria[]` and `network_requests[]` (see [validation-result.schema.json](./validation-result.schema.json)) |
 

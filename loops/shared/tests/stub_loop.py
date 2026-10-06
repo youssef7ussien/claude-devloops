@@ -38,12 +38,15 @@ def validate(ctx):
 '''
 
 
-def implemented(task_id, needs_input=(), **extra):
-    """An implement/fix answer that implements `task_id`; `extra` adds answer fields."""
+def implemented(task_id, needs_input=(), suggested="", **extra):
+    """An implement/fix answer that implements `task_id`; `extra` adds answer fields. Each
+    `needs_input` question gets `suggested` as its suggested answer."""
     return dict({"structured_output": {
         "tasks": [{"task_id": task_id, "status": "implemented", "note": "done"}],
         "assumptions": [],
-        "needs_input": [{"question": q, "requirement_refs": ["FR-1"]} for q in needs_input],
+        "needs_input": [{"question": q, "requirement_refs": ["FR-1"], "suggested_answer": suggested,
+                         "suggestion_reason": "why: " + suggested if suggested else ""}
+                        for q in needs_input],
         "files_changed": ["app.py"]},
         "writes": [{"path": "app.py", "content": f"# {task_id}\n", "tool": "Write"}]}, **extra)
 

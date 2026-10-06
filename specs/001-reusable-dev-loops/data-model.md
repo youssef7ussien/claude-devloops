@@ -58,7 +58,9 @@ One loop's run within a workspace. File: `workspaces/<ws>/<loop>/state/run.json`
 | `invocation_count` | Checked against `max_invocations_per_run` |
 | `ui_url` | frontend-dev only: the URL where the built UI is served (D-2) |
 | `openapi_artifact` | backend-dev only: `{path, sha256}` of `outputs/openapi.json` |
-| `grants[]` | Trial-budget grants (FR-063): `{milestone_id, granted_at, reason, extra_trials}` |
+| `grants[]` | Trial-budget grants (FR-063): `{milestone_id, granted_at, reason, extra_trials, answers_sha256, accepted_suggestions?}` |
+| `answers_sha256` | The answers fingerprint later starts compare against: set by the approval, each `retry`, and each automatic answer (FR-051a, FR-055c) |
+| `auto_answers[]` | Suggested answers accepted automatically after a `needs-input` trial (FR-055c): `{milestone_id, trial, question_ids, answered_at, answers_sha256}` |
 | `project_root` | Added by 002: the project root at the first start. A resume from another root rewrites the recorded paths under it (002 FR-013) |
 | `config_sources`, `config_cli_keys` | Added by 002: the sha256 of each configuration file when the configuration was frozen, and the keys the command line set. `status` uses them to report `config_drift` (002 FR-015) |
 | `prompt_sources` | Added by 002: `[{part, source, path, sha256}]` of every prompt part the loop can use, when the configuration was frozen. `status` compares them with the current files to report `prompt_drift` (002 FR-032) |
@@ -224,10 +226,15 @@ parts (002 FR-031).
 
 ## Approval
 
-In `run.json`: `{approved_at, action: approve | replan, answers_path, answers_sha256}`.
+In `run.json`: `{approved_at, action: approve | replan | auto-approve, answers_path,
+answers_sha256, accepted_suggestions}`. `auto-approve` is the approval made by
+`questions: accept-suggested` (FR-055c); `accepted_suggestions` lists the questions whose suggested
+answer was accepted (FR-053a).
 The answers file is `outputs/open-questions.md`, edited by the developer. `answers_sha256` is
 compared on every later start (FR-051a). Answers given for `needs-input` questions before a
-`retry` are fingerprinted the same way.
+`retry`, and suggestions accepted automatically after a `needs-input` trial (`auto_answers[]`), are
+fingerprinted the same way. `run.json` `answers_sha256` holds the latest of these fingerprints,
+the one a start compares against.
 
 ## Event (action-item log)
 
@@ -236,13 +243,14 @@ The `type` values are `run-started`, `input-check`, `config-override`, `lock-cle
 `plan-stored`, `paused`, `approved`,
 `trial-started`, `trial-voided`, `task-implemented`, `validation-passed`, `validation-failed`,
 `needs-input`, `retry-granted`, `service-error`,
-`boundary-violation`, `milestone-achieved`, `git-commit`, `stopped`, `completed`, and
-`prompt-sources-changed` (added by 002).
+`boundary-violation`, `milestone-achieved`, `git-commit`, `stopped`, `completed`,
+`prompt-sources-changed` (added by 002), and `answers-accepted` (FR-055c).
 `config-override` records a CLI override applied over the frozen `effective_config`; `lock-cleared`
 records a stale lock removed by `--force-unlock`; `git-commit` records the outcome of the optional
 per-milestone commit (`git.commit_per_milestone`, A-6); `prompt-sources-changed` records, on a
 later start, the prompt parts whose override was added, changed, or removed since the configuration
-was frozen (002 FR-032). Events are rendered into the action-item section of `progress.md` (FR-004).
+was frozen (002 FR-032); `answers-accepted` records suggested answers accepted automatically after
+a `needs-input` trial. Events are rendered into the action-item section of `progress.md` (FR-004).
 
 ## OrchestratorRun
 

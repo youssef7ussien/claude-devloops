@@ -156,11 +156,15 @@ def _hash_or_none(path):
 
 
 def recorded_answers_sha256(run_state):
-    """The answers hash to compare: the latest grant's, else the approval's, else None (T055).
+    """The answers hash to compare (T055): the run's `answers_sha256`, which the approval, each
+    `retry` and each automatic answer update; for older runs without it, the latest grant's, else
+    the approval's, else None.
 
     A `retry` after a `needs-input` stop records the answered file with its grant, so that grant,
     not the older approval, is what later starts must match.
     """
+    if run_state.get("answers_sha256"):
+        return run_state["answers_sha256"]
     for grant in reversed(run_state.get("grants") or []):
         if grant.get("answers_sha256"):
             return grant["answers_sha256"]

@@ -136,19 +136,40 @@ class Engine:
         with self._lock():
             self.rs = self._require_status("approve", "awaiting-approval")
             self._use_config(self.rs["effective_config"])
-            if not os.path.exists(self.answers_path):
-                self._render(questions=state.read_json(self.plan_path)["open_questions"])
-            self.rs["approval"] = {
-                "approved_at": state.now_iso(), "action": "approve",
-                "answers_path": self.answers_path,
-                "answers_sha256": inputs.sha256_file(self.answers_path),
-            }
-            self.rs["status"] = "implementing"
-            self._save()
-            self._event("approved", "plan approved with the answers in outputs/open-questions.md")
+            accepted = self._approve("approve", "by `devloops approve`")
+            self._event("approved", "plan approved with the answers in outputs/open-questions.md"
+                        + self._accepted_note(accepted))
             self._render()
             self.message = f"plan approved; run `devloops run {self.loop}` to implement it"
             return 0
+
+    def _approve(self, action, how):
+        """Record the approval of the stored plan with the current answers; status `implementing`.
+
+        An empty answer with a suggested answer accepts the suggestion: it is copied into the
+        answer first, so the file the approval fingerprints says what the run will use.
+        """
+        if not os.path.exists(self.answers_path):
+            self._render(questions=state.read_json(self.plan_path)["open_questions"])
+        with open(self.answers_path, encoding="utf-8") as f:
+            text, accepted = render.accept_suggestions(f.read(), how)
+        if accepted:
+            state.write_text_atomic(self.answers_path, text)
+        sha = inputs.sha256_file(self.answers_path)
+        self.rs["approval"] = {
+            "approved_at": state.now_iso(), "action": action,
+            "answers_path": self.answers_path, "answers_sha256": sha,
+            "accepted_suggestions": accepted,
+        }
+        self.rs["answers_sha256"] = sha
+        self.rs["status"] = "implementing"
+        self._save()
+        return accepted
+
+    @staticmethod
+    def _accepted_note(accepted):
+        return (f"; suggested answer(s) accepted for {', '.join(accepted)}, review them"
+                if accepted else "")
 
     def replan(self):
         """Plan again with the answers, then pause again (research R-6)."""
@@ -196,28 +217,38 @@ class Engine:
                     f"({'unknown' if ms is None else ms['status']}); retry "
                     + (f"--milestone {', '.join(failed)}" if failed else "has nothing to grant"))
             self._use_config(self.rs["effective_config"])
+            accepted = []
             if stop_reason.get("code") == "needs-input" and \
                     stop_reason.get("milestone_id") == milestone_id:
-                self._require_answers(milestone_id)
+                text, accepted = self._require_answers(milestone_id)
+                if accepted:
+                    state.write_text_atomic(self.answers_path, text)
             answers = inputs._hash_or_none(self.answers_path)
             grant = {"milestone_id": milestone_id, "granted_at": state.now_iso(),
                      "reason": reason, "extra_trials": trials or self.config["max_trials"],
                      "answers_sha256": answers}
+            if accepted:
+                grant["accepted_suggestions"] = accepted
             self.rs.setdefault("grants", []).append(grant)
+            if answers:
+                self.rs["answers_sha256"] = answers
             ms["status"] = "in-progress"
             ms["tasks"] = {t: ("pending" if s == "failed" else s) for t, s in ms["tasks"].items()}
             self.rs["status"] = "implementing"
             self.rs["status_reason"] = None
             self._save()
             self._event("retry-granted", f"{milestone_id}: {grant['extra_trials']} more trial(s): "
-                                         f"{reason}", milestone=milestone_id)
+                                         f"{reason}" + self._accepted_note(accepted),
+                        milestone=milestone_id)
             self._render()
             self.message = (f"granted {grant['extra_trials']} more trial(s) to {milestone_id}; run "
                             f"`devloops run {self.loop}` to continue")
             return 0
 
     def _require_answers(self, milestone_id):
-        """Refuse `retry` while a question of the `needs-input` stop is unanswered.
+        """Refuse `retry` while a question of the `needs-input` stop has neither an answer nor a
+        suggested answer; return `(text, accepted)`, the answers file with the suggestions of
+        those questions accepted, for the caller to write.
 
         The grant fingerprints the answers file; answering after `retry` would change it, and the
         next `run` would then stop for good with `input-changed` (FR-051a). Questions are matched
@@ -230,9 +261,12 @@ class Engine:
         asked = {q["question"].strip() for q in doc.get("needs_input") or []}
         try:
             with open(self.answers_path, encoding="utf-8") as f:
-                answers = render.parse_answers(f.read())
+                text = f.read()
         except FileNotFoundError:
-            answers = {}
+            text = ""
+        ids = [qid for qid, q in render.parse_questions(text).items() if q["question"] in asked]
+        text, accepted = render.accept_suggestions(text, "by `devloops retry`", ids)
+        answers = render.parse_answers(text)
         answered = {q.strip() for q, a in answers.values() if a.strip()}
         missing = sorted(qid for qid, (q, a) in answers.items()
                          if q.strip() in asked and not a.strip())
@@ -241,6 +275,7 @@ class Engine:
                 f"answer {', '.join(missing) or 'the needs-input questions'} in "
                 f"outputs/open-questions.md before `retry`: the grant records the answers, so "
                 f"answering afterwards would stop the next run with input-changed")
+        return text, accepted
 
     # --- start ---------------------------------------------------------------------------------------
 
@@ -459,13 +494,45 @@ class Engine:
             if status == "planning":
                 return self._planning()
             if status == "awaiting-approval":
+                if self._auto_approve():
+                    continue
                 self.message = (f"plan stored; review outputs/, answer outputs/open-questions.md, "
                                 f"then run `devloops approve {self.loop}` or `devloops replan "
-                                f"{self.loop}`")
+                                f"{self.loop}`") + self._unsuggested_note()
                 return EXIT_CODES["awaiting-approval"]
             if status == "implementing":
                 return self._implementing()
             return EXIT_CODES[status]
+
+    # --- open questions ------------------------------------------------------------------------------
+
+    def _accepts_suggested(self):
+        return self.config.get("questions") == "accept-suggested"
+
+    def _unanswerable(self):
+        """IDs of questions with neither an answer nor a suggested answer."""
+        try:
+            with open(self.answers_path, encoding="utf-8") as f:
+                questions = render.parse_questions(f.read())
+        except FileNotFoundError:
+            return []
+        return [qid for qid, q in questions.items() if not render.effective_answer(q)[1]]
+
+    def _unsuggested_note(self):
+        missing = self._unanswerable() if self._accepts_suggested() else []
+        return (f" ({', '.join(missing)} has no suggested answer, so questions: accept-suggested "
+                "cannot approve it)" if missing else "")
+
+    def _auto_approve(self):
+        """Under `questions: accept-suggested`, approve the stored plan with Claude's suggested
+        answers, unless a question has neither an answer nor a suggestion. True if it approved."""
+        if not self._accepts_suggested() or self._unanswerable():
+            return False
+        accepted = self._approve("auto-approve", "automatically (questions: accept-suggested)")
+        self._event("approved", "plan approved automatically (questions: accept-suggested)"
+                    + self._accepted_note(accepted))
+        self._render()
+        return True
 
     # --- planning -----------------------------------------------------------------------------------------
 
@@ -533,6 +600,7 @@ class Engine:
             trial.update(status="passed", ended_at=state.now_iso())
             planning["status"] = "done"
             self.rs["approval"] = None
+            self.rs["answers_sha256"] = None
             self.rs["status"] = "awaiting-approval"
             self._save()
             self._event("plan-stored", f"{len(plan['milestones'])} milestone(s), "
@@ -652,7 +720,8 @@ class Engine:
                 self._void(milestone, trial, out.failure_reason, out.failure_detail)
             if not out.ok:
                 return self._finish(milestone, trial, out.failure_reason, out.failure_detail)
-            self._on_needs_input(milestone, trial, out.structured_output)
+            if self._on_needs_input(milestone, trial):
+                return
             phase = "validation-failed"
             self._validate(milestone, trial, trial_dir)
         except StopRun:
@@ -683,15 +752,21 @@ class Engine:
         self._write_trial(milestone["id"], trial)
         self._save()
 
-    def _on_needs_input(self, milestone, trial, result):
+    def _on_needs_input(self, milestone, trial):
         """A non-empty `needs_input` fails the milestone at once, whatever trials remain.
 
         A question is not something a fix can answer (FR-055a, R-20): the questions are appended
         to `outputs/open-questions.md` for the developer, and `retry` resumes the milestone.
+
+        Under `questions: accept-suggested`, when every question has a suggested answer and the
+        milestone has a trial left to use them, the suggestions are accepted instead: only this
+        trial fails, and the next trial sees the answers. Returns True then; False when there were
+        no questions. On the last trial it stops as under `ask`, so the accepted answers are never
+        left unused and `retry` (which accepts the suggestions) resumes the milestone.
         """
         questions = trial["needs_input"]  # redacted by _record_implementation
         if not questions:
-            return
+            return False
         mid, n = milestone["id"], trial["n"]
         try:
             with open(self.answers_path, encoding="utf-8") as f:
@@ -700,8 +775,12 @@ class Engine:
             existing = None
         text, ids = render.append_open_questions(existing, questions,
                                                  f"needs-input from {mid} trial {n}")
-        state.write_text_atomic(self.answers_path, text)
         detail = "; ".join(f"{qid}: {q['question']}" for qid, q in zip(ids, questions))
+        ms = self.rs["milestones"][mid]
+        if self._accepts_suggested() and all(q.get("suggested_answer") for q in questions) \
+                and len(selector.counted_trials(ms)) < selector.trial_limit(self.rs, mid):
+            return self._auto_answer(milestone, trial, text, ids, detail)
+        state.write_text_atomic(self.answers_path, text)
         self._finish(milestone, trial, "needs-input", detail)
         selector.mark_failed(self.rs["milestones"][mid])
         self._save()
@@ -709,8 +788,34 @@ class Engine:
                     milestone=mid, trial=n)
         raise StopRun("stopped-on-failure", "needs-input",
                       f"milestone {mid} needs input: answer {', '.join(ids)} in "
-                      f"outputs/open-questions.md, then run `devloops retry {self.loop} "
+                      f"outputs/open-questions.md (an empty answer accepts Claude's suggested "
+                      f"answer), then run `devloops retry {self.loop} "
                       f"--milestone {mid} --reason \"...\"`", milestone_id=mid)
+
+    def _auto_answer(self, milestone, trial, text, ids, detail):
+        """Accept the suggestions of `ids` in `text` (the answers file with them appended).
+
+        The file is written once and its fingerprint saved right after, so the window in which
+        a killed driver leaves them apart (and the next start sees `input-changed`) stays small.
+        """
+        mid, n = milestone["id"], trial["n"]
+        text, accepted = render.accept_suggestions(
+            text, f"automatically (questions: accept-suggested) after {mid} trial {n}", ids)
+        state.write_text_atomic(self.answers_path, text)
+        sha = inputs.sha256_file(self.answers_path)
+        self.rs.setdefault("auto_answers", []).append({
+            "milestone_id": mid, "trial": n, "question_ids": accepted,
+            "answered_at": state.now_iso(), "answers_sha256": sha})
+        self.rs["answers_sha256"] = sha
+        self._save()
+        self._finish(milestone, trial, "needs-input", detail)
+        self._event("needs-input", f"{mid} trial {n} asked {len(ids)} question(s): {detail}",
+                    milestone=mid, trial=n)
+        self._event("answers-accepted", f"suggested answer(s) accepted automatically for "
+                                        f"{', '.join(accepted)} (questions: accept-suggested); "
+                                        "the next trial uses them, review them",
+                    milestone=mid, trial=n)
+        return True
 
     def _validate(self, milestone, trial, trial_dir):
         mid = milestone["id"]

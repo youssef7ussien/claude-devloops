@@ -26,5 +26,6 @@ directory so that the milestone passes.
 ## Structured result
 
 Return the same result as the `implement` step: `tasks` (`task_id`, `status`, `note`),
-`assumptions` (`{text, affects}`), `needs_input` (`{question, requirement_refs}`; anything that
-would add, remove, or contradict a requirement goes here), and `files_changed`.
+`assumptions` (`{text, affects}`), `needs_input` (`{question, requirement_refs, suggested_answer,
+suggestion_reason}`; anything that would add, remove, or contradict a requirement goes here), and
+`files_changed`.
