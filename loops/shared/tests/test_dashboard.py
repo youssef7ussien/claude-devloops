@@ -6,8 +6,8 @@ import unittest
 
 import helpers  # noqa: F401
 import samples
-from devloops import dashboard, workspace
-from stub_loop import StubLoopMixin, WS, implemented
+from devloops import dashboard, ui, workspace
+from stub_loop import StubLoopMixin, WS, implemented, service_error, wait_for
 
 
 class DashboardTest(StubLoopMixin, unittest.TestCase):
@@ -25,6 +25,9 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         page = self.page()
         self.assertIn("Awaiting approval", page)
         self.assertIn("devloops approve backend-dev", page)  # the next action
+        [(tone, text)] = [i for i in dashboard.attention(self.data()) if "is <span" in i[1]]
+        self.assertEqual(tone, "warning")
+        self.assertIn('<a href="#backend-dev"><strong>backend-dev</strong></a>', text)
         for text in ("M01", "List items", "M02", "Create items", "Items are kept in memory"):
             self.assertIn(text, page)
 
@@ -38,9 +41,14 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertIn("M02-AC1", page)
         # Evidence links are relative to the workspace, so they open from disk.
         self.assertIn('href="backend-dev/state/milestones/M01/trials/1/evidence/stub.txt"', page)
+        for view in ("overview", "backend-dev", "calls", "questions", "events"):
+            self.assertIn(f'<section class="view" id="{view}"', page)
+        self.assertNotIn('id="files"', page)  # files are on disk; the full dashboard embeds them
+        self.assertIn('href="backend-dev/state/prompts/0001-plan.md" target="_blank"', page)
         self.assertIn("Trial timeline", page)
         self.assertIn("Cost by milestone", page)
 
+        self.assertIn("Nothing needs attention.", page)
         stats = self.data()["loops"]["backend-dev"]["stats"]
         self.assertEqual((stats["milestones"], stats["achieved"], stats["trials"],
                           stats["first_try"], stats["calls"]), (2, 2, 2, 2, 3))
@@ -52,6 +60,9 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         page = self.page()
         self.assertIn("Stopped on failure", page)
         self.assertIn("devloops retry backend-dev --milestone M01", page)
+        tones = [tone for tone, _ in dashboard.attention(self.data())]
+        self.assertEqual(tones[0], "critical")
+        self.assertIn('Needs attention <span class="count">', page)
         self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason",
                                   "try again"), 0, self.last_output)
         self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
@@ -71,10 +82,55 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         page = self.page()
         self.assertNotIn("<script>alert", page)
         self.assertIn("&lt;script&gt;alert", page)
-        # Nothing is loaded from the network: one inline script, no external sources.
+        # Nothing is loaded from the network: one inline script, no external sources. The only
+        # outside link is the project's own, which navigates and loads nothing.
         self.assertEqual(len(re.findall(r"<script", page)), 1)
-        self.assertNotRegex(page, r'(src|href)="(https?:)?//')
+        project = f'href="{ui.PROJECT_URL}"'
+        self.assertEqual(page.count(project), 1)
+        self.assertNotRegex(page.replace(project, ""), r'(src|href)="(https?:)?//')
         self.assertNotIn("<link", page)
+
+    def test_a_voided_trial_and_its_rerun_keep_their_own_calls(self):
+        # A service error voids trial 1; the next run reuses the number (and the trial folder).
+        self.approved()
+        self.scenario({"implement": [service_error(429), implemented("M01-T01"),
+                                     implemented("M02-T01")]})
+        self.assertEqual(self.cli("run", "backend-dev"), 50, self.last_output)
+        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        [m1] = [m for m in self.data()["loops"]["backend-dev"]["milestones"] if m["id"] == "M01"]
+        void, passed = m1["trials"]
+        self.assertEqual((void["n"], void["status"], passed["n"], passed["status"]),
+                         (1, "void", 1, "passed"))
+        records = {r["session_id"]: r for r in self.data()["loops"]["backend-dev"]["invocations"]}
+        self.assertEqual(len(void["sessions"]), 1)
+        self.assertTrue(passed["sessions"])
+        self.assertFalse(set(void["sessions"]) & set(passed["sessions"]))
+        self.assertLess(max(records[s]["seq"] for s in void["sessions"]),
+                        min(records[s]["seq"] for s in passed["sessions"]))
+        self.assertIsNone(void["validation"])          # the folder holds the re-run's files
+        self.assertTrue(passed["validation"]["passed"])
+        notes = [text for tone, text in dashboard.attention(self.data()) if tone == "info"]
+        self.assertEqual(notes, ['<a href="#ms-backend-dev-M01">backend-dev M01</a> passed after '
+                                 '1 voided trial(s) (rate-limited)'])
+
+    def test_rewritten_during_a_run_and_live_until_it_ends(self):
+        self.approved()
+        self.scenario({"implement": [dict(implemented("M01-T01"), sleep_seconds=3),
+                                     implemented("M02-T01")]})
+        page_path = os.path.join(self.t.workspace_dir, "dashboard.html")
+        os.remove(page_path)
+        proc = self.start_cli("run", "backend-dev")
+        self.wait_for_call("implement")
+        wait_for(lambda: os.path.exists(page_path), what="the dashboard written during the run")
+        live = self.page()
+        self.assertIn(f"data-refresh='{dashboard.REFRESH_SECONDS}'", live)
+        self.assertIn('class="btn live"', live)
+        self.assertIn("Implementing", live)
+        self.assertEqual(proc.wait(timeout=60), 0)
+        done = self.page()
+        self.assertNotIn("data-refresh", done)
+        self.assertNotIn('class="btn live"', done)
+        self.assertEqual(self.data()["running"], [])
 
     def test_the_dashboard_command(self):
         self.assertEqual(self.first_run(), 10, self.last_output)

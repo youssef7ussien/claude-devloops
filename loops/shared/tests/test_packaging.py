@@ -57,7 +57,9 @@ class PackagingTest(unittest.TestCase):
                       "devloops_kit/shared/hooks/guard_writes.py",
                       "devloops_kit/shared/project/prompts/README.md",
                       "devloops_kit/backend-dev/loop.json",
-                      "devloops/cli.py"):
+                      "devloops/cli.py",
+                      "devloops/assets/dashboard.js",
+                      "devloops/assets/dashboard.css"):
             self.assertIn(asset, names)
         self.assertFalse([n for n in names if "/tests/" in n or n.startswith("tests/")])
 

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import helpers  # noqa: F401 - puts the package on sys.path
 import samples
-from devloops import fulldash, state, workspace
+from devloops import fulldash, state, ui, workspace
 from stub_loop import WS, StubLoopMixin, implemented
 
 SECRET = "S3CR3T-dashboard-value"
@@ -149,6 +149,31 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         # Each call's prompt parts and where they came from (002 FR-031).
         self.assertIn("<code>steps/plan.md</code>: packaged <code>shared/prompts/steps/plan.md</code>",
                       page)
+        # The layout: one view per section, the explorer, the viewer, and every call's source.
+        for view in ("overview", "backend-dev", "calls", "files", "questions", "events"):
+            self.assertIn(f'<section class="view" id="{view}"', page)
+        self.assertIn('<div class="explorer">', page)
+        self.assertIn('<dialog class="viewer" id="viewer"', page)
+        self.assertIn('data-kind="markdown"', page)
+        self.assertIn('data-kind="image"', page)
+        for r in records:
+            self.assertIn(f'data-open="call-backend-dev-{r["seq"]}"', page)
+
+    def test_a_file_over_the_limit_is_listed_but_not_embedded(self):
+        self.completed()
+        with open(self.path(os.path.join("outputs", "huge.log")), "w") as f:
+            f.write("y" * (fulldash.MAX_EMBED_BYTES + 1))
+        result = self.cli_dashboard()
+        rel = os.path.join("backend-dev", "outputs", "huge.log")
+        self.assertEqual(result["not_embedded"], [{"path": rel,
+                                                   "bytes": fulldash.MAX_EMBED_BYTES + 1}])
+        page = self.page(result["path"])
+        self.assertLess(os.path.getsize(result["path"]), fulldash.MAX_EMBED_BYTES)
+        self.assertIn(f"<code>{rel}</code>", page)
+        self.assertIn('data-kind="large"', page)
+        self.assertIn("Not embedded: 5.0 MB, over the 5.0 MB limit", page)
+        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
+        self.assertIn(f"not embedded (over 5.0 MB):\n    {rel} (5.0 MB)", self.last_output)
 
     def test_a_missing_evidence_file_is_shown_as_missing(self):
         self.completed()
@@ -190,7 +215,9 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
             f.write(f"a note that mentions {SECRET}\n")
         page = self.page(self.cli_dashboard()["path"])
         self.assertEqual(page.count(SECRET), 0)
-        self.assertNotRegex(page, r"""(src|href)=["']?(https?:|//)""")
+        project = f'href="{ui.PROJECT_URL}"'  # the one outside link: it only navigates
+        self.assertEqual(page.count(project), 1)
+        self.assertNotRegex(page.replace(project, ""), r"""(src|href)=["']?(https?:|//)""")
         self.assertEqual(page.count("<script"), 1)
         self.assertIn(fulldash.NOTICE, page)
         self.assertIn("a note that mentions ***", page)
@@ -206,7 +233,8 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
             page = f.read()
         for anchor in re.findall(r'href="#([^"]+)"', page):
             self.assertIn(f'id="{anchor}"', page, anchor)
-        self.assertNotRegex(page, r"""(src|href)=["'](?!#|data:)""")
+        self.assertNotRegex(page.replace(f'href="{ui.PROJECT_URL}"', ""),
+                            r"""(src|href)=["'](?!#|data:)""")
 
     # --- the dashboard command ---
 

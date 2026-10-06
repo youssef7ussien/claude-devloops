@@ -294,6 +294,10 @@ def _print_full(full, largest=False):
             print(f"    {item['path']} ({fulldash.human_bytes(item['bytes'])})")
     if full["unavailable"]:
         print(f"  {full['unavailable']} conversation(s) unavailable")
+    if full.get("not_embedded"):
+        print(f"  not embedded (over {fulldash.human_bytes(fulldash.MAX_EMBED_BYTES)}):")
+        for item in full["not_embedded"]:
+            print(f"    {item['path']} ({fulldash.human_bytes(item['bytes'])})")
 
 
 def _ends_final(error, status):
@@ -385,6 +389,7 @@ def _orchestrate(args, kit, project, env):
         story_file=story_file,
         backend_target=targets["backend"], frontend_target=targets["frontend"],
         config_path=args.config, force_unlock=args.force_unlock), kit=kit, env=env)
+    orch.on_progress = _follow(ws)
     error = full = None
     before = _event_marks(ws, orchestrator.LOOP_ORDER)
     try:
@@ -417,6 +422,17 @@ def _orchestrate(args, kit, project, env):
             print(f"dashboard: {_dashboard_path(ws)}")
         _print_full(full)
     return code
+
+
+def _follow(ws):
+    """An `on_progress` callback that refreshes the dashboard during a run, quietly: a failure
+    is reported once, by the write at the end of the command."""
+    def progress():
+        try:
+            dashboard.write(ws)
+        except Exception:  # noqa: BLE001 - the dashboard is a view; the run's result stands
+            pass
+    return progress
 
 
 def _write_dashboard(ws, announce):
@@ -569,7 +585,8 @@ def main(argv=None, kit=None, project=None, env=None):
                 obj = {"workspace": ws.name, "dashboard": path}
                 if not args.light:
                     obj["full_dashboard"] = full and {k: full[k] for k in
-                                                      ("path", "bytes", "largest", "unavailable")}
+                                                      ("path", "bytes", "largest", "unavailable",
+                                                       "not_embedded")}
                 _dump(args, obj)
             else:
                 _print_full(full, largest=True)
@@ -604,6 +621,7 @@ def main(argv=None, kit=None, project=None, env=None):
             force_unlock=args.force_unlock,
         )
         eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
+        eng.on_progress = _follow(ws)
         error = full = None
         before = _event_marks(ws, [args.loop])
         try:

@@ -41,6 +41,7 @@ class Orchestrator:
         self.state = None
         self.message = ""
         self.last_run = None  # the loop this command ran last; None if it ran none
+        self.on_progress = None  # passed to each loop's engine (Engine.on_progress)
 
     def run(self):
         """Run or resume both loops in order; return the exit code of the loop that stopped, or 0."""
@@ -87,6 +88,7 @@ class Orchestrator:
         eng = None
         try:
             eng = engine.Engine(loop, self.ws, options, kit=self.kit, env=self.env)
+            eng.on_progress = self.on_progress
             code = eng.run()
         except DevloopsError as e:  # usage error or lock held: nothing ran; record and re-raise
             self._finish_step(step, loop, e.message)

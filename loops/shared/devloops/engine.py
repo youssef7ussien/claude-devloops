@@ -116,6 +116,9 @@ class Engine:
         self.redactor = Redactor()
         self.message = ""
         self.loop_def = load_loop_def(self.kit, loop_name)
+        # Called after each recorded event, so a view (the lightweight dashboard) can follow the
+        # run; it must never raise or change the run.
+        self.on_progress = None
 
     # --- commands ----------------------------------------------------------------------------------
 
@@ -1028,6 +1031,8 @@ class Engine:
     def _event(self, type, message, milestone=None, trial=None):
         state.record_event(self.loop_dir, type, message, milestone=milestone, trial=trial,
                            redactor=self.redactor)
+        if self.on_progress:
+            self.on_progress()
 
     def _render(self, final=False, questions=None):
         render.render_all(self.loop_dir, self.loop, self.ws.name, self.kit, final=final,

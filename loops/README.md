@@ -355,21 +355,29 @@ sequenceDiagram
 **The lightweight dashboard**, `<workspace>/dashboard.html`, is rewritten by every command that
 touches a workspace (`run`, `approve`, `replan`, `retry`, `orchestrate`), so after each pause,
 stop, or completion one page shows everything without opening the files one by one. Open it in a
-browser; it is a single offline file (no network), with a light/dark toggle:
+browser; it is a single offline file (no network). A sidebar switches between its pages, `Ctrl K`
+(or `/`) jumps to any page, call, or file (and, from three characters, searches their text), and
+the theme button switches light and dark. While a command is running a loop, the page is
+rewritten after each recorded event and reloads itself every 10 seconds, keeping your place;
+**Live** in the top bar pauses it:
 
 - **Overview**: status, milestones achieved, first-try pass rate, trials, Claude calls, cost,
-  tokens, and elapsed time, and the next action when a loop is paused or stopped.
-- **Trial timeline** (every planning and milestone trial, colored and labeled by result), **cost by
-  milestone**, and **cost by step**, each with a table view.
-- **Per loop**: stack and runtime, links to the outputs (progress, plan summary, final report,
-  OpenAPI document, UI URL), and per milestone its tasks, acceptance-criteria results with
-  observations and evidence (screenshots as thumbnails), the exact curl commands or the browser's
-  network requests, the API contract result, and every trial with its failure detail, duration,
-  cost, and session IDs.
-- **Questions, assumptions, and retries**, the **orchestrator** steps and handoff, every **Claude
-  call**, the **event log**, and links to the full dashboards.
+  tokens, and elapsed time; **Needs attention** (stopped or paused loops and their next action,
+  failing criteria, unanswered questions, failed calls, evidence over 1 MB, and milestones that
+  passed only after failed or voided trials, each linked to its detail); a card per loop with its progress and next action; the **trial
+  timeline** (every planning and milestone trial, colored and labeled by result), **cost by
+  milestone**, and **cost by step** (hover a bar for its details).
+- **Orchestrator**: its steps and the handoff to frontend-dev.
+- **Per loop**: buttons for its outputs (progress, plan summary, final report, OpenAPI document),
+  the UI URL, stack and runtime, and a card per milestone with its tasks, acceptance-criteria
+  results with observations and evidence (screenshots as thumbnails), the exact curl commands or
+  the browser's network requests, the API contract result, and every trial with its failure
+  detail, duration, cost, and calls.
+- **Claude calls** (filter by text or loop), **Questions** (open questions, planning assumptions,
+  retries granted), **Events**, and links to the **full dashboards**.
 
-It links to the workspace's files, so it only works next to them.
+It links to the workspace's files, so it only works next to them: a screenshot opens in the page's
+viewer, other files in a new browser tab.
 
 **Full dashboards** are single self-contained HTML files that can be opened anywhere, offline, with
 no other file. Besides everything above, they embed every input, plan file, output, check, trial
@@ -377,9 +385,20 @@ record, piece of evidence (images inline), prompt with the source of each of its
 full Claude Code **conversation** of every call: the prompt, Claude's messages, its thinking, every
 tool call, and every tool result.
 
+- **Files**: a tree per loop (inputs, plan, each milestone's trials and evidence, prompts, outputs,
+  run state), with a path filter and type filters. A file opens in a large viewer that can be
+  maximized and closed with `Esc`, steps to the previous or next file with `[` and `]`, and offers
+  copy, download, wrapping, and line numbers. Markdown is rendered (or shown as source), JSON is
+  indented and highlighted (or shown as a collapsible tree), JSON lines are shown one record per
+  row, code and logs are highlighted, and images fit the window or show at full size.
+- **Claude calls**: selecting a call opens its conversation (Claude's replies rendered, tool calls
+  summarized on one line and opened for their input, results, thinking, and system records shown
+  or hidden), its prompt with the parts it was composed from, and its settings.
+
 - **When**: a new one is written when `run`, `approve`, `replan`, `retry`, or `orchestrate` ends in
   `completed` or a `stopped-*` status, and by `devloops dashboard`. The command prints its path and
-  size; `dashboard` also lists the five largest embedded items.
+  size; `dashboard` also lists the five largest embedded items. A file over 5 MB is listed but
+  not embedded (the command names it); open it on disk.
 - **Where**: `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>.html` (UTC), `.devloops/dashboards/`
   by default. A file is never replaced, so they **accumulate**: delete old ones when you no longer
   need them. `status` reports how many there are and their total size.

@@ -2,20 +2,22 @@
 
 Everything is read from the workspace's state (`workspace.json`, each loop's `state/` and
 `outputs/open-questions.md`, `orchestrator/state.json`); nothing is read back from the page. The
-page has inline CSS, server-rendered SVG charts, and a few lines of JavaScript for tooltips and
-the theme toggle, so it opens offline from disk. State is already redacted (FR-070); every value is
-HTML-escaped here.
+views here (overview, loops, calls, questions, events) are shared with the full dashboard
+(fulldash.py); the shell, styles, and script come from ui.py, so the page opens offline from disk.
+State is already redacted (FR-070); every value is HTML-escaped here.
 """
 import html
 import json
 import os
 import re
+import socket
 from datetime import datetime
 
-from . import render, state
+from . import __version__, render, state, ui
 
 LOOPS = ("backend-dev", "frontend-dev")
 FILENAME = "dashboard.html"
+REFRESH_SECONDS = 10  # how often the page reloads itself while a loop is running
 
 # Status presentation: (label, icon, tone). Tones map to the fixed status palette; the icon and the
 # label always travel with the color, so state is never read from color alone.
@@ -60,6 +62,15 @@ def _seconds(start, end):
     return (b - a).total_seconds() if a and b else None
 
 
+def _within(record, trial):
+    """Whether a call started during a trial (from its start to its end, or on if it has none)."""
+    at, start = _parse_time(record.get("started_at")), _parse_time(trial.get("started_at"))
+    end = _parse_time(trial.get("ended_at"))
+    if not at or not start:
+        return True
+    return start <= at and (end is None or at <= end)
+
+
 def _tokens(records):
     total = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
     for r in records:
@@ -97,11 +108,17 @@ def collect_loop(ws, loop):
         mid = m["id"]
         ms = (run.get("milestones") or {}).get(mid, {})
         trials = []
-        for summary in ms.get("trials", []):
+        summaries = ms.get("trials", [])
+        for k, summary in enumerate(summaries):
             n = summary["n"]
             trial_dir = os.path.join(state_dir, "milestones", mid, "trials", str(n))
-            doc = state.read_json(os.path.join(trial_dir, "trial.json")) or {}
-            calls = [r for r in by_milestone.get(mid, []) if r.get("trial") == n]
+            # A voided trial keeps its number, so its re-run shares it, and its folder: the files
+            # there are the last one's, and calls are told apart by when they ran.
+            latest = all(later["n"] != n for later in summaries[k + 1:])
+            shared = sum(1 for other in summaries if other["n"] == n) > 1
+            doc = (state.read_json(os.path.join(trial_dir, "trial.json")) or {}) if latest else {}
+            calls = [r for r in by_milestone.get(mid, []) if r.get("trial") == n
+                     and (not shared or _within(r, summary))]
             trials.append({
                 "n": n, "kind": doc.get("kind") or ("implement" if n == 1 else "fix"),
                 "status": summary["status"], "reason": summary.get("reason"),
@@ -110,7 +127,8 @@ def collect_loop(ws, loop):
                 "seconds": _seconds(summary.get("started_at"), summary.get("ended_at")),
                 "cost": _cost(calls), "tokens": _tokens(calls),
                 "sessions": [r.get("session_id") for r in calls],
-                "validation": state.read_json(os.path.join(trial_dir, "validation.json")),
+                "validation": (state.read_json(os.path.join(trial_dir, "validation.json"))
+                               if latest else None),
                 "evidence_dir": os.path.relpath(os.path.join(trial_dir, "evidence"), ws.path),
             })
         calls = by_milestone.get(mid, [])
@@ -198,6 +216,21 @@ def list_full_dashboards(ws):
     return [item for _, item in sorted(found, key=lambda pair: pair[0], reverse=True)]
 
 
+def running(ws, loop):
+    """Whether a command is running `loop` now: its lock is held by a live process (a lock left
+    by a crash, or held on another host, does not count)."""
+    lock = state.read_json(os.path.join(ws.loop_dir(loop), "state", "lock"))
+    if not isinstance(lock, dict) or lock.get("host") != socket.gethostname():
+        return False
+    try:
+        os.kill(int(lock.get("pid")), 0)
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
+
+
 def collect(ws):
     """The page's data for a workspace: its identity, each started loop, and the orchestrator."""
     loops = {loop: collect_loop(ws, loop) for loop in LOOPS}
@@ -223,6 +256,7 @@ def collect(ws):
         "targets": ws.data.get("targets") or {}, "loops": loops, "orchestrator": orch,
         "large_evidence": large,
         "full_dashboards": list_full_dashboards(ws),
+        "running": [loop for loop in loops if running(ws, loop)],
         "totals": {
             "milestones": sum(s["milestones"] for s in stats),
             "achieved": sum(s["achieved"] for s in stats),
@@ -273,25 +307,40 @@ def pill(status, table):
     return f'<span class="pill tone-{tone}"><span aria-hidden="true">{icon}</span> {e(label)}</span>'
 
 
+def tone(status, table):
+    return table.get(status, (None, None, "muted"))[2]
+
+
+def tokens_of(record):
+    return sum((record.get("tokens") or {}).get(k) or 0
+               for k in ("input", "output", "cache_creation", "cache_read"))
+
+
 def _path_link(relpath, text=None):
     return f'<a href="{e(relpath)}">{e(text or relpath)}</a>'
 
 
 class FileLinks:
-    """How a page refers to workspace files and URLs: here, links to the files on disk.
+    """How a page refers to workspace files and URLs: here, links to the files on disk, which open
+    in a new tab (a page opened from disk cannot read other files); images open in the viewer.
 
     The full dashboard (fulldash.py) substitutes links to the copies embedded in the page.
     """
 
     def path(self, relpath, text=None):
-        return _path_link(relpath, text)
+        return (f'<a href="{e(relpath)}" target="_blank" rel="noopener">'
+                f'{ui.icon("file")}{e(text or relpath)}</a>')
 
     def image(self, relpath, alt):
-        return (f'<a href="{e(relpath)}"><img class="thumb" loading="lazy" src="{e(relpath)}" '
-                f'alt="{e(alt)}"></a>')
+        return (f'<a href="{e(relpath)}" data-image="" data-path="{e(relpath)}" title="{e(alt)}">'
+                f'<img class="thumb" loading="lazy" src="{e(relpath)}" alt="{e(alt)}"></a>')
+
+    def button(self, relpath, label, ic="file"):
+        return (f'<a class="btn" href="{e(relpath)}" target="_blank" rel="noopener">{ui.icon(ic)}'
+                f'{e(label)}</a>')
 
     def url(self, url):
-        return f'<a href="{e(url)}">{e(url)}</a>'
+        return f"<code>{e(url)}</code>"
 
 
 FILE_LINKS = FileLinks()
@@ -300,7 +349,8 @@ FILE_LINKS = FileLinks()
 # --- charts -----------------------------------------------------------------------------------------
 
 def bar_chart(rows, value_format, title, unit_label):
-    """Horizontal single-hue bars: `rows` are `(label, value, tooltip)`. Values label the bar end."""
+    """Horizontal single-hue bars: `rows` are `(label, value, tooltip)`. Values label the bar end;
+    a visually hidden table carries the same numbers for screen readers."""
     rows = [r for r in rows if r[1] is not None]
     if not rows or max(r[1] for r in rows) <= 0:
         return '<p class="muted">Nothing recorded yet.</p>'
@@ -325,12 +375,11 @@ def bar_chart(rows, value_format, title, unit_label):
             f'{e(value_format(value))}</text></g>')
     parts.append(f'<line class="baseline" x1="{label_w}" x2="{label_w}" y1="0" y2="{height}"/>')
     parts.append("</svg>")
-    table = "".join(f"<tr><td>{e(label)}</td><td class='num'>{e(value_format(value))}</td></tr>"
+    table = "".join(f"<tr><td>{e(label)}</td><td>{e(value_format(value))}</td></tr>"
                     for label, value, _ in rows)
-    return ("".join(parts) +
-            f'<details class="table-view"><summary>Table view</summary><table><thead><tr>'
-            f'<th>{e(unit_label[0])}</th><th class="num">{e(unit_label[1])}</th></tr></thead>'
-            f'<tbody>{table}</tbody></table></details>')
+    return ("".join(parts) + f'<table class="sr-only"><caption>{e(title)}</caption><thead><tr>'
+            f'<th>{e(unit_label[0])}</th><th>{e(unit_label[1])}</th></tr></thead>'
+            f'<tbody>{table}</tbody></table>')
 
 
 def timeline(data):
@@ -371,21 +420,34 @@ def timeline(data):
             b = _parse_time(t.get("ended_at")) or a
             x = label_w + chart_w * (a - t0).total_seconds() / total
             w = max(6, chart_w * (b - a).total_seconds() / total - 2)
-            text, icon, tone = TRIAL_STATUS.get(t["status"], (t["status"], "•", "muted"))
+            text, icon, tone_ = TRIAL_STATUS.get(t["status"], (t["status"], "•", "muted"))
             reason = t.get("reason") or (t.get("failure") or {}).get("reason")
             tip = (f"{name} — {icon} {text}" + (f": {reason}" if reason else "") +
                    f" · {duration(_seconds(t.get('started_at'), t.get('ended_at')))}")
             parts.append(f'<g class="mark" tabindex="0" data-tip="{e(tip)}">'
-                         f'<rect class="seg tone-{tone}" x="{x:.1f}" y="{y + 5}" width="{w:.1f}" '
+                         f'<rect class="seg tone-{tone_}" x="{x:.1f}" y="{y + 5}" width="{w:.1f}" '
                          f'height="{row_h - 12}" rx="4"/></g>')
     parts.append("</svg>")
-    legend = "".join(f'<span class="legend-item"><span class="swatch tone-{tone}"></span>'
+    legend = "".join(f'<span class="legend-item"><span class="swatch tone-{tone_}"></span>'
                      f'<span aria-hidden="true">{icon}</span> {e(text)}</span>'
-                     for text, icon, tone in TRIAL_STATUS.values())
+                     for text, icon, tone_ in TRIAL_STATUS.values())
     return f'<div class="legend">{legend}</div>' + "".join(parts)
 
 
-# --- sections ---------------------------------------------------------------------------------------
+# --- views ------------------------------------------------------------------------------------------
+
+ORCHESTRATOR_STATUS = {"running": ("Running", "◷", "neutral"), "paused": ("Paused", "⏸", "warning"),
+                       "completed": ("Completed", "✓", "good"), "stopped": ("Stopped", "✕", "critical")}
+
+
+def table(head, rows, attrs="", empty=None):
+    """A bordered, scrollable table; `head` is `[(label, numeric)]`."""
+    if not rows and empty:
+        return f'<p class="muted">{e(empty)}</p>'
+    ths = "".join(f'<th{" class=num" if num else ""}>{e(label)}</th>' for label, num in head)
+    return (f'<div class="table-wrap"><table{attrs}><thead><tr>{ths}</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div>')
+
 
 def _kpi(label, value, sub=None):
     return (f'<div class="tile"><div class="tile-label">{e(label)}</div>'
@@ -407,7 +469,7 @@ def _overall_status(data):
 def kpi_row(data):
     t = data["totals"]
     rate = f"{100 * t['first_try'] / t['achieved']:.0f}%" if t["achieved"] else "–"
-    return '<section class="kpis">' + "".join([
+    return '<section class="kpis" aria-label="Totals">' + "".join([
         _kpi("Status", pill(_overall_status(data), RUN_STATUS)),
         _kpi("Milestones achieved", f"{t['achieved']} / {t['milestones']}"),
         _kpi("First-try pass rate", rate, "achieved on trial 1"),
@@ -442,225 +504,81 @@ def _next_action(loop, d):
     return None
 
 
-def loop_section(loop, d, ws_path, links=FILE_LINKS):
-    s = d["stats"]
-    reason = d["status_reason"] or {}
-    head = [f'<h2 id="{e(loop)}">{e(loop)} {pill(d["status"], RUN_STATUS)}</h2>']
-    if reason:
-        head.append(f'<p class="reason"><strong>{e(reason.get("code"))}</strong>: '
-                    f'{e(reason.get("message"))}</p>')
-    action = _next_action(loop, d)
-    if action:
-        head.append(f'<p class="action"><span aria-hidden="true">→</span> {action}</p>')
-    rate = f"{100 * s['first_try'] / s['achieved']:.0f}%" if s["achieved"] else "–"
-    head.append('<div class="kpis small">' + "".join([
-        _kpi("Milestones", f"{s['achieved']} / {s['milestones']}"),
-        _kpi("First-try", rate), _kpi("Trials", str(s["trials"])),
-        _kpi("Calls", str(s["calls"])), _kpi("Cost", e(money(s["cost"]))),
-        _kpi("Elapsed", e(duration(s["seconds"]))),
-    ]) + "</div>")
-
-    outputs = [links.path(f"{loop}/progress.md", "progress.md"),
-               links.path(f"{loop}/outputs/plan-summary.md", "plan summary")]
-    if os.path.exists(os.path.join(ws_path, loop, "outputs", "final-report.md")):
-        outputs.append(links.path(f"{loop}/outputs/final-report.md", "final report"))
-    if d["openapi_artifact"]:
-        outputs.append(links.path(f"{loop}/{d['openapi_artifact']['path']}", "OpenAPI document"))
-    if d["ui_url"]:
-        outputs.append(f'UI: {links.url(d["ui_url"])}')
-    head.append('<p class="outputs">' + " · ".join(outputs) + "</p>")
-
-    plan = d["plan"]
-    if plan:
-        stack = plan.get("stack") or {}
-        runtime = plan.get("runtime") or {}
-        head.append('<div class="grid2"><div class="card"><h3>Stack</h3>'
-                    f'<p>{e(stack.get("summary"))}</p><p class="muted">Source: '
-                    f'{e(stack.get("source"))}</p></div><div class="card"><h3>Runtime</h3><dl>'
-                    + "".join(f"<dt>{e(k)}</dt><dd><code>{e(v)}</code></dd>"
-                              for k, v in runtime.items() if v)
-                    + f'</dl><p class="muted">Target: <code>{e(d["target_dir"])}</code></p>'
-                      '</div></div>')
-
-    body = ["<h3>Milestones</h3>"]
-    for m in d["milestones"]:
-        body.append(milestone_card(loop, m, links))
-    if not d["milestones"]:
-        body.append('<p class="muted">No plan stored yet.</p>')
-    return f'<section class="loop">{"".join(head)}{"".join(body)}</section>'
+ATTENTION = {"critical": ("✕", "Needs action"), "warning": ("!", "Check"),
+             "info": ("i", "Note")}
 
 
-def milestone_card(loop, m, links=FILE_LINKS):
-    last = m["trials"][-1] if m["trials"] else None
-    validation = (last or {}).get("validation") or {}
-    results = {c["criterion_id"]: c for c in validation.get("criteria", [])}
-    open_attr = "" if m["status"] == "achieved" else " open"
-    parts = [f'<details class="milestone"{open_attr}><summary><span class="mid">{e(m["id"])}</span> '
-             f'{e(m["title"])} {pill(m["status"], MILESTONE_STATUS)}'
-             f'<span class="summary-meta">{len(m["trials"])} trial(s) · {e(money(m["cost"]))} · '
-             f'{e(duration(m["seconds"]))}</span></summary>']
-    if m.get("goal"):
-        parts.append(f'<p class="goal">{e(m["goal"])}</p>')
-    if m["depends_on"]:
-        parts.append(f'<p class="muted">Depends on {e(", ".join(m["depends_on"]))}</p>')
+def attention(data, links=FILE_LINKS, call_href=None):
+    """What a reader should look at first: `[(tone, html)]`, most urgent first.
 
-    parts.append("<h4>Tasks</h4><ul class='tasks'>")
-    for t in m["tasks"]:
-        done = t["status"] == "achieved"
-        parts.append(f'<li><span class="check {"on" if done else ""}" aria-label="'
-                     f'{"achieved" if done else e(t["status"])}">{"✓" if done else "○"}</span> '
-                     f'<strong>{e(t["id"])}</strong> {e(t["title"])} '
-                     f'<span class="refs">{e(", ".join(t.get("requirement_refs") or []))}</span>'
-                     f'<div class="muted small">{e(t.get("description"))}</div></li>')
-    parts.append("</ul>")
-
-    parts.append("<h4>Acceptance criteria"
-                 + (f" <span class='muted'>(trial {last['n']} validation)</span>" if last else "")
-                 + "</h4><table><thead><tr><th>Criterion</th><th>Result</th><th>Observed</th>"
-                   "<th>Evidence</th></tr></thead><tbody>")
-    for c in m["criteria"]:
-        r = results.get(c["id"])
-        if r is None:
-            result = pill("pending", MILESTONE_STATUS).replace("Pending", "Not validated")
-        else:
-            result = pill("passed" if r["passed"] else "failed", TRIAL_STATUS)
-        evidence = ""
-        if r and last:
-            items = []
-            for item in r.get("evidence") or []:
-                rel = os.path.join(os.path.dirname(last["evidence_dir"]), item)
-                if item.lower().endswith(IMAGE_EXTENSIONS):
-                    items.append(links.image(rel, os.path.basename(item)))
-                else:
-                    items.append(links.path(rel, os.path.basename(item)))
-            evidence = " ".join(items)
-        parts.append(f'<tr><td><strong>{e(c["id"])}</strong> {e(c["text"])}</td><td>{result}</td>'
-                     f'<td>{e((r or {}).get("observed"))}</td><td>{evidence}</td></tr>')
-    parts.append("</tbody></table>")
-
-    checks = validation.get("checks") or []
-    if checks:
-        parts.append("<h4>HTTP checks</h4><table><thead><tr><th>Check</th><th>Result</th>"
-                     "<th>Command</th><th class='num'>Status</th></tr></thead><tbody>")
-        for c in checks:
-            failures = "; ".join(c.get("failures") or [])
-            parts.append(f'<tr><td>{e(c["check_id"])}</td><td>'
-                         f'{pill("passed" if c["passed"] else "failed", TRIAL_STATUS)}'
-                         f'{"<div class=small>" + e(failures) + "</div>" if failures else ""}</td>'
-                         f'<td><code class="cmd">{e(c.get("command"))}</code></td>'
-                         f'<td class="num">{e((c.get("response") or {}).get("status"))}</td></tr>')
-        parts.append("</tbody></table>")
-    requests = validation.get("network_requests") or []
-    if requests:
-        parts.append("<h4>Network requests seen by the browser</h4><table><thead><tr>"
-                     "<th>Method</th><th>URL</th><th class='num'>Status</th></tr></thead><tbody>")
-        for r in requests:
-            parts.append(f"<tr><td>{e(r.get('method'))}</td><td><code>{e(r.get('url'))}</code></td>"
-                         f"<td class='num'>{e(r.get('status'))}</td></tr>")
-        parts.append("</tbody></table>")
-    contract = validation.get("contract")
-    if contract:
-        unmatched = contract.get("unmatched_operations") or []
-        parts.append(f'<p>API contract: {pill("passed" if contract.get("passed") else "failed", TRIAL_STATUS)}'
-                     + (f' Unmatched: <code>{e(", ".join(unmatched))}</code>' if unmatched else "")
-                     + "</p>")
-
-    parts.append("<h4>Trials</h4><table><thead><tr><th>#</th><th>Kind</th><th>Result</th>"
-                 "<th>Detail</th><th class='num'>Duration</th><th class='num'>Cost</th>"
-                 "<th>Sessions</th></tr></thead><tbody>")
-    for t in m["trials"]:
-        status = pill(t["status"], TRIAL_STATUS)
-        reason = f'<strong>{e(t["reason"])}</strong>: ' if t["reason"] else ""
-        detail = (t["detail"] or "")
-        parts.append(f'<tr><td>{t["n"]}</td><td>{e(t["kind"])}</td><td>{status}</td>'
-                     f'<td class="detail">{reason}{e(detail[:600])}'
-                     f'{"…" if len(detail) > 600 else ""}</td>'
-                     f'<td class="num">{e(duration(t["seconds"]))}</td>'
-                     f'<td class="num">{e(money(t["cost"]))}</td>'
-                     f'<td><code class="small">{e(" ".join(s[:8] for s in t["sessions"] if s))}'
-                     f'</code></td></tr>')
-    if not m["trials"]:
-        parts.append('<tr><td colspan="7" class="muted">No trials yet.</td></tr>')
-    parts.append("</tbody></table></details>")
-    return "".join(parts)
-
-
-def questions_section(data):
-    rows = []
+    Stopped or paused loops and their next action; acceptance criteria failing on a milestone's
+    latest trial; unanswered questions while a loop is not done; failed calls; large evidence
+    files; and milestones that passed only after failed or voided trials. `call_href(loop,
+    record)` links a call (the full dashboard); otherwise calls link to the calls view.
+    """
+    items = []
     for loop, d in data["loops"].items():
-        planned = {q["id"]: q for q in (d["plan"].get("open_questions") or [])}
-        ids = list(dict.fromkeys(list(planned) + list(d["answers"])))
-        for qid in ids:
-            q = planned.get(qid, {})
-            question, answer = d["answers"].get(qid, (q.get("question"), ""))
-            rows.append(f"<tr><td>{e(loop)}</td><td><strong>{e(qid)}</strong></td>"
-                        f"<td>{e(question or q.get('question'))}</td>"
-                        f"<td>{e(answer) if answer else '<span class=muted>Unanswered</span>'}"
-                        f"</td></tr>")
-    assumptions = []
-    for loop, d in data["loops"].items():
-        for a in d["plan"].get("assumptions") or []:
-            assumptions.append(f"<tr><td>{e(loop)}</td><td><strong>{e(a['id'])}</strong></td>"
-                               f"<td>{e(a['text'])}</td><td class='muted'>{e(a.get('source'))}</td>"
-                               "</tr>")
-    grants = []
-    for loop, d in data["loops"].items():
-        for g in d["grants"]:
-            grants.append(f"<tr><td>{e(loop)}</td><td>{e(g.get('milestone_id'))}</td>"
-                          f"<td class='num'>{e(g.get('extra_trials'))}</td><td>{e(g.get('reason'))}"
-                          f"</td><td class='muted'>{e(g.get('granted_at'))}</td></tr>")
-    out = ['<section><h2 id="decisions">Questions, assumptions, and retries</h2>']
-    out.append("<h3>Open questions</h3>" + (
-        "<table><thead><tr><th>Loop</th><th>ID</th><th>Question</th><th>Answer</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>" if rows else
-        '<p class="muted">No questions were raised.</p>'))
-    out.append("<h3>Planning assumptions</h3>" + (
-        "<table><thead><tr><th>Loop</th><th>ID</th><th>Assumption</th><th>Source</th></tr>"
-        f"</thead><tbody>{''.join(assumptions)}</tbody></table>" if assumptions else
-        '<p class="muted">None recorded.</p>'))
-    if grants:
-        out.append("<h3>Retries granted</h3><table><thead><tr><th>Loop</th><th>Milestone</th>"
-                   "<th class='num'>Trials</th><th>Reason</th><th>Granted</th></tr></thead>"
-                   f"<tbody>{''.join(grants)}</tbody></table>")
-    return "".join(out) + "</section>"
-
-
-def sessions_section(data, links=FILE_LINKS):
-    rows, events = [], []
-    for loop, d in data["loops"].items():
+        status = d["status"]
+        if status.startswith("stopped") or status == "awaiting-approval":
+            reason = d["status_reason"] or {}
+            text = f'<a href="#{e(loop)}"><strong>{e(loop)}</strong></a> is {pill(status, RUN_STATUS)}'
+            if reason.get("message"):
+                text += f' {e(reason["message"])}'
+            action = _next_action(loop, d)
+            items.append(("critical" if status.startswith("stopped") else "warning",
+                          text + (f'<div class="small">→ {action}</div>' if action else "")))
+        for m in d["milestones"]:
+            last = m["trials"][-1] if m["trials"] else None
+            failing = [c["criterion_id"] for c in ((last or {}).get("validation") or {})
+                       .get("criteria", []) if not c.get("passed")]
+            where = f'<a href="#ms-{e(loop)}-{e(m["id"])}">{e(loop)} {e(m["id"])}</a>'
+            if failing and m["status"] != "achieved":
+                items.append(("critical", f'{where}: {e(", ".join(failing))} failing on trial '
+                                          f'{e(last["n"])}'))
+            bad = [t for t in m["trials"] if t["status"] in ("failed", "void")]
+            if m["status"] == "achieved" and bad:
+                kinds = ", ".join(f'{sum(1 for t in bad if t["status"] == s)} {word}'
+                                  for s, word in (("failed", "failed"), ("void", "voided"))
+                                  if any(t["status"] == s for t in bad))
+                reasons = sorted({t["reason"] for t in bad if t.get("reason")})
+                items.append(("info", f'{where} passed after {e(kinds)} trial(s)'
+                              + (f' ({e(", ".join(reasons))})' if reasons else "")))
+        if status != "completed":
+            planned = {q["id"] for q in (d["plan"].get("open_questions") or [])}
+            open_ = [q for q in dict.fromkeys(list(planned) + list(d["answers"]))
+                     if not (d["answers"].get(q) or (None, ""))[1]]
+            if open_:
+                items.append(("warning", f'<a href="#questions">{e(loop)}: {len(open_)} unanswered '
+                                         f'question(s)</a> ({e(", ".join(open_))})'))
         for r in d["invocations"]:
-            tokens = sum((r.get("tokens") or {}).get(k) or 0
-                         for k in ("input", "output", "cache_creation", "cache_read"))
-            prompt = r.get("prompt_path")
-            rows.append(
-                f"<tr><td>{e(loop)}</td><td>{e(r.get('step'))}</td>"
-                f"<td>{e(r.get('milestone_id') or 'planning')}</td><td class='num'>{e(r.get('trial'))}</td>"
-                f"<td><code class='small'>{e(r.get('session_id'))}</code></td>"
-                f"<td>{links.path(f'{loop}/{prompt}', 'prompt') if prompt else ''}</td>"
-                f"<td class='num'>{e(number(tokens))}</td><td class='num'>{e(money(r.get('cost_usd')))}</td>"
-                f"<td class='num'>{e(duration((r.get('duration_ms') or 0) / 1000))}</td>"
-                f"<td>{'' if r.get('failure_class') in (None, 'none') else e(r.get('failure_class'))}"
-                "</td></tr>")
-        for ev in d["events"]:
-            events.append((ev.get("at") or "", loop, ev))
-    events.sort(key=lambda x: x[0])
-    ev_rows = "".join(
-        f"<tr><td class='muted small'>{e(at)}</td><td>{e(loop)}</td><td>{e(ev.get('type'))}</td>"
-        f"<td>{e(ev.get('milestone'))}</td><td>{e(ev.get('message'))}</td></tr>"
-        for at, loop, ev in events)
-    return ('<section><h2 id="sessions">Claude sessions and events</h2>'
-            f'<details><summary>All {len(rows)} Claude call(s)</summary><table><thead><tr>'
-            "<th>Loop</th><th>Step</th><th>Milestone</th><th class='num'>Trial</th>"
-            "<th>Session</th><th>Prompt</th><th class='num'>Tokens</th><th class='num'>Cost</th>"
-            "<th class='num'>Duration</th><th>Failure</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table></details>"
-            f'<details><summary>Event log ({len(events)} events)</summary><table><thead><tr>'
-            "<th>Time</th><th>Loop</th><th>Type</th><th>Milestone</th><th>Message</th></tr></thead>"
-            f"<tbody>{ev_rows}</tbody></table></details></section>")
+            failure = r.get("failure_class")
+            if failure not in (None, "none"):
+                href = call_href(loop, r) if call_href else "calls"
+                items.append(("warning", f'<a href="#{e(href)}">{e(loop)} call #{e(r.get("seq"))} '
+                                         f'{e(r.get("step"))}</a> failed ({e(failure)})'))
+    if data["large_evidence"]:
+        items.append(("warning", "Evidence files over 1 MB, the likeliest place for a secret to "
+                                 "hide; review before committing: " + ", ".join(
+                                     links.path(i["path"]) + f" ({number(i['bytes'])}B)"
+                                     for i in data["large_evidence"])))
+    order = {"critical": 0, "warning": 1, "info": 2}
+    return sorted(items, key=lambda item: order[item[0]])
 
 
-def charts_section(data):
-    cost_rows, step_rows = [], []
+def attention_panel(items):
+    if not items:
+        return ('<div class="attention ok"><span class="a-icon tone-good" aria-hidden="true">✓</span>'
+                'Nothing needs attention.</div>')
+    rows = "".join(f'<li class="tone-{tone}"><span class="a-icon" aria-hidden="true">'
+                   f'{ATTENTION[tone][0]}</span><span class="sr-only">{ATTENTION[tone][1]}: </span>'
+                   f'<div>{html_}</div></li>' for tone, html_ in items)
+    title = ("Needs attention" if any(tone != "info" for tone, _ in items) else "Worth knowing")
+    return (f'<section class="attention" aria-labelledby="attention-h"><h3 id="attention-h">{title} '
+            f'<span class="count">{len(items)}</span></h3><ul>{rows}</ul></section>')
+
+
+def _cost_rows(data):
+    cost_rows, step_rows, steps = [], [], {}
     for loop, d in data["loops"].items():
         cost_rows.append((f"{loop} · Planning", d["planning_cost"],
                           f"{loop} planning: {money(d['planning_cost'])}"))
@@ -668,8 +586,6 @@ def charts_section(data):
             cost_rows.append((f"{loop} · {m['id']}", m["cost"],
                               f"{loop} {m['id']} {m['title']}: {money(m['cost'])} over "
                               f"{m['calls']} call(s), {len(m['trials'])} trial(s)"))
-    steps = {}
-    for d in data["loops"].values():
         for step, v in d["by_step"].items():
             agg = steps.setdefault(step, {"calls": 0, "cost": 0.0, "tokens": 0})
             for k in agg:
@@ -677,230 +593,347 @@ def charts_section(data):
     for step, v in sorted(steps.items(), key=lambda kv: -kv[1]["cost"]):
         step_rows.append((step, v["cost"], f"{step}: {money(v['cost'])} over {v['calls']} "
                                            f"call(s), {number(v['tokens'])} tokens"))
-    return ('<section><h2 id="timeline">Trial timeline</h2>'
-            '<div class="card">' + timeline(data) + "</div>"
-            '<div class="grid2"><div class="card"><h3>Cost by milestone</h3>'
-            + bar_chart(cost_rows, money, "Cost by milestone", ("Milestone", "Cost"))
-            + '</div><div class="card"><h3>Cost by step</h3>'
-            + bar_chart(step_rows, money, "Cost by step", ("Step", "Cost"))
-            + "</div></div></section>")
+    return cost_rows, step_rows
 
 
-def orchestrator_section(data):
+def overview_view(data, links=FILE_LINKS, notice="", call_href=None):
+    req = data["requirements"]
+    selection = f" · story {e(req.get('story_id'))}" if req.get("story_id") else ""
+    sub = (f'Requirements <code>{e(req.get("path"))}</code> · mode {e(req.get("mode"))}{selection}'
+           f' · generated {e(data["generated_at"])}')
+    body = [notice, kpi_row(data), attention_panel(attention(data, links, call_href))]
+    if not data["loops"]:
+        body.append('<p class="muted">No loop has started in this workspace yet.</p>')
+        return ui.view("overview", "Overview", "".join(body), sub)
+    cards = []
+    for loop, d in data["loops"].items():
+        s = d["stats"]
+        pct = 100 * s["achieved"] / s["milestones"] if s["milestones"] else 0
+        action = _next_action(loop, d)
+        cards.append(
+            f'<a class="card loop-card" href="#{e(loop)}"><div class="row">{ui.icon("loop")}'
+            f'<span class="name">{e(loop)}</span><span class="end">{pill(d["status"], RUN_STATUS)}'
+            f'</span></div><div class="progress" role="img" aria-label="{s["achieved"]} of '
+            f'{s["milestones"]} milestones achieved"><span style="width:{pct:.0f}%"></span></div>'
+            f'<div class="facts"><span><b>{s["achieved"]}/{s["milestones"]}</b> milestones</span>'
+            f'<span><b>{s["trials"]}</b> trials</span><span><b>{s["calls"]}</b> calls</span>'
+            f'<span><b>{e(money(s["cost"]))}</b></span><span><b>{e(duration(s["seconds"]))}</b>'
+            f'</span></div>' + (f'<div class="small next">→ {action}</div>' if action else "")
+            + "</a>")
+    cost_rows, step_rows = _cost_rows(data)
+    body += [f'<h3>Loops</h3><div class="grid cols-2">{"".join(cards)}</div>',
+             f'<h3 id="timeline">Trial timeline</h3><div class="card">{timeline(data)}</div>',
+             '<div class="grid cols-2 gap-top"><div class="card"><h3>Cost by milestone</h3>'
+             + bar_chart(cost_rows, money, "Cost by milestone", ("Milestone", "Cost"))
+             + '</div><div class="card"><h3>Cost by step</h3>'
+             + bar_chart(step_rows, money, "Cost by step", ("Step", "Cost")) + "</div></div>"]
+    return ui.view("overview", "Overview", "".join(body), sub)
+
+
+def orchestrator_view(data):
     orch = data["orchestrator"]
     if not orch:
         return ""
-    steps = "".join(f"<tr><td>{e(s['loop'])}</td><td>{pill(s['status'], RUN_STATUS)}</td>"
-                    f"<td>{e(s.get('reason'))}</td><td class='muted small'>{e(s.get('started_at'))}"
-                    f"</td><td class='muted small'>{e(s.get('ended_at'))}</td></tr>"
-                    for s in orch.get("steps") or [])
+    rows = [f"<tr><td><a href='#{e(s['loop'])}'>{e(s['loop'])}</a></td>"
+            f"<td>{pill(s['status'], RUN_STATUS)}</td><td>{e(s.get('reason') or '')}</td>"
+            f"<td class='muted small'>{e(s.get('started_at'))}</td>"
+            f"<td class='muted small'>{e(s.get('ended_at'))}</td></tr>"
+            for s in orch.get("steps") or []]
+    body = table([("Loop", 0), ("Status", 0), ("Reason", 0), ("Started", 0), ("Ended", 0)], rows,
+                 empty="No loop has run yet.")
     handoff = orch.get("handoff") or {}
-    spec = handoff.get("api_spec") or {}
-    runtime = handoff.get("backend_runtime") or {}
-    hand = ""
     if handoff:
-        hand = ("<h3>Handoff</h3><dl>"
-                f"<dt>API spec</dt><dd><code>{e(spec.get('path'))}</code><div class='muted small'>"
-                f"sha256 {e(spec.get('sha256'))}</div></dd>"
-                + "".join(f"<dt>Backend {e(k)}</dt><dd><code>{e(v)}</code></dd>"
-                          for k, v in runtime.items()) + "</dl>")
-    return (f'<section><h2 id="orchestrator">Orchestrator {pill(orch.get("status"), {"running": ("Running", "◷", "neutral"), "paused": ("Paused", "⏸", "warning"), "completed": ("Completed", "✓", "good"), "stopped": ("Stopped", "✕", "critical")})}</h2>'
-            "<table><thead><tr><th>Loop</th><th>Status</th><th>Reason</th><th>Started</th>"
-            f"<th>Ended</th></tr></thead><tbody>{steps}</tbody></table>{hand}</section>")
+        spec = handoff.get("api_spec") or {}
+        runtime = handoff.get("backend_runtime") or {}
+        body += ('<div class="card gap-top"><h3>Handoff</h3><dl>'
+                 f"<dt>API spec</dt><dd><code>{e(spec.get('path'))}</code><div class='muted small'>"
+                 f"sha256 {e(spec.get('sha256'))}</div></dd>"
+                 + "".join(f"<dt>Backend {e(k)}</dt><dd><code>{e(v)}</code></dd>"
+                           for k, v in runtime.items()) + "</dl></div>")
+    return ui.view("orchestrator", "Orchestrator", body,
+                   badge=pill(orch.get("status"), ORCHESTRATOR_STATUS))
 
 
-# --- page -------------------------------------------------------------------------------------------
-
-CSS = """
-:root{color-scheme:light;--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
---muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);--series:#2a78d6;
---good:#0ca30c;--warning:#fab219;--serious:#ec835a;--critical:#d03b3b;--neutral:#2a78d6;
---good-ink:#006300;--chip:#f0efec}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--page:#0d0d0d;
---surface:#1a1a19;--ink:#fff;--ink-2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;
---border:rgba(255,255,255,.10);--series:#3987e5;--neutral:#3987e5;--good-ink:#0ca30c;--chip:#383835}}
-:root[data-theme="dark"]{color-scheme:dark;--page:#0d0d0d;--surface:#1a1a19;--ink:#fff;
---ink-2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
---series:#3987e5;--neutral:#3987e5;--good-ink:#0ca30c;--chip:#383835}
-*{box-sizing:border-box}
-body{margin:0;background:var(--page);color:var(--ink);font:14px/1.5 system-ui,-apple-system,
-"Segoe UI",sans-serif}
-header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid
-var(--border);padding:12px 24px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-header.top h1{font-size:18px;margin:0}
-header.top nav{display:flex;gap:12px;flex-wrap:wrap;font-size:13px}
-header.top .spacer{flex:1}
-main{max-width:1240px;margin:0 auto;padding:20px 24px 60px}
-a{color:var(--series)}
-h2{font-size:20px;margin:32px 0 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-h3{font-size:15px;margin:18px 0 8px}h4{font-size:13px;margin:16px 0 6px;color:var(--ink-2)}
-.meta{color:var(--ink-2);font-size:13px;margin:4px 0 0}
-.muted{color:var(--muted)}.small{font-size:12px}
-code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--chip);
-padding:1px 5px;border-radius:4px;word-break:break-all}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:12px;margin:16px 0}
-.kpis.small{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
-.tile,.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
-.tile-label{color:var(--ink-2);font-size:12px}
-.tile-value{font-size:24px;font-weight:600;margin-top:2px}
-.kpis.small .tile-value{font-size:18px}
-.tile-sub{color:var(--muted);font-size:11px}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;margin:16px 0}
-.card{overflow-x:auto}
-.pill{display:inline-flex;gap:4px;align-items:center;font-size:12px;font-weight:600;
-padding:2px 9px;border-radius:999px;border:1px solid var(--border);background:var(--chip);color:var(--ink);white-space:nowrap}
-.pill.tone-good{box-shadow:inset 3px 0 0 var(--good)}.pill.tone-critical{box-shadow:inset 3px 0 0 var(--critical)}
-.pill.tone-warning{box-shadow:inset 3px 0 0 var(--warning)}.pill.tone-serious{box-shadow:inset 3px 0 0 var(--serious)}
-.pill.tone-neutral{box-shadow:inset 3px 0 0 var(--neutral)}.pill.tone-muted{color:var(--ink-2)}
-.pill.tone-good span[aria-hidden]{color:var(--good-ink)}.pill.tone-critical span[aria-hidden]{color:var(--critical)}
-table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0 10px;background:var(--surface)}
-th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--grid);vertical-align:top}
-th{color:var(--ink-2);font-weight:600;font-size:12px}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-td.detail{max-width:420px}
-code.cmd{white-space:pre-wrap}
-details{margin:8px 0}
-details>summary{cursor:pointer;color:var(--ink-2);font-weight:600}
-details.milestone{background:var(--surface);border:1px solid var(--border);border-radius:10px;
-padding:10px 14px}
-details.milestone>summary{color:var(--ink);display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px}
-.mid{font-weight:700}.summary-meta{margin-left:auto;color:var(--muted);font-weight:400;font-size:12px}
-.goal{color:var(--ink-2)}
-.tasks{list-style:none;padding:0;margin:0}.tasks li{padding:5px 0;border-bottom:1px solid var(--grid)}
-.check{display:inline-block;width:18px;color:var(--muted)}.check.on{color:var(--good-ink);font-weight:700}
-.refs{color:var(--muted);font-size:12px}
-.thumb{height:64px;border-radius:6px;border:1px solid var(--border);margin:2px}
-.reason{margin:4px 0}.action{background:var(--surface);border:1px solid var(--border);
-border-left:3px solid var(--warning);border-radius:8px;padding:8px 12px}
-.outputs{font-size:13px}
-dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:0;font-size:13px}
-dt{color:var(--ink-2)}dd{margin:0}
-.alert{border-left:3px solid var(--serious);background:var(--surface);padding:10px 14px;border-radius:8px}
-svg.chart{max-width:100%;height:auto;display:block;font-size:12px}
-svg .axis-label{fill:var(--ink-2)}svg .value-label{fill:var(--ink);font-weight:600}
-svg .grid{stroke:var(--grid);stroke-width:1}svg .baseline{stroke:var(--axis);stroke-width:1}
-svg .bar{fill:var(--series)}svg .hit{fill:transparent}
-svg .mark:hover .bar,svg .mark:focus .bar{opacity:.8}svg .mark:focus{outline:none}
-svg .seg{stroke:var(--surface);stroke-width:2}
-svg .seg.tone-good,.swatch.tone-good{fill:var(--good);background:var(--good)}
-svg .seg.tone-critical,.swatch.tone-critical{fill:var(--critical);background:var(--critical)}
-svg .seg.tone-serious,.swatch.tone-serious{fill:var(--serious);background:var(--serious)}
-svg .seg.tone-neutral,.swatch.tone-neutral{fill:var(--neutral);background:var(--neutral)}
-svg .seg.tone-muted,.swatch.tone-muted{fill:var(--muted);background:var(--muted)}
-.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-bottom:8px}
-.legend-item{display:inline-flex;gap:5px;align-items:center}
-.swatch{width:12px;height:12px;border-radius:3px;display:inline-block}
-#tip{position:fixed;pointer-events:none;z-index:10;background:var(--surface);color:var(--ink);
-border:1px solid var(--border);box-shadow:0 4px 14px rgba(0,0,0,.18);border-radius:8px;
-padding:6px 10px;font-size:12px;max-width:340px;display:none}
-button.theme{font:inherit;font-size:12px;border:1px solid var(--border);background:var(--chip);
-color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer}
-@media (max-width:640px){main{padding:16px}header.top{padding:10px 16px}.grid2{grid-template-columns:1fr}}
-"""
-
-JS = """
-(function(){
-  var root=document.documentElement,btn=document.getElementById('theme');
-  function apply(t){if(t){root.setAttribute('data-theme',t)}else{root.removeAttribute('data-theme')}}
-  try{apply(localStorage.getItem('devloops-theme'))}catch(e){}
-  if(btn){btn.addEventListener('click',function(){
-    var dark=root.getAttribute('data-theme')==='dark'||(!root.getAttribute('data-theme')&&
-      window.matchMedia('(prefers-color-scheme: dark)').matches);
-    var next=dark?'light':'dark';apply(next);try{localStorage.setItem('devloops-theme',next)}catch(e){}
-  })}
-  var tip=document.getElementById('tip');
-  function show(el,x,y){tip.textContent=el.getAttribute('data-tip');tip.style.display='block';
-    var w=tip.offsetWidth,h=tip.offsetHeight;
-    tip.style.left=Math.min(x+14,window.innerWidth-w-8)+'px';tip.style.top=Math.max(8,y-h-10)+'px'}
-  function hide(){tip.style.display='none'}
-  document.querySelectorAll('[data-tip]').forEach(function(el){
-    el.addEventListener('mousemove',function(ev){show(el,ev.clientX,ev.clientY)});
-    el.addEventListener('mouseleave',hide);
-    el.addEventListener('focus',function(){var r=el.getBoundingClientRect();show(el,r.left,r.top)});
-    el.addEventListener('blur',hide);
-  });
-})();
-"""
+def _calls_link(call_ref, sessions):
+    links = [call_ref(s) for s in sessions if s]
+    return " ".join(f'<a href="#{e(cid)}">#{e(cid.rsplit("-", 1)[-1])}</a>' for cid in links if cid)
 
 
-def nav_links(data):
-    nav = "".join(f'<a href="#{e(loop)}">{e(loop)}</a>' for loop in data["loops"])
-    nav += ('<a href="#timeline">Timeline</a><a href="#decisions">Questions</a>'
-            '<a href="#sessions">Sessions</a>')
-    if data["orchestrator"]:
-        nav = '<a href="#orchestrator">Orchestrator</a>' + nav
-    return nav
+def milestone_card(loop, m, links=FILE_LINKS, call_ref=None):
+    last = m["trials"][-1] if m["trials"] else None
+    validation = (last or {}).get("validation") or {}
+    results = {c["criterion_id"]: c for c in validation.get("criteria", [])}
+    dots = "".join(f'<i class="tone-{tone(t["status"], TRIAL_STATUS)}" title="Trial {t["n"]}: '
+                   f'{e(TRIAL_STATUS.get(t["status"], (t["status"],))[0])}"></i>' for t in m["trials"])
+    parts = [f'<details class="ms" id="ms-{e(loop)}-{e(m["id"])}"'
+             f'{"" if m["status"] == "achieved" else " open"}><summary>{ui.icon("chev", "chev")}'
+             f'<span class="head"><span class="mid">{e(m["id"])}</span><span class="mtitle">'
+             f'{e(m["title"])}</span>{pill(m["status"], MILESTONE_STATUS)}</span><span class="meta">'
+             f'<span class="trials" role="img" aria-label="{len(m["trials"])} trial(s)">{dots}</span>'
+             f'<span>{len(m["trials"])} trial(s)</span><span>{e(money(m["cost"]))}</span>'
+             f'<span>{e(duration(m["seconds"]))}</span></span></summary><div class="body">']
+    if m.get("goal"):
+        parts.append(f'<p class="goal">{e(m["goal"])}</p>')
+    if m["depends_on"]:
+        parts.append(f'<p class="muted small">Depends on {e(", ".join(m["depends_on"]))}</p>')
+
+    tasks = "".join(
+        f'<li><span class="check {"on" if t["status"] == "achieved" else ""}" aria-label="'
+        f'{"achieved" if t["status"] == "achieved" else e(t["status"])}">'
+        f'{"✓" if t["status"] == "achieved" else "○"}</span><div><strong>{e(t["id"])}</strong> '
+        f'{e(t["title"])} <span class="refs">{e(", ".join(t.get("requirement_refs") or []))}</span>'
+        f'<div class="muted small">{e(t.get("description"))}</div></div></li>' for t in m["tasks"])
+    crit = []
+    for c in m["criteria"]:
+        r = results.get(c["id"])
+        if r is None:
+            result = '<span class="muted small">Not validated</span>'
+        else:
+            result = pill("passed" if r["passed"] else "failed", TRIAL_STATUS)
+        evidence = []
+        for item in ((r or {}).get("evidence") or []) if last else []:
+            rel = os.path.join(os.path.dirname(last["evidence_dir"]), item)
+            if item.lower().endswith(IMAGE_EXTENSIONS):
+                evidence.append(links.image(rel, os.path.basename(item)))
+            else:
+                evidence.append(links.path(rel, os.path.basename(item)))
+        crit.append(f'<tr><td><strong>{e(c["id"])}</strong> {e(c["text"])}</td><td>{result}</td>'
+                    f'<td class="small">{e((r or {}).get("observed"))}</td>'
+                    f'<td><div class="evidence">{"".join(evidence)}</div></td></tr>')
+    head = "Acceptance criteria" + (f" · trial {last['n']}" if last else "")
+    parts.append(f'<h4>Tasks</h4><ul class="tasks">{tasks}</ul><h4>{e(head)}</h4>'
+                 + table([("Criterion", 0), ("Result", 0), ("Observed", 0), ("Evidence", 0)], crit,
+                         ' class="criteria"'))
+
+    checks = validation.get("checks") or []
+    if checks:
+        rows = []
+        for c in checks:
+            failures = "; ".join(c.get("failures") or [])
+            rows.append(f'<tr><td>{e(c["check_id"])}</td><td>'
+                        f'{pill("passed" if c["passed"] else "failed", TRIAL_STATUS)}'
+                        f'{"<div class=small>" + e(failures) + "</div>" if failures else ""}</td>'
+                        f'<td><code class="cmd">{e(c.get("command"))}</code></td>'
+                        f'<td class="num">{e((c.get("response") or {}).get("status"))}</td></tr>')
+        parts.append("<h4>HTTP checks</h4>" + table(
+            [("Check", 0), ("Result", 0), ("Command", 0), ("Status", 1)], rows))
+    requests = validation.get("network_requests") or []
+    if requests:
+        rows = [f"<tr><td>{e(r.get('method'))}</td><td><code>{e(r.get('url'))}</code></td>"
+                f"<td class='num'>{e(r.get('status'))}</td></tr>" for r in requests]
+        parts.append("<h4>Network requests seen by the browser</h4>" + table(
+            [("Method", 0), ("URL", 0), ("Status", 1)], rows))
+    contract = validation.get("contract")
+    if contract:
+        unmatched = contract.get("unmatched_operations") or []
+        parts.append(f'<p>API contract: {pill("passed" if contract.get("passed") else "failed", TRIAL_STATUS)}'
+                     + (f' Unmatched: <code>{e(", ".join(unmatched))}</code>' if unmatched else "")
+                     + "</p>")
+
+    rows = []
+    for t in m["trials"]:
+        reason = f'<strong>{e(t["reason"])}</strong>: ' if t["reason"] else ""
+        detail = (t["detail"] or "")
+        calls = (_calls_link(call_ref, t["sessions"]) if call_ref else
+                 f'<code class="small">{e(" ".join(s[:8] for s in t["sessions"] if s))}</code>')
+        rows.append(f'<tr><td class="num">{t["n"]}</td><td>{e(t["kind"])}</td>'
+                    f'<td>{pill(t["status"], TRIAL_STATUS)}</td><td class="small detail">{reason}'
+                    f'{e(detail[:600])}{"…" if len(detail) > 600 else ""}</td>'
+                    f'<td class="num">{e(duration(t["seconds"]))}</td>'
+                    f'<td class="num">{e(money(t["cost"]))}</td><td>{calls}</td></tr>')
+    parts.append("<h4>Trials</h4>" + table(
+        [("#", 1), ("Kind", 0), ("Result", 0), ("Detail", 0), ("Duration", 1), ("Cost", 1),
+         ("Calls" if call_ref else "Sessions", 0)], rows, empty="No trials yet."))
+    return "".join(parts) + "</div></details>"
 
 
-def large_evidence_alert(data, links=FILE_LINKS):
-    if not data["large_evidence"]:
-        return ""
-    return ('<p class="alert"><strong>Review before committing:</strong> evidence files over '
-            '1 MB, the likeliest place for a secret to hide: '
-            + ", ".join(links.path(i["path"]) + f" ({number(i['bytes'])}B)"
-                        for i in data["large_evidence"]) + "</p>")
+def loop_view(loop, d, ws_path, links=FILE_LINKS, call_ref=None, files_view=False):
+    s = d["stats"]
+    reason = d["status_reason"] or {}
+    parts = []
+    if reason:
+        parts.append(f'<p class="callout bad reason"><strong>{e(reason.get("code"))}</strong>: '
+                     f'{e(reason.get("message"))}</p>')
+    action = _next_action(loop, d)
+    if action:
+        parts.append(f'<p class="callout warn action"><span aria-hidden="true">→</span> {action}</p>')
+    rate = f"{100 * s['first_try'] / s['achieved']:.0f}%" if s["achieved"] else "–"
+    parts.append('<div class="kpis compact">' + "".join([
+        _kpi("Milestones", f"{s['achieved']} / {s['milestones']}"),
+        _kpi("First-try", rate), _kpi("Trials", str(s["trials"])),
+        _kpi("Calls", str(s["calls"])), _kpi("Cost", e(money(s["cost"]))),
+        _kpi("Elapsed", e(duration(s["seconds"]))),
+    ]) + "</div>")
+
+    keys = [(f"{loop}/progress.md", "Progress", "md"),
+            (f"{loop}/outputs/plan-summary.md", "Plan summary", "md")]
+    if os.path.exists(os.path.join(ws_path, loop, "outputs", "final-report.md")):
+        keys.append((f"{loop}/outputs/final-report.md", "Final report", "md"))
+    if d["openapi_artifact"]:
+        keys.append((f"{loop}/{d['openapi_artifact']['path']}", "OpenAPI document", "json"))
+    buttons = "".join(links.button(path, label, ic) for path, label, ic in keys)
+    if d["ui_url"]:
+        buttons += f'<span class="tag">UI {links.url(d["ui_url"])}</span>'
+    more = f'<a class="btn ghost" href="#calls">{ui.icon("chat")}{s["calls"]} calls</a>'
+    if files_view:
+        more += f'<a class="btn ghost" href="#files">{ui.icon("folder")}Files</a>'
+    parts.append(f'<div class="toolbar outputs gap-top">{buttons}<span class="spacer"></span>{more}</div>')
+
+    plan = d["plan"]
+    if plan:
+        stack = plan.get("stack") or {}
+        runtime = plan.get("runtime") or {}
+        parts.append('<div class="grid cols-2"><div class="card"><h3>Stack</h3>'
+                     f'<p>{e(stack.get("summary"))}</p><p class="muted small">Source: '
+                     f'{e(stack.get("source"))}</p></div><div class="card"><h3>Runtime</h3><dl>'
+                     + "".join(f"<dt>{e(k)}</dt><dd><code>{e(v)}</code></dd>"
+                               for k, v in runtime.items() if v)
+                     + f'<dt>target</dt><dd><code>{e(d["target_dir"])}</code></dd></dl></div></div>')
+    parts.append("<h3>Milestones</h3>")
+    parts += [milestone_card(loop, m, links, call_ref) for m in d["milestones"]]
+    if not d["milestones"]:
+        parts.append('<p class="muted">No plan stored yet.</p>')
+    return ui.view(loop, loop, "".join(parts), badge=pill(d["status"], RUN_STATUS))
 
 
-def header(title, nav):
-    return (f'<header class="top"><h1>{e(title)}</h1><nav>{nav}</nav>'
-            '<span class="spacer"></span><button class="theme" id="theme" type="button">'
-            'Toggle theme</button></header>')
-
-
-def summary_sections(data, ws_path, links=FILE_LINKS):
-    """The body shared by both dashboards: KPIs, orchestrator, charts, loops, and sessions."""
-    body = [kpi_row(data), large_evidence_alert(data, links)]
-    if not data["loops"]:
-        body.append('<p class="muted">No loop has started in this workspace yet.</p>')
-    body.append(orchestrator_section(data))
-    if data["loops"]:
-        body.append(charts_section(data))
+def questions_view(data):
+    rows = []
     for loop, d in data["loops"].items():
-        body.append(loop_section(loop, d, ws_path, links))
-    if data["loops"]:
-        body.append(questions_section(data))
-        body.append(sessions_section(data, links))
-    return body
+        planned = {q["id"]: q for q in (d["plan"].get("open_questions") or [])}
+        for qid in dict.fromkeys(list(planned) + list(d["answers"])):
+            q = planned.get(qid, {})
+            question, answer = d["answers"].get(qid, (q.get("question"), ""))
+            rows.append(f"<tr><td>{e(loop)}</td><td><strong>{e(qid)}</strong></td>"
+                        f"<td>{e(question or q.get('question'))}</td>"
+                        f"<td>{e(answer) if answer else '<span class=muted>Unanswered</span>'}"
+                        f"</td></tr>")
+    assumptions = [f"<tr><td>{e(loop)}</td><td><strong>{e(a['id'])}</strong></td><td>{e(a['text'])}"
+                   f"</td><td class='muted small'>{e(a.get('source'))}</td></tr>"
+                   for loop, d in data["loops"].items() for a in d["plan"].get("assumptions") or []]
+    grants = [f"<tr><td>{e(loop)}</td><td>{e(g.get('milestone_id'))}</td>"
+              f"<td class='num'>{e(g.get('extra_trials'))}</td><td>{e(g.get('reason'))}</td>"
+              f"<td class='muted small'>{e(g.get('granted_at'))}</td></tr>"
+              for loop, d in data["loops"].items() for g in d["grants"]]
+    body = ["<h3>Open questions</h3>" + table(
+                [("Loop", 0), ("ID", 0), ("Question", 0), ("Answer", 0)], rows,
+                empty="No questions were raised."),
+            "<h3>Planning assumptions</h3>" + table(
+                [("Loop", 0), ("ID", 0), ("Assumption", 0), ("Source", 0)], assumptions,
+                empty="None recorded.")]
+    if grants:
+        body.append("<h3>Retries granted</h3>" + table(
+            [("Loop", 0), ("Milestone", 0), ("Trials", 1), ("Reason", 0), ("Granted", 0)], grants))
+    return ui.view("questions", "Questions and assumptions", "".join(body))
 
 
-def page(title, body, css=""):
-    """A complete page: inline styles, `body` (a list of HTML strings), and the one script."""
-    return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-            "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-            f"<title>{e(title)}</title><style>{CSS}{css}</style></head><body>"
-            + "".join(body) + f'<div id="tip" role="tooltip"></div><script>{JS}</script>'
-            "</body></html>\n")
+def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources=""):
+    """Every Claude call. With `call_ids` (the full dashboard) a row opens the call's conversation;
+    otherwise it links its prompt file."""
+    rows = []
+    for loop, d in data["loops"].items():
+        for r in sorted(d["invocations"], key=lambda r: r.get("seq") or 0):
+            failure = r.get("failure_class")
+            result = (f'<span class="pill tone-critical"><span aria-hidden="true">✕</span> '
+                      f'{e(failure)}</span>' if failure not in (None, "none")
+                      else '<span class="muted small">ok</span>')
+            cid = call_ids(loop, r) if call_ids else None
+            prompt = r.get("prompt_path")
+            last = (f'<td class="muted small">{e((models or {}).get((loop, r.get("seq"))) or "")}</td>'
+                    if call_ids else
+                    f"<td>{links.path(f'{loop}/{prompt}', 'prompt') if prompt else ''}</td>")
+            attrs = f' class="row-link" data-open="{e(cid)}"' if cid else ""
+            rows.append(
+                f'<tr{attrs} data-loop="{e(loop)}"><td>{e(loop)}</td><td class="num">'
+                f'{e(r.get("seq"))}</td><td><strong>{e(r.get("step"))}</strong></td>'
+                f'<td>{e(r.get("milestone_id") or "planning")}</td><td class="num">'
+                f'{e(r.get("trial") if r.get("trial") is not None else "")}</td>'
+                f'<td><code class="small">{e((r.get("session_id") or "")[:8])}</code></td>{last}'
+                f'<td class="num">{e(number(tokens_of(r)))}</td>'
+                f'<td class="num">{e(money(r.get("cost_usd")))}</td>'
+                f'<td class="num">{e(duration((r.get("duration_ms") or 0) / 1000))}</td>'
+                f'<td>{result}</td></tr>')
+    chips = "".join(f'<button type="button" class="chip" data-loop-chip="{e(loop)}" '
+                    f'data-table="calls-table" aria-pressed="false">{e(loop)}</button>'
+                    for loop in data["loops"])
+    head = [("Loop", 0), ("#", 1), ("Step", 0), ("Milestone", 0), ("Trial", 1), ("Session", 0),
+            ("Model" if call_ids else "Prompt", 0), ("Tokens", 1), ("Cost", 1), ("Duration", 1),
+            ("Result", 0)]
+    hint = ("Select a call to read its conversation, prompt, and settings." if call_ids else
+            "The full dashboard shows each call's conversation.")
+    body = (f'<div class="toolbar"><input class="input" type="search" placeholder="Filter calls…" '
+            f'aria-label="Filter calls" data-filter-for="calls-table"><div class="chips" role="group" '
+            f'aria-label="Loops">{chips}</div></div>'
+            + table(head, rows, ' id="calls-table"', empty="No Claude call recorded.")
+            + f'<p class="muted small">{hint}</p>{sources}')
+    total = sum(len(d["invocations"]) for d in data["loops"].values())
+    return ui.view("calls", "Claude calls", body, f"{total} headless Claude Code call(s)")
 
 
-def full_dashboards_section(data):
+def events_view(data):
+    events = sorted(((ev.get("at") or "", loop, ev) for loop, d in data["loops"].items()
+                     for ev in d["events"]), key=lambda x: x[0])
+    rows = [f"<tr><td class='muted small nowrap'>{e(at)}</td><td>{e(loop)}</td>"
+            f"<td><span class='tag'>{e(ev.get('type'))}</span></td><td>{e(ev.get('milestone'))}</td>"
+            f"<td>{e(ev.get('message'))}</td></tr>" for at, loop, ev in events]
+    body = ('<div class="toolbar"><input class="input" type="search" placeholder="Filter events…" '
+            'aria-label="Filter events" data-filter-for="events-table"></div>'
+            + table([("Time", 0), ("Loop", 0), ("Type", 0), ("Milestone", 0), ("Message", 0)], rows,
+                    ' id="events-table"', empty="No events yet."))
+    return ui.view("events", "Events", body, f"{len(events)} event(s), oldest first")
+
+
+def full_dashboards_view(data):
     """Links to the workspace's full dashboards, newest first (002 FR-036a)."""
     items = data.get("full_dashboards") or []
     if not items:
         return ""
-    rows = "".join(f"<li>{_path_link(i['link'], i['name'])} "
-                   f"<span class='muted small'>{e(number(i['bytes']))}B</span></li>"
-                   for i in items)
-    return ('<section><h2 id="full-dashboards">Full dashboards</h2><p class="muted">'
-            'Self-contained pages with every artifact and Claude Code conversation, newest first. '
-            f'They contain full conversations: review before sharing.</p><ul>{rows}</ul></section>')
+    rows = [f'<tr><td><a href="{e(i["link"])}" target="_blank" rel="noopener">{ui.icon("file")}'
+            f'{e(i["name"])}</a></td><td class="num">{e(number(i["bytes"]))}B</td></tr>'
+            for i in items]
+    body = ('<p class="muted">Self-contained pages with every artifact and Claude Code conversation, '
+            'newest first. They contain full conversations: review before sharing.</p>'
+            + table([("File", 0), ("Size", 1)], rows))
+    return ui.view("full-dashboards", "Full dashboards", body)
+
+
+def sidebar(data, kind, details):
+    """The navigation: the run, each loop (its status as a dot), and `details` links."""
+    run = [ui.nav_link("overview", "Overview", "grid")]
+    if data["orchestrator"]:
+        run.append(ui.nav_link("orchestrator", "Orchestrator", "flow"))
+    loops = [ui.nav_link(loop, loop, "loop", ui.nav_dot(tone(d["status"], RUN_STATUS),
+                                                        RUN_STATUS.get(d["status"], (d["status"],))[0]))
+             for loop, d in data["loops"].items()]
+    groups = [("Run", run)] + ([("Loops", loops)] if loops else []) + [("Details", details)]
+    generated = (data["generated_at"] or "")[:19].replace("T", " ") + " UTC"
+    return ui.sidebar(data["workspace"], kind, groups, generated, __version__)
+
+
+def detail_links(data, files=None):
+    calls = sum(len(d["invocations"]) for d in data["loops"].values())
+    events = sum(len(d["events"]) for d in data["loops"].values())
+    links = [ui.nav_link("calls", "Claude calls", "chat", ui.nav_count(calls))]
+    if files is not None:
+        links.append(ui.nav_link("files", "Files", "folder", ui.nav_count(files)))
+    links += [ui.nav_link("questions", "Questions", "help"),
+              ui.nav_link("events", "Events", "list", ui.nav_count(events))]
+    return links
 
 
 def render_page(data, ws_path):
-    req = data["requirements"]
-    mode = req.get("mode")
-    selection = f" · story {req.get('story_id')}" if req.get("story_id") else ""
-    nav = nav_links(data)
+    views = [overview_view(data), orchestrator_view(data)]
+    views += [loop_view(loop, d, ws_path) for loop, d in data["loops"].items()]
+    views += [calls_view(data), questions_view(data), events_view(data),
+              full_dashboards_view(data)]
+    details = detail_links(data)
     if data.get("full_dashboards"):
-        nav += '<a href="#full-dashboards">Full dashboards</a>'
-    body = [
-        header(f"devloops · {data['workspace']}", nav), "<main>",
-        f'<p class="meta">Requirements <code>{e(req.get("path"))}</code> · mode '
-        f'{e(mode)}{e(selection)} · generated {e(data["generated_at"])}</p>',
-        *summary_sections(data, ws_path),
-        full_dashboards_section(data),
-        "</main>",
-    ]
-    return page(f"devloops · {data['workspace']}", body)
+        details.append(ui.nav_link("full-dashboards", "Full dashboards", "history",
+                                   ui.nav_count(len(data["full_dashboards"]))))
+    refresh = REFRESH_SECONDS if data.get("running") else 0
+    return ui.page(f"devloops · {data['workspace']}", sidebar(data, "dashboard", details),
+                   ui.topbar(data["workspace"], pill(_overall_status(data), RUN_STATUS),
+                             live=bool(refresh)),
+                   [v for v in views if v], refresh=refresh)
 
 
 def write(ws):

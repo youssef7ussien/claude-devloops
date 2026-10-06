@@ -12,6 +12,11 @@ readme = "loops/README.md"
 requires-python = ">=3.10"
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/youssef7ussien/claude-devloops"
+Repository = "https://github.com/youssef7ussien/claude-devloops"
+Issues = "https://github.com/youssef7ussien/claude-devloops/issues"
+
 [project.scripts]
 devloops = "devloops.cli:entry"
 
@@ -26,6 +31,7 @@ devloops = "loops/shared/devloops"
 devloops_kit = "loops"
 
 [tool.setuptools.package-data]
+devloops = ["assets/*"]  # the dashboards' styles and script
 devloops_kit = [
     "backend-dev/*",
     "frontend-dev/*",

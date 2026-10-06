@@ -117,7 +117,7 @@ the exit code.
 
 | Form | Effect |
 |------|--------|
-| `devloops dashboard` | Writes a **new full dashboard** ([full-dashboard.md](./full-dashboard.md)), then refreshes the lightweight one. Prints `full dashboard: <path> (<size>)` and the five largest embedded files. `--json`: `{"workspace", "dashboard", "full_dashboard": {"path", "bytes", "largest": [{"path", "bytes"}]}}` |
+| `devloops dashboard` | Writes a **new full dashboard** ([full-dashboard.md](./full-dashboard.md)), then refreshes the lightweight one. Prints `full dashboard: <path> (<size>)`, the five largest embedded files, and the files too large to embed. `--json`: `{"workspace", "dashboard", "full_dashboard": {"path", "bytes", "largest": [{"path", "bytes"}], "unavailable", "not_embedded": [{"path", "bytes"}]}}` |
 | `devloops dashboard --light` | 001 behavior: refreshes `<workspace>/dashboard.html` only |
 
 ## `status`: additions
