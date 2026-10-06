@@ -15,7 +15,8 @@ import subprocess
 import types
 from dataclasses import dataclass, field
 
-from . import boundary, config, inputs, preflight, render, schema, selector, speckit, state
+from . import (boundary, config, inputs, preflight, prompts, render, schema, selector, speckit,
+               state)
 from . import plan as plan_mod
 from .claude import CallFailed, ClaudeRunner
 from .kit import Kit
@@ -268,6 +269,7 @@ class Engine:
             "project_root": self.project.root,
             "config_sources": config.config_sources(self.project, workspace_config),
             "config_cli_keys": config.dotted_keys(self.opts.cli_overrides),
+            "prompt_sources": self._prompt_sources(),
         }
         self._save()
         if api_spec:
@@ -321,12 +323,31 @@ class Engine:
         self._restore_after_service_error()
         self._recover_interrupted()
         self._event("run-started", f"resumed in status {self.rs['status']}")
+        self._check_prompt_sources()
         self._use_config(config.resolve_for_run(
             self.rs, self.loop_dir, self.opts.cli_overrides,
             defaults_path=self.kit.path("shared", "config", "defaults.json"),
             redactor=self.redactor, project_layers=self.project.run_config_layers()))
         self._save()
         return self._advance()
+
+    def _prompt_sources(self):
+        return prompts.sources(self.kit, self.project.root, prompts.loop_parts(self.kit, self.loop))
+
+    def _check_prompt_sources(self):
+        """Record the prompt parts that changed since the configuration was frozen (FR-032).
+
+        Overrides are not frozen: the calls from this start use the current files. The frozen
+        sources stay as they are, so `status` keeps reporting the drift until the run ends.
+        """
+        frozen = self.rs.get("prompt_sources")
+        if frozen is None:
+            return  # a run started before 002
+        changed = prompts.drift(frozen, self._prompt_sources())
+        if changed:
+            self._event("prompt-sources-changed",
+                        "prompt parts changed since the first start (used from now on): "
+                        + ", ".join(changed))
 
     def _relocate(self):
         """Rewrite the recorded paths when the project was moved or cloned (FR-013)."""
@@ -971,7 +992,7 @@ class Engine:
 
     def _runner(self):
         return ClaudeRunner(self.kit, self.loop, self.loop_dir, self.config, self.redactor,
-                            self.rs, env=self.env)
+                            self.rs, env=self.env, project_root=self.project.root)
 
     def _snapshot(self):
         targets = [self.rs["target_dir"]] + [p for loop, p in self.ws.targets().items()
@@ -1023,10 +1044,11 @@ def status_object(workspace, loop):
            "status_reason": None, "next_milestone": None, "trials_used": None,
            "trial_limit": None, "last_failure": None, "ui_url": None, "openapi_artifact": None,
            "invocation_count": 0, "progress": os.path.join(loop_dir, "progress.md"),
-           "config_drift": [], "full_dashboards": full_dashboards(workspace)}
+           "config_drift": [], "prompt_drift": [], "full_dashboards": full_dashboards(workspace)}
     if rs is None:
         return out
     out["config_drift"] = _config_drift(workspace, rs)
+    out["prompt_drift"] = _prompt_drift(workspace, loop, rs)
     plan = state.read_json(os.path.join(loop_dir, "state", "plan.json"))
     block = ((rs.get("inputs") or {}).get("requirements") or {}).get("speckit")
     if block:
@@ -1060,6 +1082,18 @@ def full_dashboards(workspace):
     found = list_full_dashboards(workspace)
     return {"count": len(found), "bytes": sum(i["bytes"] for i in found),
             "latest": found[0]["path"] if found else None}
+
+
+def _prompt_drift(workspace, loop, rs):
+    """Prompt parts changed since the configuration was frozen, until the run ends (FR-032)."""
+    project = getattr(workspace, "project", None)
+    if project is None or rs.get("prompt_sources") is None or rs.get("status") == "completed":
+        return []
+    try:
+        now = prompts.sources(workspace.kit, project.root, prompts.loop_parts(workspace.kit, loop))
+    except OSError:
+        return []  # status stays read-only and never fails on this
+    return prompts.drift(rs["prompt_sources"], now)
 
 
 def _config_drift(workspace, rs):

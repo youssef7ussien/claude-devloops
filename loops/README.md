@@ -18,89 +18,196 @@ validation passes. Each milestone gets a limited number of trials. Every run pau
 to approve the plan before any code is written. Nothing in `loops/` or `bin/` is specific to an
 application: the requirements, the target directories, and the configuration are all inputs.
 
-## Prerequisites
+## Install
 
-- **Claude Code**, installed and logged in (`claude` on `PATH`; run `claude` once to log in).
-- **Python ≥ 3.10**. The driver uses the standard library only; there is nothing to install.
+devloops is one Python package with no runtime dependencies. Install it once, then use it in any
+number of projects:
+
+```sh
+uv tool install git+https://github.com/youssef7ussien/claude-devloops   # from the repository
+uv tool install .                     # from a checkout
+uv tool install -e .                  # from a checkout, picking up your edits
+devloops --version
+```
+
+`pip install .` works too. From a checkout you can also run `bin/devloops` without installing; it
+behaves the same, and the skills it installs call `bin/devloops` by its path.
+
+Prerequisites:
+
+- **Claude Code** 2.1.283 or later, installed and logged in (`claude` on `PATH`; run `claude` once
+  to log in).
+- **Python ≥ 3.10**.
 - **curl**, for `backend-dev`.
-- **node / npx** and a browser for the Playwright MCP server, for `frontend-dev`. The server is
-  started as `npx @playwright/mcp@latest --headless` (config `playwright.mcp_command`), which
-  uses the **Google Chrome** channel by default. Either install it (`npx playwright install
-  chrome`), or point the server at a browser you have, in the workspace config:
+- **node / npx** and a Chrome-channel browser for the Playwright MCP server, for `frontend-dev`
+  (`npx playwright install chrome`, or set `playwright.executable_path`; see
+  [Visible browser](#visible-browser)).
+- **git**, only for `git.commit_per_milestone`.
 
-  ```json
-  {"playwright": {"mcp_command": ["npx", "@playwright/mcp@latest", "--headless",
-                                  "--executable-path", "/usr/bin/chromium"]}}
-  ```
-
-Each start checks the tools its loop needs and stops with exit 30 if one is missing.
+`devloops check` reports each of these (see below). Each run also checks the tools its loop needs
+and stops with exit 30 if one is missing.
 
 ## Quick start
 
 ```sh
-# 1. Plan the backend. The run pauses for approval (exit 10).
-bin/devloops run backend-dev --workspace myapp \
-  --requirements path/to/PRD.md --target /path/to/myapp/backend
+cd /path/to/myapp
+devloops init        # asks for the backend and frontend targets and the requirements
+devloops check       # is this machine ready?
+devloops orchestrate # plans the backend, then pauses for approval (exit 10)
 
-# 2. Review workspaces/myapp/backend-dev/outputs/ and answer outputs/open-questions.md, then:
-bin/devloops approve backend-dev --workspace myapp
-bin/devloops run backend-dev --workspace myapp            # implements every milestone; exit 0
-
-# 3. The frontend, against the backend's verified contract. frontend-config.json tells the
-#    frontend how to start the backend during validation (see below):
-bin/devloops run frontend-dev --workspace myapp \
-  --requirements path/to/PRD.md --target /path/to/myapp/frontend \
-  --api-spec workspaces/myapp/backend-dev/outputs/openapi.json \
-  --config workspaces/myapp/frontend-config.json
-bin/devloops approve frontend-dev --workspace myapp
-bin/devloops run frontend-dev --workspace myapp
-
-# Or both loops in one command (run it again after each approval):
-bin/devloops orchestrate --workspace myapp --requirements path/to/PRD.md \
-  --target-root /path/to/myapp
+# Review .devloops/workspaces/main/backend-dev/outputs/ and answer outputs/open-questions.md:
+devloops approve backend-dev
+devloops orchestrate # implements the backend, then plans the frontend (exit 10)
+devloops approve frontend-dev
+devloops orchestrate # implements the frontend; exit 0
 ```
 
-For step 3, copy the backend's runtime from `workspaces/myapp/backend-dev/outputs/plan-summary.md`
-into `frontend-config.json`, with `cwd` set to the backend target. Without a `backend` block the
-frontend is validated with no backend, and every criterion that needs one fails. `orchestrate`
-fills this in for you.
+Every command works from any folder inside the project. Each loop can also run on its own:
+
+```sh
+devloops run backend-dev          # target, requirements, and workspace from the project
+devloops approve backend-dev
+devloops run backend-dev
+devloops run frontend-dev --api-spec .devloops/workspaces/main/backend-dev/outputs/openapi.json \
+  --config frontend-config.json   # see "frontend-dev on its own" below
+```
+
+### `devloops init`
+
+`init [DIR]` sets up `DIR` (default: the current folder) as a project. On a terminal it asks three
+questions; press Enter to keep the default:
+
+- *Backend target* [`backend`] and *Frontend target* [`frontend`]: the folders each loop writes code
+  into, relative to the project root. Each loop needs its own folder; neither can be the project
+  root.
+- *Requirements*: a PRD or story file, a spec-kit feature folder, or `active` for the active
+  spec-kit feature. The default is the active feature when `.specify/feature.json` names one.
+
+| Flag | Effect |
+|------|--------|
+| `--backend-target <dir>`, `--frontend-target <dir>` | The targets, without asking |
+| `--requirements <file>` / `--speckit-feature [DIR]` | The default requirements (`active` with no `DIR`) |
+| `--no-prompt` | Never ask (implied when stdin or stdout is not a terminal, and by `--json`) |
+| `--track-workspaces`, `--track-dashboards` | Leave that folder out of the `.gitignore` block |
+| `--allow-skills` | Pre-approve devloops for Claude Code (see [Claude Code skills](#claude-code-skills)) |
+| `--upgrade [--restore]` | Upgrade an initialized project (see [Upgrades](#upgrades)) |
+| `--json` | Print the result as JSON |
+
+`init` never overwrites a file. If an installed file already exists with different content, it
+lists every such file, writes nothing, and exits 30 (`init-conflict`). Running it again on an
+initialized project changes nothing. An existing `.devloops/devloops.json` is kept as it is.
+
+### `devloops check`
+
+```text
+$ devloops check
+  ready    python          3.12.7
+  ready    claude          2.1.283
+  ready    curl            8.10.1
+  ready    playwright-mcp  npx
+  missing  browser         no Chrome-channel browser found
+           fix: npx playwright install chrome, or set playwright.executable_path
+  ready    git             /usr/bin/git
+```
+
+Each item says what it is needed for and how to fix it. The exit code is 0 when nothing needed is
+missing, else 30; warnings (such as a visible browser with no display) never change it. `check`
+works outside a project too, with the packaged defaults. `--json` prints `{ready, project, items}`.
+
+## The project
+
+```text
+myapp/
+├── .devloops/
+│   ├── devloops.json            # project configuration (commit it)
+│   ├── devloops.local.json      # your machine's settings (optional, git-ignored)
+│   ├── manifest.json            # devloops version and fingerprints of the installed files (commit it)
+│   ├── prompts/README.md        # how to override prompts
+│   ├── workspaces/<ws>/         # run records (git-ignored by default)
+│   └── dashboards/<ws>/*.html   # full dashboards (git-ignored by default)
+├── .claude/skills/devloops-*/   # the Claude Code skills (commit them)
+├── .gitignore                   # one block added under a "# >>> devloops" marker
+├── backend/                     # backend-dev's target
+└── frontend/                    # frontend-dev's target
+```
+
+The project is found from the current folder upward; `DEVLOOPS_PROJECT=<dir>` names it explicitly.
+`workspaces/` and `dashboards/` are created when first used.
+
+`devloops.json`, as `init` writes it:
 
 ```json
-{"backend": {"start_command": "node server.js", "cwd": "/path/to/myapp/backend",
-             "ready_url": "http://127.0.0.1:8000/health"}}
+{
+  "schema_version": 1,
+  "workspace": "main",
+  "workspaces_dir": ".devloops/workspaces",
+  "dashboards_dir": ".devloops/dashboards",
+  "targets": {"backend-dev": "backend", "frontend-dev": "frontend"},
+  "requirements": {"speckit_feature": "active"},
+  "config": {}
+}
 ```
 
-To implement a single user story instead of the whole PRD, add `--story-id <id>` (the story
-within the PRD) or `--story-file` (the requirements file is one standalone story).
+- `workspace`: the workspace commands use without `--workspace`. A bare name maps to
+  `<workspaces_dir>/<name>`.
+- `targets` and `requirements` (`{"path": "docs/prd.md"}` or `{"speckit_feature": "active" | "<dir>"}`):
+  what `run` and `orchestrate` use when no flag is given.
+- `config`: run settings, with the keys of [Configuration](#configuration).
+
+Paths are relative to the project root. The workspace stores the targets and inputs relative to the
+project root too, so a moved or cloned project resumes where it was.
+
+**`devloops.local.json`** has the same shape and overrides `devloops.json` key by key. Use it for
+what belongs to your machine, such as a browser path or `"playwright": {"headless": false}`. devloops
+never creates it, and `init` git-ignores it.
+
+**Configuration precedence**, each level overriding the one before:
+
+1. the packaged defaults (`shared/config/defaults.json`);
+2. `devloops.json` `config`;
+3. `devloops.local.json` `config`;
+4. the workspace config (`--config <file>`, remembered for the workspace; otherwise
+   `<workspace>/config.json` if it exists);
+5. command-line flags.
+
+The workspace, targets, and requirements follow the same order: the local file over the shared
+one, and flags over both. The merged run configuration is frozen into `run.json` on the first
+start; see [Configuration](#configuration).
 
 ## Commands
 
-Every command takes `--workspace <name|path>` (required), `--config <file>`, and `--json`. A bare
-name means `workspaces/<name>/`. With `--json`, a command prints one JSON status object instead of
-the text summary.
+Every command except `init` and `check` takes `--workspace <name|path>` (default: the project's
+`workspace`), `--config <file>`, and `--json`. With `--json`, a command prints one JSON object
+instead of the text summary. If the project was set up with another devloops version, every
+command warns (in `warnings` with `--json`): run `devloops init --upgrade`, or, when the project's
+version is newer, install that version.
 
 | Command | What it does |
 |---------|--------------|
+| `init [DIR]` | Set up a project ([above](#devloops-init)) |
+| `check` | Report whether this machine is ready ([above](#devloops-check)) |
 | `run <backend-dev\|frontend-dev>` | Start or resume one loop. It exits when the run pauses for approval, stops, or completes |
 | `approve <loop>` | Accept the stored plan and the answers in `outputs/open-questions.md`. Allowed only in `awaiting-approval`. It does not start implementation: run `run` next |
 | `replan <loop>` | Plan again with the answers, then pause again. Uses a planning trial |
 | `retry <loop> --milestone <id> --reason <text> [--trials <n>]` | Give a failed milestone more trials (default `max_trials`). The reason is passed to later fix prompts |
-| `status [<loop>]` | Show the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, and evidence files over 1 MB. Read-only |
+| `status [<loop>]` | Show the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the full dashboards. Read-only |
 | `orchestrate` | Run `backend-dev`, then `frontend-dev` ([orchestrator/README.md](orchestrator/README.md)) |
 | `export-sessions [--csv <file>]` | Write every Claude invocation as CSV (standard output by default) |
-| `dashboard` | Rewrite `workspaces/<ws>/dashboard.html` now (it is also rewritten after every other command) |
+| `dashboard [--light]` | Write a new full dashboard, then refresh the lightweight one; `--light` refreshes only the lightweight one (see [Dashboards](#dashboards)) |
 
-`approve`, `replan`, `retry`, and `run` also take `--force-unlock` (see [Recovery](#recovery)).
+`approve`, `replan`, `retry`, `run`, and `orchestrate` also take `--force-unlock` (see
+[Recovery](#recovery)).
 
 ### `run` options
 
 | Option | Rule |
 |--------|------|
-| `--requirements <file>` | A PRD or a story file. Required on the first run. If given later, it must be byte-identical to the recorded file |
-| `--story-id <id>` | Implement only this story of the PRD. The ID must appear in the file as a whole ID, with matching case, or the run stops with `story-not-found` |
+| `--requirements <file>` | A PRD or a story file. Default: the project's `requirements`. Needed on the first run. If given later, it must be byte-identical to the recorded file |
+| `--speckit-feature [DIR]` | A spec-kit feature folder as the requirements; with no `DIR`, the active feature (see [Spec-kit features](#spec-kit-features)). Not combined with `--requirements` or `--story-file` |
+| `--story-id <id>` | Implement only this story. In a PRD, the ID must appear as a whole ID, with matching case, or the run stops with `story-not-found`. With a spec-kit feature, `US<n>` selects `User Story <n>` |
 | `--story-file` | The requirements file is one standalone story. Cannot be combined with `--story-id` |
-| `--target <dir>` | Where this loop writes application code. Required on the first run. It is created if missing. It must be writable, outside `loops/`, `bin/`, and the workspace, and must not overlap the other loop's target |
-| `--api-spec <file>` | The backend's OpenAPI 3 JSON document. **Required for `frontend-dev`** |
+| `--target <dir>` | Where this loop writes application code. Default: the project's `targets.<loop>`. It is created if missing. It must be writable, outside the project's `.devloops/` and the installed devloops files, and must not overlap the other loop's target |
+| `--api-spec <file>` | The backend's OpenAPI 3 JSON document. **Required for `frontend-dev`** run on its own |
 | `--max-trials <n>` | Override `max_trials` for this start |
 
 On later starts, omit the flags or repeat them unchanged. Different story options are refused
@@ -109,22 +216,37 @@ On later starts, omit the flags or repeat them unchanged. Different story option
 
 ### `orchestrate` options
 
-`--requirements`, `--story-id` / `--story-file` (passed to both loops), `--target-root <dir>`
-(targets `<dir>/backend` and `<dir>/frontend`), `--backend-target`, `--frontend-target`, and
-`--force-unlock`. Targets and inputs are recorded on the first call, so later calls need only
-`--workspace`.
+`--requirements` / `--speckit-feature`, `--story-id` / `--story-file` (passed to both loops),
+`--target-root <dir>` (targets `<dir>/backend` and `<dir>/frontend`), `--backend-target`,
+`--frontend-target`, and `--force-unlock`. Without them, the project's targets and requirements
+are used. Targets and inputs are recorded on the first call, so later calls need no flags.
+
+### frontend-dev on its own
+
+`orchestrate` hands the backend's contract and runtime to the frontend for you. To run
+`frontend-dev` alone, pass the backend's `outputs/openapi.json` with `--api-spec`, and tell it how
+to start the backend in a workspace config. Copy the runtime from the backend's
+`outputs/plan-summary.md`, with `cwd` set to the backend target:
+
+```json
+{"backend": {"start_command": "node server.js", "cwd": "/path/to/myapp/backend",
+             "ready_url": "http://127.0.0.1:8000/health"}}
+```
+
+Without a `backend` block the frontend is validated with no backend, and every criterion that
+needs one fails.
 
 ### Exit codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | `completed` |
+| 0 | `completed` (or, for `init` and `check`, success) |
 | 10 | `awaiting-approval`: review the plan, then `approve` or `replan` |
 | 20 | `stopped-on-failure`: a milestone used all its trials, a question needs an answer, a planning or invocation limit was hit |
-| 30 | `stopped-on-input-error`: a missing or changed input, an unknown story, a missing tool, an unusable target |
+| 30 | `stopped-on-input-error`: a missing or changed input, an unknown story, a missing tool, an unusable target, an invalid project configuration. Also: `check` found something missing; `init` refused (`init-conflict`, `downgrade-refused`, `settings-unreadable`, `target-unwritable`) |
 | 40 | Another driver holds the lock, or a stale lock is left (see [Recovery](#recovery)) |
 | 50 | `stopped-on-service-error`: a Claude Code outage, rate limit, or authentication failure. No trial was used; run again to resume |
-| 2 | Usage error: nothing was changed |
+| 2 | Usage error (including no project found): nothing was changed |
 
 ## How a run works
 
@@ -154,7 +276,7 @@ elsewhere is blocked by a hook, or detected by a before/after audit, and fails t
 ```mermaid
 sequenceDiagram
     actor Dev as Developer
-    participant CLI as bin/devloops
+    participant CLI as devloops
     participant Claude as claude -p
     participant App as Backend (target)
     Dev->>CLI: run backend-dev --requirements --target
@@ -178,7 +300,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor Dev as Developer
-    participant CLI as bin/devloops
+    participant CLI as devloops
     participant Claude as claude -p
     participant UI as Frontend (target)
     participant API as Backend
@@ -228,12 +350,12 @@ sequenceDiagram
     Orch-->>Dev: exit 0
 ```
 
-## Dashboard
+## Dashboards
 
-Every command that touches a workspace (`run`, `approve`, `replan`, `retry`, `orchestrate`) rewrites
-`workspaces/<ws>/dashboard.html`, so after each pause, stop, or completion one page shows
-everything without opening the files one by one. Open it in a browser; it is a single offline
-file (no network), with a light/dark toggle:
+**The lightweight dashboard**, `<workspace>/dashboard.html`, is rewritten by every command that
+touches a workspace (`run`, `approve`, `replan`, `retry`, `orchestrate`), so after each pause,
+stop, or completion one page shows everything without opening the files one by one. Open it in a
+browser; it is a single offline file (no network), with a light/dark toggle:
 
 - **Overview**: status, milestones achieved, first-try pass rate, trials, Claude calls, cost,
   tokens, and elapsed time, and the next action when a loop is paused or stopped.
@@ -245,11 +367,29 @@ file (no network), with a light/dark toggle:
   network requests, the API contract result, and every trial with its failure detail, duration,
   cost, and session IDs.
 - **Questions, assumptions, and retries**, the **orchestrator** steps and handoff, every **Claude
-  call**, and the **event log**.
+  call**, the **event log**, and links to the full dashboards.
 
-The page is a view: it is built from `state/` only and never read back. Writing it can never change
-a run's outcome; if it fails, the command prints a warning. `devloops dashboard --workspace <ws>`
-rebuilds it on demand.
+It links to the workspace's files, so it only works next to them.
+
+**Full dashboards** are single self-contained HTML files that can be opened anywhere, offline, with
+no other file. Besides everything above, they embed every input, plan file, output, check, trial
+record, piece of evidence (images inline), prompt with the source of each of its parts, and the
+full Claude Code **conversation** of every call: the prompt, Claude's messages, its thinking, every
+tool call, and every tool result.
+
+- **When**: a new one is written when `run`, `approve`, `replan`, `retry`, or `orchestrate` ends in
+  `completed` or a `stopped-*` status, and by `devloops dashboard`. The command prints its path and
+  size; `dashboard` also lists the five largest embedded items.
+- **Where**: `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>.html` (UTC), `.devloops/dashboards/`
+  by default. A file is never replaced, so they **accumulate**: delete old ones when you no longer
+  need them. `status` reports how many there are and their total size.
+- **Review before sharing.** A full dashboard contains whole conversations, including file contents
+  Claude read. Values listed under `secrets` are redacted, as everywhere, but nothing else is.
+- Conversations are copied, redacted, into `state/conversations/` after each call. A call whose
+  transcript could not be found is shown as unavailable, with its session ID.
+
+Both pages are views: they are built from `state/` only and never read back. Writing them can
+never change a run's outcome; if it fails, the command prints a warning and keeps its exit code.
 
 ## Approval, replan, and open questions
 
@@ -291,11 +431,10 @@ Without a `retry` grant, `run` on a stopped workspace changes nothing.
 
 ## Configuration
 
-Settings are merged in this order: `loops/shared/config/defaults.json`, then the workspace config
-(`--config <file>`, remembered for the workspace; otherwise `workspaces/<ws>/config.json` if it
-exists), then CLI flags. The merged config is frozen into `run.json` on the first start. Later
-edits to the files do not apply to that run, but CLI flags such as `--max-trials` do, and are
-recorded as `config-override` events.
+The settings below come from the five levels of [configuration precedence](#the-project). The
+merged result is frozen into `run.json` on the first start. Later edits to the files do not apply
+to that run: `status` lists the keys that would now differ (`config_drift`). CLI flags such as
+`--max-trials` still apply on a later start, and are recorded as `config-override` events.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -308,10 +447,75 @@ recorded as `config-override` events.
 | `unit_tests.enabled` / `unit_tests.command` | false / null | Run unit tests as part of validation; the command defaults to the plan's `runtime.unit_test_command` |
 | `runtime.*` | `ready_timeout_seconds`: 120 | Overrides for the plan's runtime: `start_command`, `cwd`, `base_url`, `ready_url`, `openapi_path`. Dependencies are installed by the `implement` step, not by the driver |
 | `backend.*` | {} | frontend-dev only: `base_url` of a running backend, or `start_command`, `cwd`, and `ready_url` to start one during validation |
-| `playwright.mcp_command` | `npx @playwright/mcp@latest --headless` | How the Playwright MCP server is started |
+| `playwright.headless` | true | false shows the browser while frontend-dev validates (see below) |
+| `playwright.executable_path` | null | The browser the Playwright MCP server starts; `~` is expanded |
+| `playwright.mcp_command` | null | The full command that starts the Playwright MCP server, used exactly as written. When null, it is `npx @playwright/mcp@latest`, plus `--headless` and `--executable-path` from the two keys above |
 | `git.commit_per_milestone` | false | After each achieved milestone, commit the target's changes (only paths under the target) as `feat(<loop>): complete <id> <title>`. The outcome is a `git-commit` event; a failed commit does not fail the milestone |
 | `secrets.env` / `secrets.literals` | [] / [] | Values to redact (see below) |
 | `boundary.allowed_extra` | [] | Paths inside an audited git repository that tools may write to, such as a cache directory |
+
+### Visible browser
+
+To watch frontend-dev's browser, set this in your `.devloops/devloops.local.json` (not in the shared
+file, since a machine without a display cannot show it):
+
+```json
+{"config": {"playwright": {"headless": false, "executable_path": "/usr/bin/chromium"}}}
+```
+
+`executable_path` is only needed when the Chrome channel is not installed. `devloops check` warns
+when a visible browser is configured with no display, or in the shared `devloops.json`. Like every
+setting, it is frozen at a run's first start.
+
+## Prompt overrides
+
+Each Claude Code prompt is built from three packaged parts: the shared rules, the loop's
+instructions, and the step's instructions. A file in `.devloops/prompts/` with the same relative
+path replaces the packaged part for this project, for example to add "use the existing logger":
+
+| File in `.devloops/prompts/` | Replaces |
+|------------------------------|----------|
+| `common.md` | `shared/prompts/common.md` |
+| `steps/<step>.md` (`plan`, `replan`, `implement`, `fix`, `author-checks`, `validate-ui`) | `shared/prompts/steps/<step>.md` |
+| `backend-dev/Loop-instructions.md`, `frontend-dev/Loop-instructions.md` | `<loop>/Loop-instructions.md` |
+
+Start from a copy of the packaged file (under `loops/` in a checkout, in the `devloops_kit`
+package when installed), then edit it.
+
+- Every call records the source of each part (`packaged` or `override`), its path, and its sha256
+  in its invocation record (`prompt_sources`). The full dashboard shows them with the prompt.
+- Overrides are not frozen: a change applies from the next start. That start records a
+  `prompt-sources-changed` event, and `status` reports the changed parts (`prompt_drift`) until
+  the run ends. Milestones already achieved are never re-run, so their prompts never change.
+- Any other file in the folder is ignored, and `status` lists it under its warnings, so a
+  misspelled name is visible.
+
+## Spec-kit features
+
+A [spec-kit](https://github.com/github/spec-kit) feature folder can be the requirements:
+
+```sh
+devloops orchestrate --speckit-feature               # the active feature (.specify/feature.json)
+devloops run backend-dev --speckit-feature specs/003-billing --story-id US2
+```
+
+Or set it once in `devloops.json`: `"requirements": {"speckit_feature": "active"}` (what `init`
+writes when the project has an active feature).
+
+- `spec.md` is the requirements. `plan.md` (its stack counts as named in the requirements) and
+  `tasks.md` are used when present. All three are fingerprinted: changing any of them, or adding a
+  `plan.md` or `tasks.md` after the first start, stops the run with `input-changed`.
+- With `tasks.md`, the plan follows its phases, one or more milestones per phase, and each planned
+  task names the spec-kit task IDs it implements. Every in-scope spec-kit task must be planned or
+  left out with a reason (for example, a frontend task in backend-dev). A task marked done in
+  `tasks.md` is planned anyway unless the code shows it.
+- `--story-id US<n>` selects `User Story <n>` of `spec.md`, its labelled tasks, and the setup or
+  foundational tasks it needs.
+- The plan summary's **Spec-kit tasks** section lists the planned tasks, the ones left out and
+  why, the setup tasks a story needs, the devloops tasks with no spec-kit task, and the tasks
+  already marked done, so the differences are reviewed at approval.
+- A folder without `spec.md` stops with `missing-input`; a `US<n>` with no heading, with
+  `story-not-found` (both exit 30). devloops only reads spec-kit's files; it never runs spec-kit.
 
 ## Secrets
 
@@ -326,10 +530,10 @@ the likeliest place for a secret to hide.
 ## Workspace layout
 
 ```text
-workspaces/<name>/
+.devloops/workspaces/<name>/
 ├── workspace.json            # requirements fingerprint, mode, story ID, targets, config path
 ├── config.json               # optional workspace config
-├── dashboard.html            # the overview page, rewritten after every command
+├── dashboard.html            # the lightweight dashboard, rewritten after every command
 ├── backend-dev/
 │   ├── task.md               # the rendered assignment
 │   ├── progress.md           # action items; per-milestone start, end, tokens, cost, sessions
@@ -342,6 +546,7 @@ workspaces/<name>/
 │   └── state/                # the driver's state; never edit it
 │       ├── run.json  plan.json  events.jsonl  invocations.jsonl  lock
 │       ├── prompts/<seq>-<step>.md
+│       ├── conversations/<seq>-<step>.jsonl   # the call's Claude Code transcript, redacted
 │       └── milestones/<id>/{checks.json, trials/<n>/{trial.json, validation.json, stream.jsonl, evidence/}}
 ├── frontend-dev/             # the same shape; outputs/ has ui-url.txt instead of openapi.json
 └── orchestrator/{state.json, progress.md}
@@ -356,17 +561,67 @@ cost, start, and end.
 
 `devloops init` installs seven skills in `.claude/skills/`: `devloops-run`, `devloops-orchestrate`,
 `devloops-approve`, `devloops-replan`, `devloops-retry`, `devloops-status`, and
-`devloops-dashboard` (for example `/devloops-run backend-dev --workspace myapp ...`). Each runs one
-devloops command with `--json` and summarizes the result. They contain no loop logic. The
-templates are in `loops/shared/skills/`; this repository's copies are rendered from them.
+`devloops-dashboard` (for example `/devloops-run backend-dev`). Each runs one devloops command with
+`--json` and summarizes the result. They contain no loop logic. They call `devloops`, or
+`bin/devloops` by its path when `init` ran from a checkout.
+
+The skills pre-approve their own command. To let Claude Code run devloops outside the skills
+without asking, run `devloops init --allow-skills` (also on an initialized project). It adds
+`Bash(devloops *)` to `permissions.allow` in `.claude/settings.json`, keeping every other setting.
+A settings file that is not valid JSON is left alone (exit 30), and the rule is printed so you can
+add it by hand.
+
+## Upgrades
+
+After installing a newer devloops, run `devloops init --upgrade` in each project. Using the
+fingerprints in `.devloops/manifest.json`, it:
+
+- replaces each installed file (skills, `prompts/README.md`) that you did not change;
+- keeps each file you changed, and writes the new version next to it as `<file>.devloops-new` for
+  you to compare;
+- reports a file you deleted without re-creating it, unless you add `--restore`;
+- adds files that are new in this version, and removes the ones devloops no longer ships (a
+  removed file you changed is kept);
+- records the new version in the manifest.
+
+It never touches `devloops.json`, `devloops.local.json`, your prompt overrides, the `.gitignore`
+block, or the workspaces. New settings come from the packaged defaults. An older devloops refuses
+to upgrade a project set up by a newer one (`downgrade-refused`, exit 30, nothing changed).
+
+## Known limitations
+
+- **No target at the project root.** Each loop writes into its own folder (`backend/`,
+  `frontend/`, or any other), never the project root itself, since `.devloops/` is inside it.
+- **Transcript format.** Conversations are copied from Claude Code's local session files, whose
+  format is internal and undocumented. Records devloops does not recognize are shown as raw JSON;
+  a transcript that cannot be found is marked unavailable. Neither ever fails a run.
+- **Not under `~/.claude`.** Claude Code treats files there as sensitive and blocks writes, so a
+  target inside it fails (the model reports it as a question). Keep projects elsewhere.
+- **The first Playwright start downloads the server.** When `npx` must fetch a new
+  `@playwright/mcp` release, the server can miss Claude Code's start-up time and the run stops
+  with exit 50 (`the Playwright MCP server did not start`); no trial is used, so run the command
+  again. Running `npx @playwright/mcp@latest --help` once beforehand avoids it.
+- **Redaction covers only listed values.** Review workspaces and full dashboards before sharing
+  them.
+
+## Migrating this repository
+
+This repository is itself a devloops project, set up with `bin/devloops init --no-prompt
+--track-workspaces`. Its `devloops.json` sets `"workspaces_dir": "workspaces"`, so the committed
+example workspaces stay in `workspaces/`, and its skills are the rendered `.claude/skills/devloops-*`
+(calling `bin/devloops`). The tests build each temporary checkout the same way. To use the loops on
+another application, install devloops and run `devloops init` in that application's folder instead
+of working inside this repository.
 
 ## Repository layout
 
-- `bin/devloops`: the command-line entry point.
+- `bin/devloops`: the command-line entry point from a checkout (installed: `devloops`).
+- `pyproject.toml`: the packaging. `loops/` is shipped as the `devloops_kit` package.
 - `loops/backend-dev/` and `loops/frontend-dev/`: each loop's `loop.json`, standing
   instructions (`Loop-instructions.md`), and assignment template (`task.md`).
 - `loops/shared/devloops/`: the driver.
 - `loops/shared/prompts/`: the prompts shared by every step, and one prompt per step.
 - `loops/shared/schemas/`: the JSON Schemas for every file the loops read or write.
+- `loops/shared/skills/` and `loops/shared/project/`: the templates `init` installs.
 - `loops/shared/tests/`: the offline test suite, which uses a fake `claude`:
   `python3 -m unittest discover -s loops/shared/tests -v`.

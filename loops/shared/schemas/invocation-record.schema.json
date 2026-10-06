@@ -177,6 +177,40 @@
         "unreadable"
       ],
       "description": "Why the conversation is unavailable"
+    },
+    "prompt_sources": {
+      "type": "array",
+      "description": "002 FR-031: the source of each prompt part of this call (research P-8)",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "part",
+          "source",
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "common.md, steps/<step>.md, or <loop>/Loop-instructions.md"
+          },
+          "source": {
+            "enum": [
+              "packaged",
+              "override"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "The file used: kit-relative when packaged, project-relative when an override"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
     }
   }
 }

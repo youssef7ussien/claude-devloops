@@ -5,8 +5,8 @@ import json
 import os
 import sys
 
-from . import (__version__, checkcmd, dashboard, engine, fulldash, initcmd, orchestrator, state,
-               workspace)
+from . import (__version__, checkcmd, dashboard, engine, fulldash, initcmd, orchestrator, prompts,
+               state, workspace)
 from . import project as project_mod
 from .kit import Kit
 from .state import EXIT_USAGE, DevloopsError
@@ -125,6 +125,11 @@ def build_parser():
     init.add_argument("--allow-skills", action="store_true",
                       help="add the devloops permission rule to .claude/settings.json (also on "
                            "an initialized project)")
+    init.add_argument("--upgrade", action="store_true",
+                      help="update the installed files of an initialized project, keeping the "
+                           "ones changed here")
+    init.add_argument("--restore", action="store_true",
+                      help="with --upgrade, re-create installed files that were deleted")
     init.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser
 
@@ -205,10 +210,15 @@ def _version_warnings(project, kit):
     """The FR-029 warning when the project was set up with another devloops version."""
     manifest = project.manifest() if project else None
     installed = (manifest or {}).get("devloops_version")
-    if installed and installed != kit.version:
-        return [f"this project was set up with devloops {installed}; running {kit.version}. "
-                f'Run "devloops init --upgrade".']
-    return []
+    if not installed or installed == kit.version:
+        return []
+    try:
+        newer = initcmd.version_tuple(installed) > initcmd.version_tuple(kit.version)
+    except ValueError:
+        newer = False
+    advice = f"Install devloops {installed} or later." if newer else \
+        'Run "devloops init --upgrade".'
+    return [f"this project was set up with devloops {installed}; running {kit.version}. {advice}"]
 
 
 def _dump(args, obj):
@@ -245,6 +255,9 @@ def _print_status(obj, message=None):
     if obj.get("config_drift"):
         print(f"  configuration changed since the first run (not applied): "
               f"{', '.join(obj['config_drift'])}")
+    if obj.get("prompt_drift"):
+        print(f"  prompt parts changed since the first run (used from the next start): "
+              f"{', '.join(obj['prompt_drift'])}")
     if obj["status"] != "not-started":
         print(f"  progress: {obj['progress']}")
 
@@ -293,6 +306,17 @@ def _ends_final(error, status):
                               isinstance(error, (state.LockHeld, state.UsageError))):
         return False
     return fulldash.is_final(status)
+
+
+def _event_marks(ws, loops):
+    """The size of each loop's event log: a command that changed a run recorded an event, so a
+    command that did nothing (a run already ended) writes no new full dashboard."""
+    def size(loop):
+        try:
+            return os.path.getsize(os.path.join(ws.loop_dir(loop), "state", "events.jsonl"))
+        except OSError:
+            return 0
+    return [size(loop) for loop in loops]
 
 
 def _write_full_dashboard(ws, trigger, env):
@@ -362,6 +386,7 @@ def _orchestrate(args, kit, project, env):
         backend_target=targets["backend"], frontend_target=targets["frontend"],
         config_path=args.config, force_unlock=args.force_unlock), kit=kit, env=env)
     error = full = None
+    before = _event_marks(ws, orchestrator.LOOP_ORDER)
     try:
         code = orch.run()
     except BaseException as e:
@@ -371,7 +396,8 @@ def _orchestrate(args, kit, project, env):
         # Once, at the end, covering both loops, when the loop this command ran last ended in a
         # final status: a loop skipped because an earlier run completed it does not count (FR-039).
         last = orch.last_run
-        if last and _ends_final(error, engine.status_object(ws, last)["status"]):
+        if last and _ends_final(error, engine.status_object(ws, last)["status"]) \
+                and _event_marks(ws, orchestrator.LOOP_ORDER) != before:
             full = _write_full_dashboard(ws, "orchestrate", env)
         _write_dashboard(ws, announce=False)
     loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
@@ -413,8 +439,22 @@ def _init(args, kit):
         no_prompt=args.no_prompt or args.json, track_workspaces=args.track_workspaces,
         track_dashboards=args.track_dashboards, allow_skills=args.allow_skills)
     root = os.path.abspath(args.dir)
+    if args.restore and not args.upgrade:
+        raise state.UsageError("--restore needs --upgrade")
+    if args.upgrade:
+        given = [flag for flag, value in (
+            ("--backend-target", args.backend_target), ("--frontend-target", args.frontend_target),
+            ("--requirements", args.requirements), ("--speckit-feature", args.speckit_feature),
+            ("--track-workspaces", args.track_workspaces),
+            ("--track-dashboards", args.track_dashboards)) if value]
+        if given:
+            raise state.UsageError(f"--upgrade does not change the project configuration "
+                                   f"({', '.join(given)}): edit .devloops/devloops.json instead")
     try:
         answers = None
+        if args.upgrade:
+            result = _upgrade(args, kit, root)
+            return _print_init(args, result)
         # Nothing to ask once the project is initialized, or when devloops.json is kept as it is.
         if not any(os.path.exists(os.path.join(root, project_mod.DIRNAME, name))
                    for name in (project_mod.MANIFEST_NAME, project_mod.CONFIG_NAME)):
@@ -427,6 +467,26 @@ def _init(args, kit):
             return e.exit_code
         result = initcmd._result(project_mod.Project(root), kit, exit_code=e.exit_code,
                                  message=message, conflicts=getattr(e, "conflicts", []))
+    return _print_init(args, result)
+
+
+def _upgrade(args, kit, root):
+    """`init --upgrade [--restore] [--allow-skills]`."""
+    proj = project_mod.Project(root)
+    if args.allow_skills:  # refuse unreadable settings before anything is written
+        initcmd._read_settings(os.path.join(root, initcmd.SETTINGS_PATH),
+                               initcmd.permission_rule(kit.command_for(root)))
+    result = initcmd.upgrade_result(proj, kit, initcmd.upgrade(root, kit, args.restore))
+    if args.allow_skills:
+        allowed = initcmd.allow_skills(root, kit.command_for(root))
+        if allowed["changed"]:
+            result["created" if allowed["created"] else "changed"].append(allowed["path"])
+        result["skills_allowed"] = True
+        result["message"] += "; " + initcmd._allowed_note(allowed)
+    return result
+
+
+def _print_init(args, result):
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -470,6 +530,8 @@ def main(argv=None, kit=None, project=None, env=None):
         project = project or project_mod.find(os.getcwd(), env)
         project.merged  # validate both configuration files before anything is written (FR-016)
         args.warnings = _version_warnings(project, kit)
+        if args.command == "status":  # a misspelled override is visible (002 FR-030)
+            args.warnings += prompts.ignored_warnings(project.root)
         for warning in args.warnings if not args.json else ():
             print(f"devloops: warning: {warning}", file=sys.stderr)
         args.workspace = args.workspace or project.default_workspace
@@ -543,6 +605,7 @@ def main(argv=None, kit=None, project=None, env=None):
         )
         eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
         error = full = None
+        before = _event_marks(ws, [args.loop])
         try:
             if args.command == "retry":
                 code = eng.retry(args.milestone, args.reason, args.trials)
@@ -553,7 +616,8 @@ def main(argv=None, kit=None, project=None, env=None):
             error = e
             raise
         finally:
-            if _ends_final(error, engine.status_object(ws, args.loop)["status"]):
+            if _ends_final(error, engine.status_object(ws, args.loop)["status"]) \
+                    and _event_marks(ws, [args.loop]) != before:
                 full = _write_full_dashboard(ws, f"{args.command} {args.loop}", env)
             _write_dashboard(ws, announce=False)
         _emit(args, ws, args.loop, eng.message, code, full)

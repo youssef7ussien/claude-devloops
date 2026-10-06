@@ -270,6 +270,40 @@
           }
         }
       }
+    },
+    "prompt_sources": {
+      "type": "array",
+      "description": "002 FR-032: the source of every prompt part the loop can use when the configuration was frozen; status compares them with the current files (prompt_drift)",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "part",
+          "source",
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "common.md, steps/<step>.md, or <loop>/Loop-instructions.md"
+          },
+          "source": {
+            "enum": [
+              "packaged",
+              "override"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "The file used: kit-relative when packaged, project-relative when an override"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
     }
   }
 }

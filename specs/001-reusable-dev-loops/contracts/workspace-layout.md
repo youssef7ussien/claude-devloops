@@ -1,5 +1,16 @@
 # Contract: Repository and Workspace Layout
 
+> **Changed by 002** ([specs/002-devloops-init/contracts/](../../002-devloops-init/contracts/)):
+> - Workspaces live under the project's `workspaces_dir` (default `.devloops/workspaces/`; this
+>   repository sets `workspaces/`), and the kit (`loops/`) can also be installed as the
+>   `devloops_kit` package ([project-layout.md](../../002-devloops-init/contracts/project-layout.md)).
+> - Each loop's `state/` gains `conversations/<seq>-<step>.jsonl`: the redacted copy of each call's
+>   Claude Code transcript.
+> - Full dashboards are written outside the workspace, to `<dashboards_dir>/<ws>/`
+>   ([full-dashboard.md](../../002-devloops-init/contracts/full-dashboard.md)).
+> - `workspace.json` stores targets and the requirements path relative to the project root when
+>   they are inside it.
+
 ## Reusable infrastructure (unchanged across applications: FR-037, FR-050)
 
 ```text

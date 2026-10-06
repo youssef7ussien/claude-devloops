@@ -13,17 +13,18 @@ _PACKAGE_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 class Kit:
-    def __init__(self, root, mode, reserved):
+    def __init__(self, root, mode, reserved, version=None):
         self.root = os.path.realpath(root)
         self.mode = mode
         self.reserved = [os.path.realpath(p) for p in reserved]
+        self._version = version  # tests simulate another release; None is this devloops
 
     def __repr__(self):
         return f"Kit(root={self.root!r}, mode={self.mode!r})"
 
     @property
     def version(self):
-        return __version__
+        return self._version or __version__
 
     @property
     def checkout(self):
@@ -48,11 +49,11 @@ class Kit:
         return script
 
     @classmethod
-    def from_checkout(cls, checkout):
+    def from_checkout(cls, checkout, version=None):
         """Source mode for the checkout at `checkout` (its `loops/` and `bin/` are reserved)."""
         checkout = os.path.realpath(checkout)
         return cls(os.path.join(checkout, "loops"), "source",
-                   [os.path.join(checkout, "loops"), os.path.join(checkout, "bin")])
+                   [os.path.join(checkout, "loops"), os.path.join(checkout, "bin")], version)
 
     @classmethod
     def resolve(cls):

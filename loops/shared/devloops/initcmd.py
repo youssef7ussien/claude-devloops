@@ -16,7 +16,7 @@ import stat
 from dataclasses import dataclass
 
 from . import project as project_mod
-from . import state, workspace
+from . import prompts, state, workspace
 from .state import DevloopsError
 
 SKILLS_DIR = (".claude", "skills")
@@ -441,6 +441,150 @@ def init(project_root, kit, opts, answers=None):
                    message="; ".join(notes), **extra)
 
 
+# --- upgrade ---------------------------------------------------------------------------------------
+
+NEW_SUFFIX = prompts.NEW_SUFFIX
+
+
+def version_tuple(version):
+    """`"0.10.1"` -> `(0, 10, 1)`, for comparing versions (research P-12)."""
+    return tuple(int(part) for part in str(version).split("."))
+
+
+def _manifest_path_ok(rel):
+    """A manifest path devloops may touch: relative, normalized, and inside the project."""
+    return (isinstance(rel, str) and rel and not os.path.isabs(rel)
+            and os.path.normpath(rel) == rel and not rel.startswith(".." + os.sep) and rel != "..")
+
+
+def _remove_empty_parents(path, stop):
+    parent = os.path.dirname(path)
+    while parent != stop and parent.startswith(stop + os.sep):
+        try:
+            os.rmdir(parent)
+        except OSError:
+            return
+        parent = os.path.dirname(parent)
+
+
+def upgrade(project_root, kit, restore=False):
+    """`devloops init --upgrade` (FR-027 to FR-029; data-model "Install manifest").
+
+    Each installed file is compared with its manifest fingerprint: an unchanged file is replaced,
+    a changed one is kept with the new version beside it as `<path>.devloops-new`, a deleted one is
+    reported (re-created with `restore`), a file new in this version is added, and a file removed
+    from the kit is removed when unchanged. `devloops.json`, the `.gitignore` block, and the
+    workspaces are never touched. Everything is checked before the first write.
+
+    Returns `{updated, kept: [{path, new_version}], deleted, restored, added, adopted, removed,
+    from_version, manifest}`. Raises `InitError` (`downgrade-refused`, `init-conflict`,
+    `manifest-unreadable`) or `UsageError` (not initialized), with nothing written.
+    """
+    proj = project_mod.Project(os.path.abspath(project_root))
+    if not os.path.exists(proj.manifest_path):
+        raise state.UsageError(f'{proj.root} is not initialized; run "devloops init" first')
+    manifest = proj.manifest()
+    files_before = (manifest or {}).get("files")
+    try:
+        installed = version_tuple(manifest["devloops_version"])
+        running = version_tuple(kit.version)
+        if not isinstance(files_before, dict):
+            raise ValueError
+    except (TypeError, KeyError, ValueError):
+        raise InitError("manifest-unreadable",
+                        f"{proj.manifest_path} cannot be read; move it away and run "
+                        "`devloops init` again")
+    from_version = manifest["devloops_version"]
+    if installed > running:
+        raise InitError("downgrade-refused",
+                        f"this project was set up with devloops {from_version}, newer than the "
+                        f"running devloops {kit.version}; downgrades are not supported. Install "
+                        f"devloops {from_version} or later")
+
+    files = installed_files(kit, proj.root)
+    out = {"updated": [], "kept": [], "deleted": [], "restored": [], "added": [], "adopted": [],
+           "removed": [], "from_version": from_version}
+    writes, removals, conflicts = {}, [], []
+    for rel, data in files.items():
+        path = os.path.join(proj.root, rel)
+        current = _read_bytes(path)
+        if rel not in files_before:  # new in this version: the init conflict rule
+            if current is None:
+                writes[rel] = data
+                out["added"].append(rel)
+            elif current == data:
+                out["adopted"].append(rel)
+            else:
+                conflicts.append(rel)
+        elif current is None:
+            if restore:
+                writes[rel] = data
+                out["restored"].append(rel)
+            else:
+                out["deleted"].append(rel)
+        elif current == data:
+            continue  # already the new version
+        elif sha256_bytes(current) == files_before[rel]:
+            writes[rel] = data
+            out["updated"].append(rel)
+        elif sha256_bytes(data) == files_before[rel]:
+            continue  # changed here, but this version brings nothing new for it
+        else:
+            writes[rel + NEW_SUFFIX] = data
+            out["kept"].append({"path": rel, "new_version": rel + NEW_SUFFIX})
+    if conflicts:
+        raise InitError("init-conflict",
+                        "these files are new in devloops " + kit.version + " but exist with "
+                        "different content; move them away and run `devloops init --upgrade` "
+                        "again: " + ", ".join(conflicts), conflicts=conflicts)
+    for rel, sha in sorted(files_before.items()):
+        if rel in files or not _manifest_path_ok(rel):
+            continue
+        current = _read_bytes(os.path.join(proj.root, rel))
+        if current is None:
+            continue  # removed from the kit and already gone
+        if sha256_bytes(current) == sha:
+            removals.append(rel)
+            out["removed"].append(rel)
+        else:
+            out["kept"].append({"path": rel, "new_version": None})
+
+    for rel, data in writes.items():
+        path = os.path.join(proj.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_project_file(path, data.decode("utf-8"))
+    for rel in removals:
+        path = os.path.join(proj.root, rel)
+        os.remove(path)
+        _remove_empty_parents(path, proj.root)
+
+    manifest = dict(manifest, devloops_version=kit.version, kit_mode=kit.mode,
+                    command=kit.command_for(proj.root), upgraded_at=state.now_iso(),
+                    files={rel: sha256_bytes(data) for rel, data in files.items()})
+    write_project_file(proj.manifest_path, json.dumps(manifest, indent=2) + "\n")
+    out["manifest"] = manifest
+    return out
+
+
+def upgrade_result(proj, kit, upgraded):
+    """The `init --json` form of an `upgrade` result (contracts/cli.md)."""
+    if upgraded["from_version"] == kit.version:
+        note = f"upgraded {proj.root} (devloops {kit.version}, the same version)"
+    else:
+        note = f"upgraded {proj.root} from devloops {upgraded['from_version']} to {kit.version}"
+    notes = [note]
+    if upgraded["kept"]:
+        notes.append(f"{len(upgraded['kept'])} changed file(s) kept; compare each with its "
+                     f"{NEW_SUFFIX} file")
+    if upgraded["deleted"]:
+        notes.append(f"{len(upgraded['deleted'])} deleted file(s) not restored (use --upgrade "
+                     "--restore)")
+    return _result(proj, kit, created=upgraded["added"] + upgraded["restored"],
+                   changed=upgraded["updated"], adopted=upgraded["adopted"],
+                   kept=upgraded["kept"], deleted=upgraded["deleted"],
+                   removed=upgraded["removed"], upgraded=True, message="; ".join(notes))
+
+
 def _allowed_fields(allowed):
     key = "created" if allowed["created"] else "changed"
     return {key: [allowed["path"]] if allowed["changed"] else [], "skills_allowed": True}
@@ -456,11 +600,22 @@ def print_result(result, out):
     """The text form of an `init` result (contracts/cli.md)."""
     if result["message"]:
         print(result["message"], file=out)
-    for key, label in (("created", "created"), ("changed", "changed"), ("adopted", "adopted")):
+    upgraded = result.get("upgraded")
+    labels = ((("changed", "updated"), ("created", "added")) if upgraded
+              else (("created", "created"), ("changed", "changed")))
+    for key, label in labels + (("adopted", "adopted"),):
         for path in result[key]:
             print(f"  {label}: {path}", file=out)
+    for kept in result["kept"]:
+        beside = (f"; the new version is {kept['new_version']}" if kept["new_version"]
+                  else "; no longer part of devloops")
+        print(f"  kept: {kept['path']} (changed here{beside})", file=out)
+    for path in result["deleted"]:
+        print(f"  deleted: {path} (not restored)", file=out)
+    for path in result["removed"]:
+        print(f"  removed: {path} (no longer part of devloops)", file=out)
     command = result["next"].rsplit(" ", 1)[0]
-    if result["created"] or result["changed"]:
+    if (result["created"] or result["changed"]) and not upgraded:
         if not result.get("skills_allowed"):
             print(f"\nThe devloops skills run their command without asking. To let Claude Code "
                   f"run devloops outside the skills without asking, run: {command} init "

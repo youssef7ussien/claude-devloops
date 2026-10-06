@@ -66,8 +66,10 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(out["full_dashboard"]["path"], os.path.join(self.dash_dir, name))
         self.assertEqual(out["full_dashboard"]["bytes"],
                          os.path.getsize(os.path.join(self.dash_dir, name)))
+        # A command that changes nothing (the run already ended) writes no new one.
         self.cli("run", "backend-dev")
-        self.assertIn("full dashboard: " + self.dash_dir, self.last_output)
+        self.assertNotIn("full dashboard:", self.last_output)
+        self.assertEqual(self.dashboards(), [name])
 
     def test_written_after_a_stop_on_failure(self):
         self.approved("--max-trials", "1")
@@ -75,6 +77,10 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(code, 20, self.last_output)
         self.assertEqual(len(self.dashboards()), 1)
         self.assertIn("full dashboard: ", self.last_output)
+        # Started again without a retry grant: nothing changes, so no new one.
+        self.assertEqual(self.cli("run", "backend-dev"), 20, self.last_output)
+        self.assertEqual(self.cli("orchestrate"), 20, self.last_output)
+        self.assertEqual(len(self.dashboards()), 1)
 
     def test_not_written_when_the_lock_is_refused(self):
         self.completed()
@@ -140,6 +146,9 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         for r in records:
             self.assertIn(r["session_id"], page)
             self.assertIn(f'id="call-backend-dev-{r["seq"]}"', page)
+        # Each call's prompt parts and where they came from (002 FR-031).
+        self.assertIn("<code>steps/plan.md</code>: packaged <code>shared/prompts/steps/plan.md</code>",
+                      page)
 
     def test_a_missing_evidence_file_is_shown_as_missing(self):
         self.completed()

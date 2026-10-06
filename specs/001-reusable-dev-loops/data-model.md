@@ -61,6 +61,7 @@ One loop's run within a workspace. File: `workspaces/<ws>/<loop>/state/run.json`
 | `grants[]` | Trial-budget grants (FR-063): `{milestone_id, granted_at, reason, extra_trials}` |
 | `project_root` | Added by 002: the project root at the first start. A resume from another root rewrites the recorded paths under it (002 FR-013) |
 | `config_sources`, `config_cli_keys` | Added by 002: the sha256 of each configuration file when the configuration was frozen, and the keys the command line set. `status` uses them to report `config_drift` (002 FR-015) |
+| `prompt_sources` | Added by 002: `[{part, source, path, sha256}]` of every prompt part the loop can use, when the configuration was frozen. `status` compares them with the current files to report `prompt_drift` (002 FR-032) |
 
 ### LoopRun state machine
 
@@ -217,7 +218,9 @@ or `null` when unavailable), cost, duration, turns, `is_error`, `subtype`, and
 `permission_denials`.
 Added by 002: `conversation` (`copied` or `unavailable`), with `conversation_path`
 (`state/conversations/<seq>-<step>.jsonl`, the call's Claude Code transcript, redacted) or
-`conversation_reason` (`not-found`, `interrupted`, `unreadable`) (002 FR-042).
+`conversation_reason` (`not-found`, `interrupted`, `unreadable`) (002 FR-042), and
+`prompt_sources`: `[{part, source: packaged|override, path, sha256}]` of the call's three prompt
+parts (002 FR-031).
 
 ## Approval
 
@@ -233,10 +236,13 @@ The `type` values are `run-started`, `input-check`, `config-override`, `lock-cle
 `plan-stored`, `paused`, `approved`,
 `trial-started`, `trial-voided`, `task-implemented`, `validation-passed`, `validation-failed`,
 `needs-input`, `retry-granted`, `service-error`,
-`boundary-violation`, `milestone-achieved`, `git-commit`, `stopped`, and `completed`.
+`boundary-violation`, `milestone-achieved`, `git-commit`, `stopped`, `completed`, and
+`prompt-sources-changed` (added by 002).
 `config-override` records a CLI override applied over the frozen `effective_config`; `lock-cleared`
 records a stale lock removed by `--force-unlock`; `git-commit` records the outcome of the optional
-per-milestone commit (`git.commit_per_milestone`, A-6). Events are rendered into the action-item section of `progress.md` (FR-004).
+per-milestone commit (`git.commit_per_milestone`, A-6); `prompt-sources-changed` records, on a
+later start, the prompt parts whose override was added, changed, or removed since the configuration
+was frozen (002 FR-032). Events are rendered into the action-item section of `progress.md` (FR-004).
 
 ## OrchestratorRun
 

@@ -712,7 +712,7 @@ were, refuses downgrades, and every command warns on a version mismatch.
 3. Simulate a newer kit version.
 4. Run `--upgrade`, then check each outcome and the manifest (SC-004).
 
-- [ ] T052 [P] [US6] Write `loops/shared/tests/test_upgrade.py`. It uses a `Kit` over a temporary
+- [X] T052 [P] [US6] Write `loops/shared/tests/test_upgrade.py`. It uses a `Kit` over a temporary
   copy of `loops/` with a patched version string, and edits template files to simulate a new
   release. Cases:
   - an unchanged installed file is replaced with the new template;
@@ -726,14 +726,14 @@ were, refuses downgrades, and every command warns on a version mismatch.
   - a manifest version `9.0.0` gives exit 30 `downgrade-refused` with nothing changed;
   - after an upgrade, the `.gitignore` block is not duplicated;
   - a `status --json` with a mismatched manifest version has the warning in `warnings` (FR-029).
-- [ ] T053 [US6] Implement `upgrade(project_root, kit, restore)` in
+- [X] T053 [US6] Implement `upgrade(project_root, kit, restore)` in
   `loops/shared/devloops/initcmd.py`:
   - follow the state diagram in data-model "Install manifest";
   - compare versions with `tuple(int(p) for p in v.split("."))`;
   - re-render the skills with the current `kit.command_for(project_root)`;
   - write each `.devloops-new` file atomically;
   - return `{updated, kept, deleted, added, removed}`.
-- [ ] T054 [US6] Add `--upgrade` and `--restore` to the `init` subcommand in
+- [X] T054 [US6] Add `--upgrade` and `--restore` to the `init` subcommand in
   `loops/shared/devloops/cli.py`, with the text and JSON output of contracts/cli.md.
 
 **Checkpoint**: Projects can follow devloops releases safely.
@@ -751,7 +751,7 @@ records its prompt sources. A change is recorded as an event and reported by `st
 3. Check that the recorded prompt contains the override text, and that the invocation record names
    the override and its sha256.
 
-- [ ] T055 [P] [US7] Write `loops/shared/tests/test_prompt_overrides.py`:
+- [X] T055 [P] [US7] Write `loops/shared/tests/test_prompt_overrides.py`:
   - **Overrides apply**: an override of `steps/plan.md` appears in `state/prompts/0001-plan.md`,
     and the record's `prompt_sources` has `{part: "steps/plan.md", source: "override", path:
     ".devloops/prompts/steps/plan.md", sha256}`. The other parts are `packaged`.
@@ -763,7 +763,7 @@ records its prompt sources. A change is recorded as an event and reported by `st
   - **Changes**: editing the override, then `run`, records a `prompt-sources-changed` event naming
     `steps/plan.md`, and `status --json` shows `prompt_drift: ["steps/plan.md"]` (FR-030 to
     FR-032).
-- [ ] T056 [US7] Implement the overrides:
+- [X] T056 [US7] Implement the overrides:
   - **Composing**: in `loops/shared/devloops/claude.py`, `compose_prompt(step, context)` looks up
     each part in `<project>/.devloops/prompts/<part>` before the kit. It returns the prompt and
     `prompt_sources`, which `_record` stores.
@@ -782,7 +782,7 @@ records its prompt sources. A change is recorded as an event and reported by `st
 
 ## Phase 11: Polish & Cross-Cutting Concerns
 
-- [ ] T057 [P] Update `loops/README.md` (FR-034), describing only implemented behavior:
+- [X] T057 [P] Update `loops/README.md` (FR-034), describing only implemented behavior:
   - **Install**: `uv tool install git+<repo>` / `uv tool install .` / `-e .`, plus
     `bin/devloops` from a checkout.
   - **Quick start**: `devloops init` (its questions and flags) → `devloops check` → `devloops
@@ -799,7 +799,7 @@ records its prompt sources. A change is recorded as an event and reported by `st
     format), and the note on migrating this repository.
 
   Update the command reference and the exit codes.
-- [ ] T058 [P] Write `loops/shared/tests/test_packaging.py`, skipped unless `uv` is on `PATH` and
+- [X] T058 [P] Write `loops/shared/tests/test_packaging.py`, skipped unless `uv` is on `PATH` and
   `DEVLOOPS_TEST_PACKAGING=1`:
   1. Run `uv build --wheel` into a temporary directory. Check that the wheel lists the
      `devloops_kit/` assets (`shared/skills/devloops-run/SKILL.md`, `shared/prompts/common.md`,
@@ -807,14 +807,14 @@ records its prompt sources. A change is recorded as an event and reported by `st
   2. Install it into a temporary venv. `devloops --version` prints 0.2.0.
   3. `devloops init --no-prompt` in a temporary directory renders `devloops` (not a path) in the
      skills, and its manifest has `kit_mode: "installed"`.
-- [ ] T059 [P] Update `specs/001-reusable-dev-loops/contracts/workspace-layout.md` and
+- [X] T059 [P] Update `specs/001-reusable-dev-loops/contracts/workspace-layout.md` and
   `specs/001-reusable-dev-loops/contracts/cli.md`. Each gets a short "Changed by 002" note: the
   `state/conversations/` directory, the optional `--workspace`, the `dashboard` full/`--light`
   modes, and a link to `specs/002-devloops-init/contracts/`.
-- [ ] T060 Run the full offline suite (quickstart §1) and fix it until it is green. Confirm that
+- [X] T060 Run the full offline suite (quickstart §1) and fix it until it is green. Confirm that
   `git status loops/ bin/` is clean after the suite. Then run `/code-review` on the change set and
   apply the confirmed findings.
-- [ ] T061 Run quickstart §2–5 with real Claude Code (SC-007), following only `loops/README.md`:
+- [X] T061 Run quickstart §2–5 with real Claude Code (SC-007), following only `loops/README.md`:
   install with `uv tool install .`, then `init` a fresh scratch project, `check`, a spec-kit
   feature through `orchestrate`, opening the copied full dashboard offline, the upgrade, and the
   visible browser. Record the outcomes, costs, defects, and README gaps in

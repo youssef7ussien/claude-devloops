@@ -17,7 +17,7 @@ import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 
-from . import schema, state
+from . import prompts, schema, state
 
 WRITE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"]
 READ_ONLY_TOOLS = ["Read", "Glob", "Grep"]
@@ -144,8 +144,10 @@ class ClaudeRunner:
     before every call.
     """
 
-    def __init__(self, kit, loop, loop_dir, config, redactor, run_state, env=None):
+    def __init__(self, kit, loop, loop_dir, config, redactor, run_state, env=None,
+                 project_root=None):
         self.kit = kit
+        self.project_root = project_root  # its .devloops/prompts/ overrides the kit (002 FR-030)
         self.loop = loop
         self.loop_dir = loop_dir
         self.config = config
@@ -165,15 +167,15 @@ class ClaudeRunner:
     # --- prompt ----------------------------------------------------------------------------------
 
     def compose_prompt(self, step, context):
-        parts = [f"<!-- step: {step} -->"]
-        for path in (self.kit.path("shared", "prompts", "common.md"),
-                     self.kit.path(self.loop, "Loop-instructions.md"),
-                     self.kit.path("shared", "prompts", "steps", f"{step}.md")):
-            with open(path, encoding="utf-8") as f:
-                parts.append(f.read().strip())
+        """The prompt of one call, and the source of each of its parts (002 FR-030, FR-031)."""
+        parts, used = [f"<!-- step: {step} -->"], []
+        for part in (prompts.common_part(), prompts.loop_part(self.loop), prompts.step_part(step)):
+            source, text = prompts.resolve(self.kit, self.project_root, part)
+            used.append(source)
+            parts.append(text.strip())
         parts.append("## Context\n\n```json\n" + json.dumps(context, indent=2, ensure_ascii=False)
                      + "\n```")
-        return "\n\n".join(parts) + "\n"
+        return "\n\n".join(parts) + "\n", used
 
     # --- argv ------------------------------------------------------------------------------------
 
@@ -244,7 +246,8 @@ class ClaudeRunner:
         seq = self.run_state["invocation_count"]
         state.write_json_atomic(os.path.join(self.state_dir, "run.json"), self.run_state)
 
-        prompt, prompt_redacted = self.redactor.redact(self.compose_prompt(step, context))
+        prompt, prompt_sources = self.compose_prompt(step, context)
+        prompt, prompt_redacted = self.redactor.redact(prompt)
         prompts_dir = os.path.join(self.state_dir, "prompts")
         base = os.path.join(prompts_dir, f"{seq:04d}-{step}")
         prompt_path = base + ".md"
@@ -285,7 +288,7 @@ class ClaudeRunner:
                               ended_at, elapsed_ms, result, timed_out, out.failure_class)
         conversation, conversation_redacted = self._copy_conversation(
             seq, step, record["session_id"], target_dir, timed_out)
-        record.update(conversation)
+        record.update(conversation, prompt_sources=prompt_sources)
         record, record_redacted = self.redactor.redact_obj(record)
         record["redacted"] = bool(prompt_redacted or record_redacted or conversation_redacted)
         state.append_jsonl(os.path.join(self.state_dir, "invocations.jsonl"), record)

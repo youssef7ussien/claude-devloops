@@ -1,5 +1,13 @@
 # Contract: `devloops` CLI
 
+> **Changed by 002** ([specs/002-devloops-init/contracts/cli.md](../../002-devloops-init/contracts/cli.md)):
+> - `--workspace` is optional: the default is the project configuration's `workspace`, and a bare
+>   name resolves under its `workspaces_dir`. Commands find the project from the current folder.
+> - `dashboard` writes a new **full** dashboard, then refreshes the lightweight one;
+>   `dashboard --light` keeps the behavior described here.
+> - New commands `init` and `check`; new `run`/`orchestrate` option `--speckit-feature`; targets
+>   and requirements default to the project configuration.
+
 The entry point is `bin/devloops`, and every loop and the orchestrator run through it
 [RC, research R-1/R-16]. Each command prints a human-readable summary. With `--json`, it prints a
 single JSON status object instead (the same shape as `status --json`).

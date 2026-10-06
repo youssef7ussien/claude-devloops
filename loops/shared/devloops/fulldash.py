@@ -439,6 +439,17 @@ def artifacts_section(loop, items, embedder):
     return "".join(parts) + "</section>"
 
 
+def _prompt_sources(sources):
+    """The parts the prompt was composed from, and where each came from (002 FR-031)."""
+    if not sources:
+        return ""
+    items = "".join(
+        f'<li><code>{e(s.get("part"))}</code>: {e(s.get("source"))} '
+        f'<code>{e(s.get("path"))}</code> <span class="muted">sha256 '
+        f'{e((s.get("sha256") or "")[:12])}</span></li>' for s in sources)
+    return f'<ul class="small">{items}</ul>'
+
+
 def calls_section(ws, loop, d, items, embedder, env):
     """One block per recorded call: its header, prompt, and conversation (FR-040)."""
     redactor = embedder.redactor
@@ -462,7 +473,8 @@ def calls_section(ws, loop, d, items, embedder, env):
                 duration((r.get("duration_ms") or 0) / 1000)]
         head = " · ".join(str(h) for h in head if h)
         prompt_files = [i for i in files.pop(seq, []) if not i["rel"].endswith(".jsonl")]
-        body = "<h4>Prompt</h4>" + _files(embedder, prompt_files, "No prompt file.")
+        body = "<h4>Prompt</h4>" + _prompt_sources(r.get("prompt_sources")) \
+            + _files(embedder, prompt_files, "No prompt file.")
         body += "<h4>Conversation</h4>"
         if text is None:
             unavailable += 1
