@@ -56,6 +56,18 @@ class InitTest(unittest.TestCase):
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
 
+    # --- file modes ---
+
+    def test_created_files_are_0644_and_an_existing_gitignore_keeps_its_mode(self):
+        self.write(".gitignore", "node_modules/\n")
+        os.chmod(os.path.join(self.dir, ".gitignore"), 0o664)
+        code, result = self.init_json()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(os.stat(os.path.join(self.dir, ".gitignore")).st_mode & 0o777, 0o664)
+        for rel in result["created"]:
+            with self.subTest(file=rel):
+                self.assertEqual(os.stat(os.path.join(self.dir, rel)).st_mode & 0o777, 0o644)
+
     # --- fresh project ---
 
     def test_fresh_init_creates_exactly_the_listed_files(self):

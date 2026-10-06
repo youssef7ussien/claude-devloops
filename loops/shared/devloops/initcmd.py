@@ -12,6 +12,7 @@ a manifest is kept as it is (it belongs to the developer, FR-028) and the rest i
 import hashlib
 import json
 import os
+import stat
 from dataclasses import dataclass
 
 from . import project as project_mod
@@ -47,6 +48,7 @@ class InitOptions:
     no_prompt: bool = False
     track_workspaces: bool = False
     track_dashboards: bool = False
+    allow_skills: bool = False
 
 
 def sha256_bytes(data):
@@ -81,6 +83,60 @@ def installed_files(kit, project_root):
 def permission_rule(command):
     """The Claude Code rule that pre-approves the skills' command (FR-022a)."""
     return f"Bash({command} *)"
+
+
+SETTINGS_PATH = os.path.join(".claude", "settings.json")
+
+
+def write_project_file(path, text):
+    """Atomically write a file of the project (not devloops' run state).
+
+    It is written through a symlink to its target and keeps its mode; a new file is 0644, readable
+    by everyone, like the rest of the project's files.
+    """
+    target = os.path.realpath(path)
+    mode = stat.S_IMODE(os.stat(target).st_mode) if os.path.exists(target) else 0o644
+    state.write_text_atomic(target, text, mode=mode)
+
+
+def _read_settings(path, rule):
+    """The parsed settings file (`{}` when absent); `settings-unreadable` (exit 30) otherwise."""
+    def unreadable(problem):
+        return state.input_error("settings-unreadable",
+                                 f"{path}: {problem}; add {rule} to permissions.allow by hand")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except OSError as e:
+        raise unreadable(f"cannot be read: {e.strerror or e}")
+    except ValueError as e:
+        raise unreadable(f"not valid JSON: {e}")
+    if not isinstance(data, dict):
+        raise unreadable("not a JSON object")
+    permissions = data.get("permissions", {})
+    if not isinstance(permissions, dict) or not isinstance(permissions.get("allow", []), list):
+        raise unreadable("permissions.allow is not a list")
+    return data
+
+
+def allow_skills(project_root, command):
+    """Add the skills' rule to the project's shared Claude Code settings (FR-022b).
+
+    Every other setting and rule is kept, in order; a rule already present is not added again.
+    Returns `{path, rule, changed, created}`. Raises `settings-unreadable` before any write.
+    """
+    rule = permission_rule(command)
+    path = os.path.join(project_root, SETTINGS_PATH)
+    existed = os.path.exists(path)
+    data = _read_settings(path, rule)
+    allow = data.setdefault("permissions", {}).setdefault("allow", [])
+    if rule in allow:
+        return {"path": SETTINGS_PATH, "rule": rule, "changed": False, "created": False}
+    allow.append(rule)
+    write_project_file(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return {"path": SETTINGS_PATH, "rule": rule, "changed": True, "created": not existed}
 
 
 def default_project_config(targets, requirements):
@@ -285,11 +341,19 @@ def init(project_root, kit, opts, answers=None):
     (`target-unwritable`) before any write.
     """
     proj = project_mod.Project(os.path.abspath(project_root))
+    command = kit.command_for(proj.root)
     manifest = proj.manifest()
     if manifest is not None:
         version = manifest.get("devloops_version", "?")
+        if opts.allow_skills:  # only the rule: nothing is reinstalled (FR-022b)
+            allowed = allow_skills(proj.root, command)
+            return _result(proj, kit, **_allowed_fields(allowed),
+                           message=f"already initialized (devloops {version}); "
+                                   + _allowed_note(allowed))
         return _result(proj, kit, message=f"already initialized (devloops {version}); use "
                                           f'"devloops init --upgrade" to update')
+    if opts.allow_skills:  # refuse unreadable settings before anything is written
+        _read_settings(os.path.join(proj.root, SETTINGS_PATH), permission_rule(command))
 
     existing_config = os.path.isfile(proj.config_path)
     ignored = [flag for flag, value in (("--backend-target", opts.backend_target),
@@ -329,11 +393,11 @@ def init(project_root, kit, opts, answers=None):
 
     created, changed = [], []
     for rel, data in to_write.items():
-        state.write_text_atomic(os.path.join(proj.root, rel), data.decode("utf-8"))
+        write_project_file(os.path.join(proj.root, rel), data.decode("utf-8"))
         created.append(rel)
     config_rel = os.path.relpath(proj.config_path, proj.root)
     if not existing_config:
-        state.write_text_atomic(proj.config_path, json.dumps(config, indent=2) + "\n")
+        write_project_file(proj.config_path, json.dumps(config, indent=2) + "\n")
         created.append(config_rel)
 
     rules = ignore_rules(proj, config, opts)
@@ -344,18 +408,17 @@ def init(project_root, kit, opts, answers=None):
         separator = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n")
                                                                    else "\n\n")
         new_text = text + separator + "\n".join([IGNORE_BEGIN, *rules, IGNORE_END]) + "\n"
-        state.write_text_atomic(gitignore, new_text)
+        write_project_file(gitignore, new_text)
         (changed if text else created).append(".gitignore")
     else:
         rules = block
 
-    command = kit.command_for(proj.root)
     manifest = {
         "schema_version": 1, "devloops_version": kit.version, "kit_mode": kit.mode,
         "command": command, "installed_at": state.now_iso(), "upgraded_at": None,
         "ignore_rules": rules, "files": {rel: sha256_bytes(data) for rel, data in files.items()},
     }
-    state.write_text_atomic(proj.manifest_path, json.dumps(manifest, indent=2) + "\n")
+    write_project_file(proj.manifest_path, json.dumps(manifest, indent=2) + "\n")
     created.append(os.path.relpath(proj.manifest_path, proj.root))
 
     notes = [f"initialized {proj.root} (devloops {kit.version})"]
@@ -367,8 +430,26 @@ def init(project_root, kit, opts, answers=None):
                      "--requirements <file> or --speckit-feature [dir] to run/orchestrate")
     if not os.path.isdir(os.path.join(proj.root, ".git")):
         notes.append("no git repository here; the ignore rules are in .gitignore anyway")
+    extra = {}
+    if opts.allow_skills:
+        allowed = allow_skills(proj.root, command)
+        (created if allowed["created"] else changed if allowed["changed"] else []).append(
+            allowed["path"])
+        extra = {"skills_allowed": True}
+        notes.append(_allowed_note(allowed))
     return _result(proj, kit, created=sorted(created), changed=changed, adopted=adopted,
-                   message="; ".join(notes))
+                   message="; ".join(notes), **extra)
+
+
+def _allowed_fields(allowed):
+    key = "created" if allowed["created"] else "changed"
+    return {key: [allowed["path"]] if allowed["changed"] else [], "skills_allowed": True}
+
+
+def _allowed_note(allowed):
+    if allowed["changed"]:
+        return f"added {allowed['rule']} to {allowed['path']} (permissions.allow)"
+    return f"{allowed['rule']} is already in {allowed['path']}; nothing changed"
 
 
 def print_result(result, out):
@@ -378,10 +459,12 @@ def print_result(result, out):
     for key, label in (("created", "created"), ("changed", "changed"), ("adopted", "adopted")):
         for path in result[key]:
             print(f"  {label}: {path}", file=out)
+    command = result["next"].rsplit(" ", 1)[0]
     if result["created"] or result["changed"]:
-        command = result["next"].rsplit(" ", 1)[0]
-        print(f"\nTo let the devloops skills run without a prompt, allow this Claude Code rule:\n"
-              f"  {result['permission_rule']}\n"
-              f"(add it to .claude/settings.json under permissions.allow)", file=out)
+        if not result.get("skills_allowed"):
+            print(f"\nThe devloops skills run their command without asking. To let Claude Code "
+                  f"run devloops outside the skills without asking, run: {command} init "
+                  f"--allow-skills\n(it adds {result['permission_rule']} to "
+                  f".claude/settings.json under permissions.allow)", file=out)
         print(f"\nNext: `{result['next']}`, then `{command} orchestrate` or "
               f"`{command} run <backend-dev|frontend-dev>`.", file=out)

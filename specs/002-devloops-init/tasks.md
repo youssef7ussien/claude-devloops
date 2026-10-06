@@ -564,7 +564,7 @@ request (clarification Q4).
 `allowed-tools`. `init --allow-skills` adds one rule and keeps the existing settings (quickstart
 §1, the skills rows).
 
-- [ ] T042 [P] [US4] Write `loops/shared/tests/test_skills.py`:
+- [X] T042 [P] [US4] Write `loops/shared/tests/test_skills.py`:
   - **Each template** in `loops/shared/skills/`:
     - contains exactly one line matching `{{DEVLOOPS}} <cmd> $ARGUMENTS --json`;
     - has `allowed-tools: Bash({{DEVLOOPS}} *)`;
@@ -580,7 +580,7 @@ request (clarification Q4).
     - invalid JSON in the settings file gives exit 30 `settings-unreadable`, with the file
       unchanged and the rule printed;
     - it works on an already-initialized project (FR-022a, FR-022b).
-- [ ] T043 [US4] Add `allow_skills(project_root, command)` to
+- [X] T043 [US4] Add `allow_skills(project_root, command)` to
   `loops/shared/devloops/initcmd.py`:
   - **Rule**: `Bash(<command> *)`.
   - **Merging**: read `.claude/settings.json` (or `{}` if absent), append the rule to
@@ -589,7 +589,7 @@ request (clarification Q4).
 
   `init` always includes `permission_rule` in its result, and its text output prints "To let
   Claude Code run devloops outside the skills without asking, run: devloops init --allow-skills".
-- [ ] T044 [US4] Add `--allow-skills` to the `init` subcommand in
+- [X] T044 [US4] Add `--allow-skills` to the `init` subcommand in
   `loops/shared/devloops/cli.py`. On an already-initialized project, it runs only
   `allow_skills()`, and nothing else is reinstalled.
 

@@ -82,13 +82,18 @@ def write_json_atomic(path, obj):
     write_text_atomic(path, json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
 
 
-def write_text_atomic(path, text):
-    """Write `text` the same way as `write_json_atomic`."""
+def write_text_atomic(path, text, mode=None):
+    """Write `text` the same way as `write_json_atomic`.
+
+    The file gets the temp file's mode (0600) unless `mode` is given.
+    """
     directory = os.path.dirname(os.path.abspath(path))
     os.makedirs(directory, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=directory, prefix="." + os.path.basename(path) + ".",
                                suffix=".tmp")
     try:
+        if mode is not None:
+            os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
             f.flush()

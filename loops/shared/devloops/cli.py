@@ -114,6 +114,9 @@ def build_parser():
                       help="do not git-ignore the workspaces folder")
     init.add_argument("--track-dashboards", action="store_true",
                       help="do not git-ignore the full dashboards folder")
+    init.add_argument("--allow-skills", action="store_true",
+                      help="add the devloops permission rule to .claude/settings.json (also on "
+                           "an initialized project)")
     init.add_argument("--json", action="store_true", help="print the result as JSON")
     return parser
 
@@ -384,7 +387,7 @@ def _init(args, kit):
         backend_target=args.backend_target, frontend_target=args.frontend_target,
         requirements=args.requirements, speckit_feature=args.speckit_feature,
         no_prompt=args.no_prompt or args.json, track_workspaces=args.track_workspaces,
-        track_dashboards=args.track_dashboards)
+        track_dashboards=args.track_dashboards, allow_skills=args.allow_skills)
     root = os.path.abspath(args.dir)
     try:
         answers = None
