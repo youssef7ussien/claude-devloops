@@ -131,10 +131,15 @@ def _substitute_json(value, variables):
 
 
 def _dotted_get(obj, path):
+    """The value at a dotted path, or None. A part steps into an object by key, or into an array
+    by index (`0.name` on a top-level array, `items.-1` for the last item)."""
     current = obj
     for part in path.split("."):
         if isinstance(current, dict) and part in current:
             current = current[part]
+        elif isinstance(current, list) and re.fullmatch(r"-?[0-9]+", part) \
+                and -len(current) <= int(part) < len(current):
+            current = current[int(part)]
         else:
             return None
     return current

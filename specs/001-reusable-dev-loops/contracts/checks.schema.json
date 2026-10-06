@@ -88,7 +88,7 @@
               },
               "json_equals": {
                 "type": "object",
-                "description": "Dotted JSON path -> expected value"
+                "description": "Dotted JSON path -> expected value; a numeric part indexes an array (0.name, items.-1.id)"
               }
             }
           },
@@ -97,7 +97,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "var -> dotted JSON path"
+            "description": "var -> dotted JSON path; a numeric part indexes an array"
           }
         }
       }

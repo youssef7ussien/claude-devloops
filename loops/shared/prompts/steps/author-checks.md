@@ -20,9 +20,10 @@ document (both in the Context block), never from a claim about what the implemen
   this same list captured, as `${var}`.
 - `expect`: the required `status`, and optionally `body_contains` (substrings the raw response
   body must contain) and `json_equals` (a dotted JSON path in the response mapped to the exact
-  value expected there, for example `"user.id"`).
+  value expected there, for example `"user.id"`). A numeric part indexes an array: `"0.name"` on
+  a response that is an array, `"items.-1.id"` for the last item.
 - `capture` (optional): variables to pull out of this check's response for a later check to use,
-  as `{var: "dotted.path"}`.
+  as `{var: "dotted.path"}`, with the same path rules.
 
 ## Chaining checks
 

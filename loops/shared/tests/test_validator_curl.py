@@ -170,6 +170,31 @@ class CurlValidatorTest(unittest.TestCase):
             second = json.load(f)
         self.assertEqual(second["ref"], first_id)  # ${item_id} substituted into the request body
 
+    def test_paths_index_into_arrays(self):
+        """`GET /items` answers a top-level array: `0.name` and `-1.id` step into it."""
+        checks = valid_checks()
+        checks["checks"][1:3] = [
+            {"id": "C2", "criteria": ["M01-AC1"], "request": {"method": "GET", "path": "/items"},
+             "expect": {"status": 200, "json_equals": {"0.name": "Widget", "-1.name": "Widget"}},
+             "capture": {"last_id": "-1.id"}},
+            {"id": "C3", "criteria": ["M01-AC1"],
+             "request": {"method": "GET", "path": "/items/${last_id}"},
+             "expect": {"status": 200, "json_equals": {"name": "Widget"}}},
+            {"id": "C5", "criteria": ["M01-AC1"], "request": {"method": "GET", "path": "/items"},
+             "expect": {"status": 200, "json_equals": {"1.name": "Widget"}}}]
+        self.scenario(checks)
+        result = {c["check_id"]: c for c in curl.validate(self.ctx())["checks"]}
+        self.assertTrue(all(result[c]["passed"] for c in ("C2", "C3")), result)
+        # Index 1 is out of range in a one-item array: a failure, not a crash.
+        self.assertEqual(result["C5"]["failures"], ["1.name: expected 'Widget', got None"])
+
+    def test_dotted_get(self):
+        doc = {"items": [{"id": 1}, {"id": 2}], "0": "key"}
+        for path, expected in (("items.0.id", 1), ("items.-1.id", 2), ("items.2.id", None),
+                               ("items.x", None), ("0", "key"), ("items.0.id.deeper", None)):
+            self.assertEqual(curl._dotted_get(doc, path), expected, path)
+        self.assertEqual(curl._dotted_get([{"name": "a"}], "0.name"), "a")
+
     def test_checks_are_authored_once_then_frozen(self):
         self.scenario(valid_checks())
         curl.validate(self.ctx(trial=1))
