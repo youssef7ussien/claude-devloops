@@ -609,7 +609,7 @@ with checked coverage. `US<n>` selects a story.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T045 [P] [US5] Create the fixture `loops/shared/tests/fixtures/speckit/`:
+- [X] T045 [P] [US5] Create the fixture `loops/shared/tests/fixtures/speckit/`:
   - `specs/001-sample/spec.md`: `### User Story 1 - List notes (Priority: P1)` and `### User
     Story 2 - Add a note (Priority: P2)`, each with acceptance scenarios.
   - `specs/001-sample/plan.md`: names a stack.
@@ -618,7 +618,7 @@ with checked coverage. `US<n>` selects a story.
     `## Phase 4: User Story 2 …` with `T005 [US2]`, `- [x] T006 [US2]`, and a frontend task
     `T007 [US2] … in web/…`.
   - `.specify/feature.json`: `{"feature_directory": "specs/001-sample"}`.
-- [ ] T046 [P] [US5] Write `loops/shared/tests/test_speckit.py`:
+- [X] T046 [P] [US5] Write `loops/shared/tests/test_speckit.py`:
   - **Parser**: `speckit.parse_tasks()` returns the 4 phases with the IDs, story labels,
     `parallel`, and `done` (T006) flags. `speckit.stories()` finds US1 and US2.
   - **Resolving the feature**: `--speckit-feature` with no value resolves through
@@ -643,7 +643,7 @@ with checked coverage. `US<n>` selects a story.
 
 ### Implementation for User Story 5
 
-- [ ] T047 [P] [US5] Implement `loops/shared/devloops/speckit.py` (research P-16, data-model
+- [X] T047 [P] [US5] Implement `loops/shared/devloops/speckit.py` (research P-16, data-model
   "Spec-kit feature"):
   - `resolve_feature(arg, project)` handles `"active"` through `.specify/feature.json`
     `feature_directory`, or a directory. It returns `{feature_dir (relative), spec, plan_md|None,
@@ -655,7 +655,7 @@ with checked coverage. `US<n>` selects a story.
   - `stories(spec_text)` returns `{"US<n>": heading}` from
     `^#{2,4} User Story (\d+)\b`.
   - `context(feature, story_id)` returns the planning-context block.
-- [ ] T048 [US5] Wire the spec-kit inputs in `loops/shared/devloops/inputs.py` and
+- [X] T048 [US5] Wire the spec-kit inputs in `loops/shared/devloops/inputs.py` and
   `loops/shared/devloops/engine.py`:
   - **Inputs**: `inputs.speckit_requirements(feature, story_id)` returns the 001 requirements dict
     (path = `spec.md`, mode `prd` or `prd-story`), plus a `speckit` block with the sha256s.
@@ -665,7 +665,7 @@ with checked coverage. `US<n>` selects a story.
     `plan`/`tasks`).
   - **Planning context**: the engine adds `speckit: speckit.context(...)` to the plan and replan
     contexts.
-- [ ] T049 [US5] Extend the plan:
+- [X] T049 [US5] Extend the plan:
   - **Schema**: `plan.schema.json`, in both copies, plus 001's `data-model.md`. Add the optional
     milestone `speckit_phase` (integer or null), task `speckit_tasks` (array of strings), and plan
     `speckit_omitted` (array of `{id, reason}` with `minLength` 1).
@@ -681,7 +681,7 @@ with checked coverage. `US<n>` selects a story.
 
     It returns errors in the same form as the story-scope check, which makes the planning trial
     fail.
-- [ ] T050 [US5] Update the prompts, the plan summary, and the options:
+- [X] T050 [US5] Update the prompts, the plan summary, and the options:
   - **Prompt**: add a "spec-kit feature" section to `loops/shared/prompts/steps/plan.md` (and
     `replan.md`). It says to follow the phases as milestones in order, put the spec-kit task IDs
     in `speckit_tasks`, list every in-scope task left out in `speckit_omitted` with a reason (for
@@ -693,7 +693,7 @@ with checked coverage. `US<n>` selects a story.
     `orchestrate` in `loops/shared/devloops/cli.py`, mutually exclusive with `--requirements` and
     `--story-file`. Default it from `project.requirements.speckit_feature`, and pass it through
     `loops/shared/devloops/orchestrator.py`.
-- [ ] T051 [US5] Run the US5 tests and the full suite. Check that `test_no_app_specifics` still
+- [X] T051 [US5] Run the US5 tests and the full suite. Check that `test_no_app_specifics` still
   passes (the fixture lives under `tests/fixtures`).
 
 **Checkpoint**: spec-kit decides what to build, and devloops builds and validates it, with any

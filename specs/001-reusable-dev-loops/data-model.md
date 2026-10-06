@@ -102,6 +102,7 @@ Returned by the planning step as structured output. It is checked and stored at
 | `milestones[]` | An ordered list of Milestone |
 | `open_questions[]` | `{id, question, context, affects[]}` (D-4) |
 | `assumptions[]` | `{id, text, source}`: planning-time assumptions, stated explicitly |
+| `speckit_omitted[]` | Added by 002: `{id, reason}`, the in-scope spec-kit tasks the plan leaves out. Milestones gain `speckit_phase` and tasks `speckit_tasks[]` (002 FR-023a, FR-023b) |
 
 **Validation rules (driver)** [RC, R-5]:
 - All IDs are unique.
@@ -112,6 +113,9 @@ Returned by the planning step as structured output. It is checked and stored at
   (FR-010, FR-010a).
 - `stack.source` is one of the four values. A non-empty `stack.conflicts` implies at least one
   open question (FR-060).
+- With a spec-kit `tasks.md` (002): every in-scope spec-kit task is referenced or omitted with a
+  reason, every referenced task exists, no other story's task is referenced in story mode, and
+  `speckit_phase` never decreases (002 research P-16).
 
 ## Milestone
 

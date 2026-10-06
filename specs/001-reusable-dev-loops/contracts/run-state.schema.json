@@ -63,6 +63,8 @@
         "input": {
           "enum": [
             "requirements",
+            "plan",
+            "tasks",
             "api-spec",
             "answers"
           ],
@@ -106,6 +108,43 @@
                 "string",
                 "null"
               ]
+            },
+            "speckit": {
+              "type": "object",
+              "description": "002 FR-023: a spec-kit feature as the requirements; spec.md is `path`",
+              "properties": {
+                "feature_dir": {
+                  "type": "string"
+                },
+                "plan_md": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "tasks_md": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
             }
           }
         },

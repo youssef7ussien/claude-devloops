@@ -8,7 +8,7 @@ import json
 import os
 import re
 
-from . import selector, state
+from . import selector, speckit, state
 
 STOPPED = ("stopped-on-failure", "stopped-on-input-error", "stopped-on-service-error")
 TOKEN_FIELDS = (("input", "Input"), ("output", "Output"), ("cache_creation", "Cache creation"),
@@ -180,7 +180,7 @@ def render_progress(loop, workspace_name, run, plan, events, invocations, trials
 
 # --- plan-summary.md ----------------------------------------------------------------------------
 
-def render_plan_summary(plan):
+def render_plan_summary(plan, speckit_phases=None, story_id=None):
     stack, runtime = plan["stack"], plan["runtime"]
     lines = ["# Plan summary", "", "## Stack", "", f"- **Summary**: {stack['summary']}",
              f"- **Source**: {stack['source']}"]
@@ -203,8 +203,52 @@ def render_plan_summary(plan):
     lines += ["", "## Planning assumptions", ""]
     lines += ([f"- **{a['id']}** {a['text']} (source: {a['source']})" for a in plan["assumptions"]]
               or ["_None._"])
+    if speckit_phases is not None:
+        lines += ["", *render_speckit_coverage(plan, speckit_phases, story_id)]
     lines += ["", f"Open questions: {len(plan['open_questions'])} (see open-questions.md)"]
     return "\n".join(lines) + "\n"
+
+
+def render_speckit_coverage(plan, phases, story_id=None):
+    """The plan summary's "Spec-kit tasks" section (002 FR-023b, FR-023d): what is planned, what
+    is left out and why, and what the plan adds, so the differences are reviewed at approval."""
+    tasks = speckit.tasks_by_id(phases)
+    planned = {}
+    unmatched = []
+    for m in plan["milestones"]:
+        for t in m["tasks"]:
+            refs = t.get("speckit_tasks") or []
+            for tid in refs:
+                planned.setdefault(tid, []).append(t["id"])
+            if not refs:
+                unmatched.append(f"- **{t['id']}** {t['title']}")
+    omitted = {o["id"]: o["reason"] for o in plan.get("speckit_omitted") or []}
+
+    def label(tid):
+        t = tasks.get(tid) or {}
+        story = f" [{t['story']}]" if t.get("story") else ""
+        done = " (already marked done in tasks.md)" if t.get("done") else ""
+        return f"**{tid}**{story} {t.get('text', '')}{done}"
+    lines = ["## Spec-kit tasks", "", "### Planned", ""]
+    lines += [f"- {label(tid)} → {', '.join(ids)}" for tid, ids in planned.items()] or ["_None._"]
+    lines += ["", "### Left out", ""]
+    lines += [f"- {label(tid)}: {reason}" for tid, reason in omitted.items()] or ["_None._"]
+    if story_id:
+        needed = [tid for tid in planned if tid in tasks and tasks[tid]["story"] is None]
+        lines += ["", f"### Setup and foundational tasks needed by {story_id}", ""]
+        lines += [f"- {label(tid)}" for tid in needed] or ["_None._"]
+        others = sorted(tid for tid, t in tasks.items()
+                        if t["story"] not in (None, story_id))
+        if others:
+            lines += ["", f"Out of scope (other stories): {', '.join(others)}"]
+    lines += ["", "### Devloops tasks with no spec-kit task", ""]
+    lines += unmatched or ["_None._"]
+    done = [tid for tid, t in tasks.items() if t["done"]]
+    if done:
+        lines += ["", "### Already marked done in tasks.md", "",
+                  "Planned or listed anyway: a `done` mark is not proof the code exists.", ""]
+        lines += [f"- {label(tid)}" for tid in done]
+    return lines
 
 
 # --- task.md ------------------------------------------------------------------------------------
@@ -382,7 +426,13 @@ def render_all(loop_dir, loop, workspace_name, kit, final=False, questions=None)
             ms = (run.get("milestones") or {}).get(m["id"], {})
             state.write_text_atomic(os.path.join(outputs, milestone_filename(m)),
                                     render_milestone(m, ms, trials.get(m["id"], [])))
-        state.write_text_atomic(os.path.join(outputs, "plan-summary.md"), render_plan_summary(plan))
+        req = (run.get("inputs") or {}).get("requirements") or {}
+        try:
+            phases = speckit.load_phases(req.get("speckit"))
+        except OSError:
+            phases = None  # tasks.md is gone; the start's input check reports it
+        state.write_text_atomic(os.path.join(outputs, "plan-summary.md"),
+                                render_plan_summary(plan, phases, req.get("story_id")))
     if questions is not None:
         path = os.path.join(outputs, "open-questions.md")
         existing = None

@@ -19,3 +19,5 @@ Return a complete plan in the same structured format and under the same rules as
 - milestones in dependency order, each with tasks and observable acceptance criteria, every one
   citing requirement references from the inventory;
 - open questions and explicit assumptions.
+- for a spec-kit feature (`speckit` in the Context block), the same `speckit_phase`,
+  `speckit_tasks`, and `speckit_omitted` rules as the `plan` step: follow `speckit.rule`.

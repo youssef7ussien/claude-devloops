@@ -15,7 +15,7 @@ import subprocess
 import types
 from dataclasses import dataclass, field
 
-from . import boundary, config, inputs, preflight, render, schema, selector, state
+from . import boundary, config, inputs, preflight, render, schema, selector, speckit, state
 from . import plan as plan_mod
 from .claude import CallFailed, ClaudeRunner
 from .kit import Kit
@@ -39,6 +39,7 @@ class Options:
     """What the CLI passes to a run. `None` means the flag was not given."""
 
     requirements: str = None
+    speckit_feature: str = None   # "active" or a folder (002 FR-023); excludes `requirements`
     story_id: str = None
     story_file: bool = False
     target: str = None
@@ -247,8 +248,7 @@ class Engine:
                                     self.project.run_config_layers())
         self._use_config(cfg)
         preflight.check_tools(self.loop_def, cfg, self.env)
-        requirements = inputs.requirements_input(self.opts.requirements, self.opts.story_id,
-                                                 self.opts.story_file)
+        requirements = self._requirements_input()
         req_path = requirements["path"]
         api_spec = None
         if "api_spec" in self.loop_def.get("required_inputs", []) or self.opts.api_spec:
@@ -272,6 +272,12 @@ class Engine:
         self._save()
         if api_spec:
             inputs.freeze_api_spec(api_spec, self.state_dir)
+        block = requirements.get("speckit")
+        if block:
+            self._event("input-check", f"spec-kit feature {block['feature_dir']}: "
+                        + ", ".join(f"{key.replace('_', '.')} (sha256 {item['sha256']})"
+                                    for key, item in (("plan_md", block["plan_md"]),
+                                                      ("tasks_md", block["tasks_md"])) if item))
         self._event("input-check", f"requirements {req_path} (sha256 {requirements['sha256']}, "
                                    f"mode {requirements['mode']}"
                                    + (f", story {requirements['story_id']}"
@@ -280,6 +286,17 @@ class Engine:
                                       if api_spec else "") + f"target {target}")
         self._render()
         return self._advance()
+
+    def _requirements_input(self):
+        """The requirements file, or the spec-kit feature, of a first start (002 FR-023)."""
+        if self.opts.speckit_feature:
+            if self.opts.requirements or self.opts.story_file:
+                raise state.UsageError("--speckit-feature cannot be combined with "
+                                       "--requirements or --story-file")
+            feature = speckit.resolve_feature(self.opts.speckit_feature, self.project)
+            return inputs.speckit_requirements(feature, self.opts.story_id)
+        return inputs.requirements_input(self.opts.requirements, self.opts.story_id,
+                                         self.opts.story_file)
 
     def _resume(self):
         status = self.rs["status"]
@@ -341,6 +358,27 @@ class Engine:
                     f"{req.get('story_id')}, not mode={mode} story_id={story_id}; repeat the "
                     "original story options or omit them (a different story needs a new "
                     "workspace)")
+        if self.opts.speckit_feature:
+            # Like the story options: a different feature is a mistyped command (or another
+            # feature became active), not changed input, so the run stays resumable.
+            recorded_dir = (req.get("speckit") or {}).get("feature_dir")
+            try:
+                given = speckit.resolve_feature(self.opts.speckit_feature, self.project)
+                given_dir = given["feature_dir"]
+            except StopRun as e:
+                given_dir, problem = None, e.message
+            else:
+                problem = None
+            if not recorded_dir or given_dir is None or \
+                    os.path.realpath(recorded_dir) != os.path.realpath(given_dir):
+                raise state.UsageError(
+                    "this run was started with "
+                    + (f"spec-kit feature {recorded_dir}" if recorded_dir
+                       else f"requirements {req['path']}")
+                    + (f", but --speckit-feature gives {given_dir}" if given_dir
+                       else f", and --speckit-feature cannot be used: {problem}")
+                    + "; omit --speckit-feature to resume the recorded input (another feature "
+                      "needs a new workspace)")
         if self.opts.requirements:
             path = inputs.check_requirements(self.opts.requirements)
             if inputs.sha256_file(path) != req["sha256"]:
@@ -454,6 +492,10 @@ class Engine:
             req = self.rs["inputs"]["requirements"]
             errors = plan_mod.validate_plan(out.structured_output, self.loop_def, req["mode"],
                                             req.get("story_id"))
+            phases = speckit.load_phases(req.get("speckit"))
+            if not errors and phases is not None:
+                errors = plan_mod.validate_speckit(out.structured_output, phases,
+                                                   req.get("story_id"))
             if errors:
                 self._fail_planning(trial, "invalid-output", "; ".join(errors))
                 continue
@@ -500,6 +542,8 @@ class Engine:
         }
         if self.loop_def.get("requires_openapi_path"):
             ctx["requires_openapi_path"] = True
+        if req.get("speckit"):
+            ctx["speckit"] = speckit.context(req)
         self._add_story_scope(ctx)
         self._add_frontend_block(ctx)
         failed = [t for t in counted_trials if t["status"] == "failed"]
@@ -984,6 +1028,9 @@ def status_object(workspace, loop):
         return out
     out["config_drift"] = _config_drift(workspace, rs)
     plan = state.read_json(os.path.join(loop_dir, "state", "plan.json"))
+    block = ((rs.get("inputs") or {}).get("requirements") or {}).get("speckit")
+    if block:
+        out["speckit_feature"] = block.get("feature_dir")  # the folder used (002 FR-024)
     out.update(status=rs["status"], status_reason=rs.get("status_reason"),
                ui_url=rs.get("ui_url"), openapi_artifact=rs.get("openapi_artifact"),
                invocation_count=rs.get("invocation_count", 0))

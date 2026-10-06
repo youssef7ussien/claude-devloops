@@ -30,6 +30,14 @@ def _positive_int(text):
     return value
 
 
+def _add_requirements_options(cmd, text):
+    req = cmd.add_mutually_exclusive_group()
+    req.add_argument("--requirements", help=text)
+    req.add_argument("--speckit-feature", nargs="?", const="active", metavar="DIR",
+                     help="a spec-kit feature folder as the requirements (no value: the active "
+                          "feature in .specify/feature.json)")
+
+
 def _add_story_options(cmd):
     story = cmd.add_mutually_exclusive_group()
     story.add_argument("--story-id", help="implement only this story of --requirements (a PRD)")
@@ -52,7 +60,7 @@ def build_parser():
 
     run = sub.add_parser("run", parents=[common], help="start or resume one loop")
     run.add_argument("loop", choices=LOOPS)
-    run.add_argument("--requirements", help="PRD or story Markdown file (required on the first run)")
+    _add_requirements_options(run, "PRD or story Markdown file (required on the first run)")
     _add_story_options(run)
     run.add_argument("--target", help="directory for this loop's application code (first run)")
     run.add_argument("--api-spec", help="OpenAPI JSON document (required for frontend-dev)")
@@ -61,7 +69,7 @@ def build_parser():
 
     orch = sub.add_parser("orchestrate", parents=[common],
                           help="run backend-dev, then frontend-dev, in one workspace")
-    orch.add_argument("--requirements", help="PRD or story Markdown file, passed to both loops")
+    _add_requirements_options(orch, "PRD or story Markdown file, passed to both loops")
     _add_story_options(orch)
     orch.add_argument("--target-root",
                       help="default targets: <dir>/backend and <dir>/frontend (first run)")
@@ -228,6 +236,8 @@ def _print_status(obj, message=None):
             else f"planning trial {failure['trial']}"
         print(f"  last failure: {where}: {failure.get('reason')}: "
               f"{(failure.get('detail') or '')[:300]}")
+    if obj.get("speckit_feature"):
+        print(f"  spec-kit feature: {obj['speckit_feature']}")
     if obj.get("ui_url"):
         print(f"  UI URL: {obj['ui_url']}")
     if obj.get("openapi_artifact"):
@@ -294,29 +304,41 @@ def _write_full_dashboard(ws, trigger, env):
         return None
 
 
-def _project_defaults(project, ws, loop, requirements, story_id, story_file):
+def _speckit_flag(value):
+    """A `--speckit-feature` value: `active`, or a folder relative to the current directory."""
+    return value if value in (None, "active") else os.path.abspath(value)
+
+
+def _project_defaults(project, ws, loop, requirements, speckit_feature, story_id, story_file):
     """Fill `loop`'s target and requirements the command line left out (FR-011).
 
     What the workspace recorded comes first (a first start that stopped early still recorded
     it), then the project configuration. So a later edit of the configuration is drift, not a
-    mismatch (FR-015). Returns `(target, requirements, story_id, story_file)`; the spec-kit form
-    of the configured requirements is not a file (T050).
+    mismatch (FR-015). The requirements are a file or a spec-kit feature (002 FR-023). Returns
+    `(target, requirements, speckit_feature, story_id, story_file)`.
     """
+    if speckit_feature and story_file:
+        raise state.UsageError("--speckit-feature and --story-file are mutually exclusive "
+                               "(select a spec-kit story with --story-id US<n>)")
     target = ws.target(loop) or project.targets.get(loop)
-    if requirements:
-        return target, requirements, story_id, story_file
+    if requirements or speckit_feature:
+        return target, requirements, speckit_feature, story_id, story_file
     recorded = ws.data.get("requirements") or {}
     configured = project.requirements or {}
     no_story_flags = story_id is None and not story_file
     if recorded:
-        requirements = ws.requirements_path()
+        speckit_feature = ws.speckit_feature()
+        requirements = None if speckit_feature else ws.requirements_path()
         if no_story_flags:
             story_id, story_file = recorded.get("story_id"), recorded.get("mode") == "story-file"
     elif configured.get("path"):
         requirements = configured["path"]
         if no_story_flags:
             story_file = bool(configured.get("story_file"))
-    return target, requirements, story_id, story_file
+    elif configured.get("speckit_feature"):
+        value = configured["speckit_feature"]
+        speckit_feature = value if value == "active" else project.resolve(value)
+    return target, requirements, speckit_feature, story_id, story_file
 
 
 def _orchestrate(args, kit, project, env):
@@ -329,12 +351,14 @@ def _orchestrate(args, kit, project, env):
             (os.path.join(root, name) if root else None)
     ws = workspace.open_workspace(args.workspace, project, kit, create=True)
     requirements, story_id, story_file = args.requirements, args.story_id, args.story_file
+    feature = _speckit_flag(args.speckit_feature)
     for name, loop in (("backend", "backend-dev"), ("frontend", "frontend-dev")):
-        target, requirements, story_id, story_file = _project_defaults(
-            project, ws, loop, requirements, story_id, story_file)
+        target, requirements, feature, story_id, story_file = _project_defaults(
+            project, ws, loop, requirements, feature, story_id, story_file)
         targets[name] = targets[name] or target
     orch = orchestrator.Orchestrator(ws, orchestrator.OrchestrateOptions(
-        requirements=requirements, story_id=story_id, story_file=story_file,
+        requirements=requirements, speckit_feature=feature, story_id=story_id,
+        story_file=story_file,
         backend_target=targets["backend"], frontend_target=targets["frontend"],
         config_path=args.config, force_unlock=args.force_unlock), kit=kit, env=env)
     error = full = None
@@ -498,15 +522,17 @@ def main(argv=None, kit=None, project=None, env=None):
         ws = workspace.open_workspace(args.workspace, project, kit,
                                       create=args.command == "run")
         requirements = getattr(args, "requirements", None)
+        feature = _speckit_flag(getattr(args, "speckit_feature", None))
         story_id = getattr(args, "story_id", None)
         story_file = getattr(args, "story_file", False)
         target = getattr(args, "target", None)
         if args.command == "run":
-            default_target, requirements, story_id, story_file = _project_defaults(
-                project, ws, args.loop, requirements, story_id, story_file)
+            default_target, requirements, feature, story_id, story_file = _project_defaults(
+                project, ws, args.loop, requirements, feature, story_id, story_file)
             target = target or default_target
         options = engine.Options(
             requirements=requirements,
+            speckit_feature=feature,
             story_id=story_id,
             story_file=story_file,
             target=target,

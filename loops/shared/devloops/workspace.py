@@ -104,6 +104,19 @@ class Workspace:
         path = (self.data.get("requirements") or {}).get("path")
         return self.project.resolve(path) if path else None
 
+    def speckit_feature(self):
+        """The recorded spec-kit feature folder as an absolute path, or None (002 FR-023)."""
+        block = (self.data.get("requirements") or {}).get("speckit") or {}
+        return self.project.resolve(block["feature_dir"]) if block.get("feature_dir") else None
+
+    def _stored_speckit(self, block):
+        """A spec-kit block with project-relative paths, as `workspace.json` stores it."""
+        def rel(item):
+            return dict(item, path=self.project.relative_or_absolute(item["path"])) \
+                if item else None
+        return {"feature_dir": self.project.relative_or_absolute(block["feature_dir"]),
+                "plan_md": rel(block.get("plan_md")), "tasks_md": rel(block.get("tasks_md"))}
+
     def attach_requirements(self, requirements):
         """Record the requirements identity on first use; afterwards it must match (FR-051).
 
@@ -112,11 +125,26 @@ class Workspace:
         `input-changed`.
         """
         recorded = self.data.get("requirements")
+        block = requirements.get("speckit")
         if not recorded:
             self.data["requirements"] = dict(
                 requirements, path=self.project.relative_or_absolute(requirements["path"]))
+            if block:
+                self.data["requirements"]["speckit"] = self._stored_speckit(block)
             self.save()
             return
+        recorded_block = recorded.get("speckit")
+        recorded_feature = self.speckit_feature()
+        given_feature = os.path.realpath(block["feature_dir"]) if block else None
+        if (recorded_feature and os.path.realpath(recorded_feature)) != given_feature:
+            raise input_error(
+                "workspace-mismatch",
+                f"workspace {self.name!r} was created for "
+                + (f"spec-kit feature {recorded_feature}" if recorded_feature
+                   else "a requirements file")
+                + ", not " + (f"spec-kit feature {block['feature_dir']}" if block
+                              else f"requirements {requirements.get('path')}")
+                + "; use a new workspace")
         if (recorded.get("mode"), recorded.get("story_id")) != \
                 (requirements.get("mode"), requirements.get("story_id")):
             raise input_error(
@@ -130,6 +158,16 @@ class Workspace:
                 f"requirements {requirements.get('path')} differ from the ones workspace "
                 f"{self.name!r} was created with (sha256 {recorded.get('sha256')})",
                 input="requirements")
+        for name, key in (("plan", "plan_md"), ("tasks", "tasks_md")):
+            # A file absent then and present now is a change too, as in the run's own check.
+            was = ((recorded_block or {}).get(key) or {}).get("sha256")
+            now = ((block or {}).get(key) or {}).get("sha256")
+            if was != now:
+                raise input_error(
+                    "input-changed",
+                    f"the spec-kit {key.replace('_', '.')} of {block['feature_dir']} differs from "
+                    f"the one workspace {self.name!r} was created with (sha256 {was or 'absent'}, "
+                    f"now {now or 'missing'})", input=name)
 
     def set_target(self, loop, path):
         """Record `loop`'s target directory (FR-035a–d); stop with an input error if unusable."""

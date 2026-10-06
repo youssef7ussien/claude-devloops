@@ -28,6 +28,27 @@ You have read-only tools. Do not write any file. Return a plan as structured out
   context and the milestone IDs it affects. The developer answers them before implementation.
 - **assumptions**: every assumption the plan relies on, stated explicitly, with its source.
 
+## Spec-kit feature
+
+If the Context block contains `speckit`, the requirements are a spec-kit feature: `spec.md` is the
+requirements file, `plan_md` (when present) is its technical plan, and `phases` is its `tasks.md`,
+already parsed. Follow `speckit.rule`. In particular:
+
+- **Stack**: a stack named in `plan.md` counts as named in the requirements (`source`:
+  `requirements`).
+- **Milestones**: follow the phases in order. Give each milestone the `speckit_phase` it
+  implements. Include only phases with tasks for this loop's target.
+- **Tasks**: list the spec-kit task IDs each planned task implements in its `speckit_tasks`.
+- **Left out**: list every in-scope spec-kit task you do not plan in `speckit_omitted`, with a
+  reason (for example "frontend task" for backend-dev, or "documentation only").
+- **Done marks**: a task marked done (`done: true`) is not proof that the code exists. Check the
+  code; plan the task unless it is really done, and then list it as omitted with that reason.
+- **Single story**: with `story_scope`, only that story's tasks are in scope, plus the setup or
+  foundational tasks it needs. Never reference a task labelled with another story.
+
+The driver checks this coverage. A plan that leaves an in-scope task neither planned nor omitted
+is rejected.
+
 ## Previous attempt
 
 If the Context block contains `previous_attempt`, your last plan was rejected. Fix every listed

@@ -158,6 +158,14 @@
                     "minLength": 1
                   },
                   "minItems": 1
+                },
+                "speckit_tasks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^T[0-9]{3,}$"
+                  },
+                  "description": "002 FR-023a: the spec-kit task IDs this task implements"
                 }
               }
             }
@@ -192,6 +200,15 @@
                 }
               }
             }
+          },
+          "speckit_phase": {
+            "type": [
+              "integer",
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+(\\.[0-9]+)*$",
+            "description": "002 FR-023a: the spec-kit phase this milestone implements (an integer, or \"3.1\" for a decimal phase); never decreases across milestones"
           }
         }
       }
@@ -249,6 +266,28 @@
           }
         }
       }
+    },
+    "speckit_omitted": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^T[0-9]{3,}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "002 FR-023b: in-scope spec-kit tasks this plan leaves out, each with a reason"
     }
   }
 }

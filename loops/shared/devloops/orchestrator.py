@@ -21,6 +21,7 @@ class OrchestrateOptions:
     """What `devloops orchestrate` passes. `None` means the flag was not given."""
 
     requirements: str = None
+    speckit_feature: str = None
     story_id: str = None
     story_file: bool = False
     backend_target: str = None
@@ -126,17 +127,20 @@ class Orchestrator:
         flags still win, and the engine checks them against the recorded ones.
         """
         recorded = self.ws.data.get("requirements") or {}
-        path = self.opts.requirements or self.ws.requirements_path()
+        path, feature = self.opts.requirements, self.opts.speckit_feature
+        if not path and not feature:
+            feature = self.ws.speckit_feature()
+            path = None if feature else self.ws.requirements_path()
         story_id, story_file = self.opts.story_id, self.opts.story_file
         if story_id is None and not story_file and recorded:
             story_id = recorded.get("story_id")
             story_file = recorded.get("mode") == "story-file"
-        return path, story_id, story_file
+        return path, feature, story_id, story_file
 
     def _loop_options(self, loop):
-        requirements, story_id, story_file = self._requirements_selection()
+        requirements, feature, story_id, story_file = self._requirements_selection()
         opts = engine.Options(
-            requirements=requirements, story_id=story_id,
+            requirements=requirements, speckit_feature=feature, story_id=story_id,
             story_file=story_file, config_path=self.opts.config_path,
             force_unlock=self.opts.force_unlock,
             target=self.ws.target(loop))
