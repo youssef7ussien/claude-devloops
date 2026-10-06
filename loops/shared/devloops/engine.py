@@ -119,6 +119,9 @@ class Engine:
         # Called after each recorded event, so a view (the lightweight dashboard) can follow the
         # run; it must never raise or change the run.
         self.on_progress = None
+        # `replan` always pauses at its new plan, even under questions: accept-suggested: the
+        # developer asked to see it.
+        self.review_plan = False
 
     # --- commands ----------------------------------------------------------------------------------
 
@@ -187,6 +190,7 @@ class Engine:
                 self._check_fingerprints()
                 self.rs["status"] = "planning"
                 self._save()
+                self.review_plan = True
                 return self._planning("replan")
             except StopRun as stop:
                 return self._stop(stop)
@@ -525,8 +529,9 @@ class Engine:
 
     def _auto_approve(self):
         """Under `questions: accept-suggested`, approve the stored plan with Claude's suggested
-        answers, unless a question has neither an answer nor a suggestion. True if it approved."""
-        if not self._accepts_suggested() or self._unanswerable():
+        answers, unless a question has neither an answer nor a suggestion, or this is the
+        `replan` command. True if it approved."""
+        if not self._accepts_suggested() or self.review_plan or self._unanswerable():
             return False
         accepted = self._approve("auto-approve", "automatically (questions: accept-suggested)")
         self._event("approved", "plan approved automatically (questions: accept-suggested)"

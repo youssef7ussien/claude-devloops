@@ -453,7 +453,8 @@ For unattended runs, set `"questions": "accept-suggested"` in the config, or pas
   with `needs-input` and counts, and the next trial (a `fix`) gets the answer. On the milestone's
   last trial no trial is left to use it, so the run stops with `needs-input` as under `ask`;
   `retry` then accepts the suggestions you leave unanswered;
-- a question without a suggested answer still pauses or stops the run as with `ask`.
+- a question without a suggested answer still pauses or stops the run as with `ask`;
+- `replan` still pauses at its new plan, so you can review it; the next `run` approves it.
 
 Every suggestion accepted this way is marked `accepted automatically` in `open-questions.md`, is
 recorded in `run.json` (`approval.accepted_suggestions`, `auto_answers`) and as an `approved` or

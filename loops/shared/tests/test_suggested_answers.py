@@ -150,6 +150,18 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
                          self.last_output)
         self.assertEqual(self.run_state()["approval"]["accepted_suggestions"], ["OQ1"])
 
+    def test_replan_pauses_even_under_accept_suggested(self):
+        self.scenario(steps(plan_with(("OQ1", "Port 8765."), ("OQ2", "")),
+                            replan={"structured_output": plan_with(("OQ1", "Port 8765."))}))
+        self.assertEqual(self.first_run("--accept-suggested"), 10, self.last_output)
+        self.assertEqual(self.cli("replan", "backend-dev"), 10, self.last_output)
+        rs = self.run_state()
+        self.assertEqual((rs["status"], rs["approval"]), ("awaiting-approval", None))
+        self.assertNotIn("implement", self.steps_called())
+        # The next `run` approves the reviewed plan by itself.
+        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.run_state()["approval"]["action"], "auto-approve")
+
     def test_accept_suggested_given_at_the_approval_pause(self):
         self.scenario(steps(plan_with(("OQ1", "Port 8765."))))
         self.assertEqual(self.first_run(), 10, self.last_output)
