@@ -5,7 +5,8 @@ import json
 import os
 import sys
 
-from . import __version__, dashboard, engine, fulldash, initcmd, orchestrator, state, workspace
+from . import (__version__, checkcmd, dashboard, engine, fulldash, initcmd, orchestrator, state,
+               workspace)
 from . import project as project_mod
 from .kit import Kit
 from .state import EXIT_USAGE, DevloopsError
@@ -95,6 +96,9 @@ def build_parser():
 
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
+
+    check = sub.add_parser("check", help="report whether this environment is ready for the loops")
+    check.add_argument("--json", action="store_true", help="print the result as JSON")
 
     init = sub.add_parser("init", help="set up a directory as a devloops project")
     init.add_argument("dir", nargs="?", default=".", help="the project root (default: .)")
@@ -403,15 +407,35 @@ def _init(args, kit):
     return result["exit_code"]
 
 
+def _check(args, kit, project, env):
+    """`devloops check` (contracts/cli.md): works outside a project; exit 0 or 30."""
+    if project is None:
+        try:
+            project = project_mod.find(os.getcwd(), env)
+        except state.UsageError:
+            if env.get("DEVLOOPS_PROJECT"):
+                raise  # an explicit project that is not one is an error, as for every command
+            project = None  # outside a project: the packaged defaults (FR-019)
+    if project is not None:
+        project.merged  # an invalid configuration is reported like everywhere else (exit 30)
+    result = checkcmd.run_checks(project, kit, env)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        checkcmd.print_result(result, sys.stdout)
+    return 0 if result["ready"] else state.EXIT_CODES["stopped-on-input-error"]
+
+
 def main(argv=None, kit=None, project=None, env=None):
     """Run one command. `kit`, `project`, and `env` are for tests; by default the kit this
     devloops runs from, the project found from the current directory (FR-008), and os.environ."""
     args = build_parser().parse_args(argv)
     env = os.environ if env is None else env
     kit = kit or Kit.resolve()
-    if args.command == "init":
+    if args.command in ("init", "check"):
         try:
-            return _init(args, kit)
+            return _init(args, kit) if args.command == "init" else \
+                _check(args, kit, project, env)
         except DevloopsError as e:
             print(f"devloops: {e.message}", file=sys.stderr)
             return e.exit_code

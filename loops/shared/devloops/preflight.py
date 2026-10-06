@@ -1,5 +1,6 @@
 """Required-tool checks before planning and on every start (FR-013b, research R-22)."""
 import os
+import re
 import shutil
 import subprocess
 
@@ -7,6 +8,14 @@ from .config import mcp_command
 from .state import input_error
 
 VERSION_TIMEOUT_SECONDS = 30
+# The oldest Claude Code the loops are known to work with (002 A-5, research P-14).
+MIN_CLAUDE_VERSION = (2, 1, 283)
+
+
+def parse_version(text):
+    """The first `X.Y.Z` in `text` as a tuple of ints, or None."""
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", text or "")
+    return tuple(int(part) for part in match.groups()) if match else None
 
 
 def claude_bin(env=None):

@@ -125,6 +125,10 @@ class McpCommandTest(unittest.TestCase):
                          ["npx", "@playwright/mcp@latest", "--headless", "--executable-path",
                           "/usr/bin/chromium"])
 
+    def test_a_home_relative_executable_path_is_expanded(self):
+        command = config.mcp_command(self.cfg(executable_path="~/chrome/chrome"))
+        self.assertEqual(command[-1], os.path.join(os.path.expanduser("~"), "chrome", "chrome"))
+
     def test_an_explicit_command_is_used_unchanged(self):
         explicit = ["my-mcp", "--port", "1"]
         self.assertEqual(config.mcp_command(self.cfg(mcp_command=explicit, headless=False,

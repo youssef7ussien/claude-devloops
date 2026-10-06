@@ -141,7 +141,8 @@ def mcp_command(config):
 
     An explicit `playwright.mcp_command` list is used exactly as written (every frozen 001
     configuration has one). Otherwise it is derived: `npx @playwright/mcp@latest`, plus
-    `--headless` unless `headless` is false, plus `--executable-path <p>` when one is set.
+    `--headless` unless `headless` is false, plus `--executable-path <p>` when one is set (a
+    leading `~` is expanded: the command runs without a shell).
     """
     playwright = config.get("playwright") or {}
     if playwright.get("mcp_command") is not None:
@@ -150,7 +151,7 @@ def mcp_command(config):
     if playwright.get("headless", True) is not False:
         command.append("--headless")
     if playwright.get("executable_path"):
-        command += ["--executable-path", playwright["executable_path"]]
+        command += ["--executable-path", os.path.expanduser(playwright["executable_path"])]
     return command
 
 

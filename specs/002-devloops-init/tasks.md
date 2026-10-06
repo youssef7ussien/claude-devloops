@@ -521,7 +521,7 @@ is needed is missing.
 **Independent Test**: With each tool hidden from `PATH` in turn (and a fake `claude` reporting an
 old version), `check` names the item and its fix, and exits 30 (SC-005).
 
-- [ ] T039 [P] [US3] Write `loops/shared/tests/test_check.py`. It builds a `PATH` of stub
+- [X] T039 [P] [US3] Write `loops/shared/tests/test_check.py`. It builds a `PATH` of stub
   executables in a temporary directory: `claude` printing `2.1.283 (Claude Code)`, `curl`, `npx`,
   `git`, and `google-chrome`. Cases:
   - **All present**: exit 0, every item `ready`.
@@ -536,7 +536,7 @@ old version), `check` names the item and its fix, and exits 30 (SC-005).
     `shared-visible-browser` warning.
   - **Outside a project**: `check` works and reports `project: null`.
   - **Output shape**: the `--json` shape matches contracts/cli.md.
-- [ ] T040 [US3] Implement `loops/shared/devloops/checkcmd.py` (research P-14):
+- [X] T040 [US3] Implement `loops/shared/devloops/checkcmd.py` (research P-14):
   - `run_checks(project_or_none, kit, env)` returns `{ready, project, items}`, with the items in
     the order of the research table.
   - The browser check:
@@ -546,7 +546,7 @@ old version), `check` names the item and its fix, and exits 30 (SC-005).
       `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
   - Add `MIN_CLAUDE_VERSION = (2, 1, 283)` and `parse_version(text)` to
     `loops/shared/devloops/preflight.py`.
-- [ ] T041 [US3] Add the `check [--json]` subcommand to `loops/shared/devloops/cli.py`:
+- [X] T041 [US3] Add the `check [--json]` subcommand to `loops/shared/devloops/cli.py`:
   - it uses the project when one is found, and does not require one;
   - the text output follows contracts/cli.md;
   - it exits 0 or 30.
