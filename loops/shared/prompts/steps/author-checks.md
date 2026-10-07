@@ -16,14 +16,20 @@ document (both in the Context block), never from a claim about what the implemen
   starts.
 - `request`: `method`, `path` (relative to the runtime's `base_url`, starting with `/`), optional
   `headers`, and an optional JSON `body` (sent as `application/json` unless `headers` says
-  otherwise). A `path` or a `body` string may reference a variable an earlier check in
-  this same list captured, as `${var}`.
+  otherwise).
 - `expect`: the required `status`, and optionally `body_contains` (substrings the raw response
   body must contain) and `json_equals` (a dotted JSON path in the response mapped to the exact
   value expected there, for example `"user.id"`). A numeric part indexes an array: `"0.name"` on
   a response that is an array, `"items.-1.id"` for the last item.
 - `capture` (optional): variables to pull out of this check's response for a later check to use,
   as `{var: "dotted.path"}`, with the same path rules.
+
+A later check uses a captured variable as `${var}`, in its request (`path`, `headers`, `body`) or
+its expectations (`json_equals` values, `body_contains` items). A string that is exactly
+`"${var}"` stands for the captured value with its JSON type, so `{"id": "${planId}"}` expects the
+number `1` when `planId` captured `1`, and a body `{"planId": "${planId}"}` sends the number;
+inside a longer string (`"/plans/${planId}"`) the value is spliced in as text. Never write a
+variable no earlier check captures.
 
 ## Chaining checks
 

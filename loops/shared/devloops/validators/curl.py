@@ -108,16 +108,26 @@ def _load_or_author_checks(ctx):
 
 # --- one curl check ------------------------------------------------------------------------------
 
-def _substitute(value, variables):
+def _as_text(value):
+    """A captured value as text: a string as itself, anything else as compact JSON (`true`,
+    `null`, `["a","b"]`)."""
+    return value if isinstance(value, str) else json.dumps(value, separators=(",", ":"))
+
+
+def _substitute(value, variables, typed=True):
+    """`value` with each captured `${var}` filled in. With `typed`, a string that is exactly one
+    `${var}` becomes the captured value itself, keeping its JSON type (`"${id}"` is `1` when `id`
+    captured `1`); otherwise, and inside a longer string, the value is spliced in as text. A
+    variable nothing captured is left as it is (`_missing_variables` reports it)."""
     if not isinstance(value, str):
         return value
+    whole = VAR_RE.fullmatch(value)
+    if typed and whole and whole.group(1) in variables:
+        return variables[whole.group(1)]
 
     def repl(match):
         name = match.group(1)
-        if name not in variables:
-            return match.group(0)
-        v = variables[name]
-        return v if isinstance(v, str) else json.dumps(v)
+        return _as_text(variables[name]) if name in variables else match.group(0)
     return VAR_RE.sub(repl, value)
 
 
@@ -131,9 +141,33 @@ def _substitute_json(value, variables):
     return value
 
 
-def _dotted_get(obj, path):
-    """The value at a dotted path, or None. A part steps into an object by key, or into an array
-    by index (`0.name` on a top-level array, `items.-1` for the last item)."""
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _strings(v)
+
+
+def _missing_variables(check, variables):
+    """The `${var}`s a check uses, in the places that are substituted, that no earlier check
+    captured."""
+    request, expect = check["request"], check["expect"]
+    places = [request.get("path"), request.get("headers"), request.get("body"),
+              expect.get("body_contains"), expect.get("json_equals")]
+    return sorted({name for text in _strings(places) for name in VAR_RE.findall(text)
+                   if name not in variables})
+
+
+_ABSENT = object()
+
+
+def _dotted_get(obj, path, default=None):
+    """The value at a dotted path, or `default`. A part steps into an object by key, or into an
+    array by index (`0.name` on a top-level array, `items.-1` for the last item)."""
     current = obj
     for part in path.split("."):
         if isinstance(current, dict) and part in current:
@@ -142,7 +176,7 @@ def _dotted_get(obj, path):
                 and -len(current) <= int(part) < len(current):
             current = current[int(part)]
         else:
-            return None
+            return default
     return current
 
 
@@ -170,10 +204,10 @@ def _run_check(check, base_url, variables, evidence_dir, redactor):
     """
     cid = check["id"]
     method = check["request"]["method"]
-    path = _substitute(check["request"]["path"], variables)
+    path = _substitute(check["request"]["path"], variables, typed=False)
     if not path.startswith("/"):
         path = "/" + path  # "relative to base_url" either way; never glue it onto the port
-    headers = {k: _substitute(v, variables)
+    headers = {k: _substitute(v, variables, typed=False)
               for k, v in (check["request"].get("headers") or {}).items()}
     body = _substitute_json(check["request"].get("body"), variables)
     if body is not None and not any(k.lower() == "content-type" for k in headers):
@@ -198,33 +232,54 @@ def _run_check(check, base_url, variables, evidence_dir, redactor):
         command_line += f" --data-binary {shlex.quote(json.dumps(body))}"
     argv += ["-D", headers_file, "-o", body_file, "-w", "%{http_code}"]
 
-    failures = []
-    try:
-        # `--max-time` is the real limit; this is a backstop in case curl itself hangs.
-        proc = subprocess.run(argv, capture_output=True, text=True,
-                              timeout=CHECK_TIMEOUT_SECONDS + 10)
-        status = int((proc.stdout or "").strip() or 0)
-        if proc.returncode != 0:
-            failures.append(f"curl exited {proc.returncode}: {(proc.stderr or '').strip()}")
-    except subprocess.TimeoutExpired:
-        status = 0
-        failures.append(f"curl did not finish within {CHECK_TIMEOUT_SECONDS + 10}s")
-    body_text = _read_text(body_file)
-    response_json = _try_json(body_text)
+    missing = _missing_variables(check, variables)
+    if missing:
+        # A variable an earlier check did not capture (usually because that check failed) would
+        # be sent as the literal `${var}`, with whatever side effects that has on the server; the
+        # request is not sent, and the failure points at its cause.
+        failures = [f"uses ${{{name}}}, which no earlier check captured (did the check that "
+                    f"should capture it fail?); not sent" for name in missing]
+        for path_ in (headers_file, body_file):
+            open(path_, "w", encoding="utf-8").close()
+        status, body_text, response_json = 0, "", None
+    else:
+        failures = []
+        try:
+            # `--max-time` is the real limit; this is a backstop in case curl itself hangs.
+            proc = subprocess.run(argv, capture_output=True, text=True,
+                                  timeout=CHECK_TIMEOUT_SECONDS + 10)
+            status = int((proc.stdout or "").strip() or 0)
+            if proc.returncode != 0:
+                failures.append(f"curl exited {proc.returncode}: {(proc.stderr or '').strip()}")
+        except subprocess.TimeoutExpired:
+            status = 0
+            failures.append(f"curl did not finish within {CHECK_TIMEOUT_SECONDS + 10}s")
+        body_text = _read_text(body_file)
+        response_json = _try_json(body_text)
 
-    expect = check["expect"]
-    if status != expect["status"]:
-        failures.append(f"expected status {expect['status']}, got {status}")
-    for token in expect.get("body_contains") or []:
-        if token not in body_text:
-            failures.append(f"body does not contain {token!r}")
-    for path_expr, expected in (expect.get("json_equals") or {}).items():
-        actual = _dotted_get(response_json, path_expr)
-        if actual != expected:
-            failures.append(f"{path_expr}: expected {expected!r}, got {actual!r}")
+        expect = _substitute_json(check["expect"], variables)
+        if status != expect["status"]:
+            failures.append(f"expected status {expect['status']}, got {status}")
+        for token in expect.get("body_contains") or []:
+            # A captured number, object or array: compact or with the usual spaces, as servers
+            # write either.
+            forms = [_as_text(token)] + ([] if isinstance(token, str) else [json.dumps(token)])
+            if not any(form in body_text for form in forms):
+                failures.append(f"body does not contain {forms[0]!r}")
+        for path_expr, expected in (expect.get("json_equals") or {}).items():
+            actual = _dotted_get(response_json, path_expr)
+            if actual != expected:
+                failures.append(f"{path_expr}: expected {expected!r}, got {actual!r}")
 
+    # Only a path that exists captures; a JSON `null` there is a captured value.
     for var, path_expr in (check.get("capture") or {}).items():
-        variables[var] = _dotted_get(response_json, path_expr)
+        value = _dotted_get(response_json, path_expr, _ABSENT)
+        if value is _ABSENT:
+            variables.pop(var, None)
+        else:
+            variables[var] = value
+    # Captured values now appear in the failure text, so it is redacted like the command line.
+    failures = [redactor.redact(f)[0] for f in failures]
 
     redacted_command, _ = redactor.redact(command_line)
     with open(os.path.join(evidence_dir, f"{cid}.command"), "w", encoding="utf-8") as f:

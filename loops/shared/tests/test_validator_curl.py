@@ -189,6 +189,63 @@ class CurlValidatorTest(unittest.TestCase):
         # Index 1 is out of range in a one-item array: a failure, not a crash.
         self.assertEqual(result["C5"]["failures"], ["1.name: expected 'Widget', got None"])
 
+    def test_captured_variables_are_substituted_into_expectations_with_their_type(self):
+        """M08: `json_equals: {"id": "${planId}"}` compared the literal text with the real id.
+        A value that is exactly `${var}` is the captured value itself (here the number 7), in a
+        request body as well as in an expectation; inside a longer string it is spliced in."""
+        checks = valid_checks()
+        checks["checks"][0]["request"]["body"] = {"name": "Widget", "rank": 7}
+        checks["checks"][0]["capture"] = {"item_id": "id", "rank": "rank"}
+        checks["checks"][1:3] = [
+            {"id": "C2", "criteria": ["M01-AC1"],
+             "request": {"method": "GET", "path": "/items/${item_id}"},
+             "expect": {"status": 200, "json_equals": {"id": "${item_id}", "rank": "${rank}"},
+                        "body_contains": ["${item_id}", "${rank}"]}},
+            {"id": "C3", "criteria": ["M01-AC1"],
+             "request": {"method": "POST", "path": "/items",
+                         "body": {"name": "Linked", "ref": "${rank}", "note": "after ${rank}"}},
+             "expect": {"status": 201, "json_equals": {"ref": "${rank}",
+                                                       "note": "after ${rank}"}}}]
+        self.scenario(checks)
+        ctx = self.ctx()
+        result = {c["check_id"]: c for c in curl.validate(ctx)["checks"]}
+        self.assertTrue(all(c["passed"] for c in result.values()), result)
+        with open(os.path.join(ctx.trial_dir, "evidence", "C3.body"), encoding="utf-8") as f:
+            linked = json.load(f)
+        self.assertEqual((linked["ref"], linked["note"]), (7, "after 7"))
+
+    def test_a_variable_no_check_captured_names_its_cause(self):
+        """When the capturing check fails (M08: create answered 400), later checks say so instead
+        of reporting `expected '${planId}'` or a puzzling 404 on `/items/${planId}`."""
+        checks = valid_checks()
+        checks["checks"][0]["capture"] = {"item_id": "missing.path"}
+        self.scenario(checks)
+        result = {c["check_id"]: c for c in curl.validate(self.ctx())["checks"]}
+        self.assertFalse(result["C2"]["passed"])
+        self.assertIn("uses ${item_id}, which no earlier check captured", result["C2"]["failures"][0])
+        self.assertEqual(result["C2"]["response"]["status"], 0)  # not sent with a literal ${..}
+        self.assertFalse(result["C3"]["passed"])
+        self.assertTrue(result["C4"]["passed"], result["C4"])
+
+    def test_a_captured_null_is_a_value_and_text_places_get_json_text(self):
+        """A path holding JSON `null` captures `null` (only a missing path captures nothing); a
+        path or header gets the value as JSON text (`true`, not Python's `True`)."""
+        checks = valid_checks()
+        checks["checks"][0]["request"]["body"] = {"name": "Widget", "gone": None, "on": True,
+                                                  "tags": ["a", "b"]}
+        checks["checks"][0]["capture"] = {"item_id": "id", "gone": "gone", "on": "on",
+                                          "tags": "tags"}
+        checks["checks"][1:3] = [
+            {"id": "C2", "criteria": ["M01-AC1"],
+             "request": {"method": "GET", "path": "/items/${item_id}",
+                         "headers": {"X-On": "${on}"}},
+             "expect": {"status": 200, "json_equals": {"gone": "${gone}", "on": "${on}"},
+                        "body_contains": ["${tags}"]}}]
+        self.scenario(checks)
+        result = {c["check_id"]: c for c in curl.validate(self.ctx())["checks"]}
+        self.assertTrue(result["C2"]["passed"], result["C2"])
+        self.assertIn("X-On: true", result["C2"]["command"])
+
     def test_dotted_get(self):
         doc = {"items": [{"id": 1}, {"id": 2}], "0": "key"}
         for path, expected in (("items.0.id", 1), ("items.-1.id", 2), ("items.2.id", None),

@@ -66,7 +66,7 @@
                 }
               },
               "body": {
-                "description": "JSON body; strings may contain ${var}"
+                "description": "JSON body; strings may contain ${var}, and a string that is exactly \"${var}\" is the captured value with its JSON type"
               }
             }
           },
@@ -84,11 +84,12 @@
                 "type": "array",
                 "items": {
                   "type": "string"
-                }
+                },
+                "description": "Substrings of the raw response body; may contain ${var}"
               },
               "json_equals": {
                 "type": "object",
-                "description": "Dotted JSON path -> expected value; a numeric part indexes an array (0.name, items.-1.id)"
+                "description": "Dotted JSON path -> expected value; a numeric part indexes an array (0.name, items.-1.id); string values may contain ${var}, and a value that is exactly \"${var}\" is the captured value with its JSON type"
               }
             }
           },

@@ -591,6 +591,17 @@ to raise a question if a requirement needs one. A path item that is only a `$ref
 it is. Claude is told never to delete an implemented endpoint from the document to get past
 validation.
 
+Checks chain through captured values: a check's `capture` (`{"planId": "id"}`) saves a value from
+its response, and a later check writes it as `${planId}` in its request (path, headers, body) or
+its expectations (`json_equals` values, `body_contains` items). A string that is exactly
+`"${planId}"` stands for the captured value with its JSON type, so `{"id": "${planId}"}` expects
+the number `1` when the create answered `"id": 1`; inside a longer string (`/plans/${planId}`) it
+is spliced in as text (paths and headers always get text: `true`, not `True`). A path that exists
+captures its value, even `null`; a path that is missing captures nothing. When the check that
+should capture a value fails (a create answering 400), every later check using it fails with
+`uses ${planId}, which no earlier check captured` and is not sent, so fix the first failing check:
+the rest follow from it.
+
 ### Questions raised during a trial
 
 An `implement` or `fix` call that needs a decision the requirements do not make returns it as a
