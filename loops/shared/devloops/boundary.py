@@ -13,6 +13,8 @@ import os
 import shutil
 import subprocess
 
+from . import progress
+
 
 def _sha256(path):
     h = hashlib.sha256()
@@ -25,7 +27,7 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def _manifest(roots):
+def _manifest(roots, skip=()):
     manifest = {}
     for root in roots:
         if not os.path.isdir(root):
@@ -36,6 +38,8 @@ def _manifest(roots):
                 if name.endswith(".pyc"):
                     continue
                 path = os.path.join(dirpath, name)
+                if path in skip:
+                    continue
                 manifest[path] = "link:" + os.readlink(path) if os.path.islink(path) else _sha256(path)
     return manifest
 
@@ -84,9 +88,14 @@ def snapshot(kit, workspace_loop_dir, targets, project_root=None):
     by manifest, and every git repository holding the kit, the project, the loop, or a target by
     `git status`."""
     workspace_loop_dir = os.path.realpath(workspace_loop_dir)
+    # The driver's own progress log, appended to while the call runs: not fingerprinted (it only
+    # grows), and its git status change is the driver's, not the call's.
+    driver_writes = [progress.log_path(workspace_loop_dir)]
     snap = {
-        "manifest": _manifest([*kit.reserved, os.path.join(workspace_loop_dir, "state")]),
+        "manifest": _manifest([*kit.reserved, os.path.join(workspace_loop_dir, "state")],
+                              skip=set(driver_writes)),
         "git": {},
+        "driver_writes": driver_writes,
         "git_unavailable": shutil.which("git") is None,
     }
     if snap["git_unavailable"]:
@@ -116,7 +125,11 @@ def diff(before, after, allowed_roots, allowed_extra=()):
     extra_abs = [os.path.realpath(e) for e in allowed_extra if os.path.isabs(e)]
     extra_rel = [e for e in allowed_extra if e and not os.path.isabs(e)]
 
+    driver_writes = set(before.get("driver_writes", []))
+
     def allowed(path, repo_top=None):
+        if os.path.realpath(path) in driver_writes:
+            return True
         if any(_is_within(path, r) for r in roots + extra_abs):
             return True
         if repo_top and any(_is_within(path, os.path.join(repo_top, e)) for e in extra_rel):

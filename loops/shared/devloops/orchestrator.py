@@ -47,6 +47,7 @@ class Orchestrator:
         # decision, or one that meets another driver's lock, leaves state.json to its owner.
         self.deciding = False
         self.on_progress = None  # passed to each loop's engine (Engine.on_progress)
+        self.progress = None  # likewise (Engine.progress)
 
     def run(self, action=None):
         """Run or resume both loops in order; return the exit code of the loop that stopped, or 0.
@@ -143,6 +144,7 @@ class Orchestrator:
         try:
             eng = engine.Engine(loop, self.ws, options, kit=self.kit, env=self.env)
             eng.on_progress = self.on_progress
+            eng.progress = self.progress
             eng.resume_command = "devloops orchestrate"
             eng.tools_checked = loop in self.tools_checked  # by _check_tools, this command
             if fn:

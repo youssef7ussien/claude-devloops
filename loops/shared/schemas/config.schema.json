@@ -199,6 +199,20 @@
         }
       }
     },
+    "dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {
+        "full_on_stop": false
+      },
+      "properties": {
+        "full_on_stop": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also write a full dashboard when a command ends in completed or a stopped-* status; off by default: `devloops dashboard` writes one on demand"
+        }
+      }
+    },
     "git": {
       "type": "object",
       "additionalProperties": false,

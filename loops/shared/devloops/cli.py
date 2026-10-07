@@ -9,6 +9,8 @@ import sys
 
 from . import (__version__, checkcmd, dashboard, engine, fulldash, initcmd, orchestrator, prompts,
                render, state, workspace)
+from . import config as config_mod
+from . import progress as progress_mod
 from . import project as project_mod
 from .kit import Kit
 from .state import EXIT_USAGE, DevloopsError
@@ -70,6 +72,14 @@ def _add_decision_options(cmd):
     _add_questions_option(cmd)
 
 
+def _add_progress_options(cmd):
+    level = cmd.add_mutually_exclusive_group()
+    level.add_argument("--quiet", action="store_true",
+                       help="print no progress lines, only the final summary")
+    level.add_argument("--verbose", action="store_true",
+                       help="also print each tool Claude uses")
+
+
 def build_parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workspace",
@@ -91,6 +101,7 @@ def build_parser():
     run.add_argument("--api-spec", help="OpenAPI JSON document (required for frontend-dev)")
     run.add_argument("--max-trials", type=_positive_int, help="override max_trials")
     _add_questions_option(run)
+    _add_progress_options(run)
     run.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     orch = sub.add_parser("orchestrate", parents=[common],
@@ -102,6 +113,7 @@ def build_parser():
     orch.add_argument("--backend-target", help="backend-dev's target (overrides --target-root)")
     orch.add_argument("--frontend-target", help="frontend-dev's target (overrides --target-root)")
     _add_questions_option(orch)
+    _add_progress_options(orch)
     orch.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     for name, text in (("approve", "accept the stored plan and the answers, then continue"),
@@ -109,6 +121,7 @@ def build_parser():
         cmd = sub.add_parser(name, parents=[common], help=text)
         cmd.add_argument("loop", choices=LOOPS)
         _add_decision_options(cmd)
+        _add_progress_options(cmd)
         cmd.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     retry = sub.add_parser("retry", parents=[common],
@@ -120,6 +133,7 @@ def build_parser():
     retry.add_argument("--trials", type=_positive_int,
                        help="trials to grant (default: max_trials)")
     _add_decision_options(retry)
+    _add_progress_options(retry)
     retry.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     export = sub.add_parser("export-sessions", parents=[common],
@@ -308,9 +322,36 @@ def _emit(args, ws, loop, message, code, full=None):
         _dump(args, obj)
     else:
         _print_status(obj, message)
-        if obj["dashboard"]:
-            print(f"dashboard: {obj['dashboard']}")
+        _print_dashboards(args, obj["dashboard"], full)
+
+
+def _print_dashboards(args, path, full):
+    """Where to look next: the light dashboard, and the full one (written, or how to write it)."""
+    if path:
+        print(f"dashboard: {path}")
+    if full:
         _print_full(full)
+    else:
+        print(f"full dashboard (files and conversations): devloops dashboard"
+              f"{getattr(args, 'workspace_flag', '')}")
+
+
+def _start_hint(progress, args, ws, loops):
+    """Before a command runs loops: where to look while it works."""
+    progress.note(f"dashboard: {os.path.join(ws.path, dashboard.FILENAME)}")
+    progress.note(f"full dashboard (files and conversations): devloops dashboard"
+                  f"{getattr(args, 'workspace_flag', '')}")
+    for loop in loops:
+        progress.note(f"log{f' ({loop})' if len(loops) > 1 else ''}: "
+                      f"{progress_mod.log_path(ws.loop_dir(loop))}")
+
+
+def _full_on_stop(ws, project, kit):
+    """Whether to write a full dashboard at a final status (`dashboard.full_on_stop`, off by
+    default: `devloops dashboard` writes one on demand). A view preference, so it is read from the
+    configuration files as they are now (config.LIVE_KEYS), not from the run's frozen copy."""
+    return bool(config_mod.live_value(project, ws.config_path(), "dashboard.full_on_stop",
+                                      kit.path("shared", "config", "defaults.json")))
 
 
 def _print_full(full, largest=False):
@@ -425,6 +466,8 @@ def _orchestrate(args, kit, project, env, action=None):
         config_path=args.config, force_unlock=args.force_unlock,
         questions=_questions_override(args)), kit=kit, env=env)
     orch.on_progress = _follow(ws)
+    orch.progress = progress_mod.from_args(args, env)
+    _start_hint(orch.progress, args, ws, orchestrator.LOOP_ORDER)
     error = full = None
     before = _event_marks(ws, orchestrator.LOOP_ORDER)
     try:
@@ -437,7 +480,8 @@ def _orchestrate(args, kit, project, env, action=None):
         # final status: a loop skipped because an earlier run completed it does not count (FR-039).
         last = orch.last_run
         if last and _ends_final(error, engine.status_object(ws, last)["status"]) \
-                and _event_marks(ws, orchestrator.LOOP_ORDER) != before:
+                and _event_marks(ws, orchestrator.LOOP_ORDER) != before \
+                and _full_on_stop(ws, project, kit):
             full = _write_full_dashboard(ws, "orchestrate", env)
         _write_dashboard(ws, announce=False)
     loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
@@ -455,9 +499,7 @@ def _orchestrate(args, kit, project, env, action=None):
         print(f"orchestrator: {orch.state['status']}")
         for obj in loops.values():
             _print_status(obj)
-        if _dashboard_path(ws):
-            print(f"dashboard: {_dashboard_path(ws)}")
-        _print_full(full)
+        _print_dashboards(args, _dashboard_path(ws), full)
     if code == state.EXIT_CODES["awaiting-approval"] and orch.last_run and _interactive(args):
         return _review(args, kit, project, env, ws, orch.last_run)
     return code
@@ -535,7 +577,9 @@ def _review(args, kit, project, env, ws, loop):
     decided = argparse.Namespace(
         command="approve" if choice == "a" else "replan", loop=loop, workspace=args.workspace,
         config=args.config, json=args.json, force_unlock=args.force_unlock, no_continue=False,
-        review_plan=False, accept_suggested=False, warnings=getattr(args, "warnings", []))
+        review_plan=False, accept_suggested=False, warnings=getattr(args, "warnings", []),
+        quiet=getattr(args, "quiet", False), verbose=getattr(args, "verbose", False),
+        workspace_flag=getattr(args, "workspace_flag", ""))
     return _loop_command(decided, kit, project, env)
 
 
@@ -589,6 +633,8 @@ def _loop_command(args, kit, project, env):
         return _orchestrate(args, kit, project, env, action=(args.loop, decide))
     eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
     eng.on_progress = _follow(ws)
+    eng.progress = progress_mod.from_args(args, env)
+    _start_hint(eng.progress, args, ws, [args.loop])
     if _orchestrated(ws):
         eng.resume_command = "devloops orchestrate"
     error = full = None
@@ -600,7 +646,8 @@ def _loop_command(args, kit, project, env):
         raise
     finally:
         if _ends_final(error, engine.status_object(ws, args.loop)["status"]) \
-                and _event_marks(ws, [args.loop]) != before:
+                and _event_marks(ws, [args.loop]) != before \
+                and _full_on_stop(ws, project, kit):
             full = _write_full_dashboard(ws, f"{args.command} {args.loop}", env)
         _write_dashboard(ws, announce=False)
     if args.command != "run" and _orchestrated(ws):
@@ -739,6 +786,9 @@ def main(argv=None, kit=None, project=None, env=None):
         for warning in args.warnings if not args.json else ():
             print(f"devloops: warning: {warning}", file=sys.stderr)
         args.workspace = args.workspace or project.default_workspace
+        # What the hints add so a printed command reaches this workspace too.
+        args.workspace_flag = ("" if args.workspace == project.default_workspace
+                               else f" --workspace {shlex.quote(args.workspace)}")
 
         if args.command == "status":
             ws = workspace.open_workspace(args.workspace, project, kit, create=False)

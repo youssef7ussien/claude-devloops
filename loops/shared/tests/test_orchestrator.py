@@ -223,7 +223,8 @@ class OrchestratorTest(unittest.TestCase):
 
         def count():
             return len(os.listdir(directory)) if os.path.isdir(directory) else 0
-        self.assertEqual(self.orchestrate(), 10, self.last_output)
+        config = self.t.write_file("config.json", json.dumps({"dashboard": {"full_on_stop": True}}))
+        self.assertEqual(self.orchestrate("--config", config), 10, self.last_output)
         self.approve("backend-dev")
         self.assertEqual(self.orchestrate(), 10, self.last_output)
         self.assertEqual(count(), 0)  # the backend completed, but the frontend paused (FR-039)
@@ -231,6 +232,9 @@ class OrchestratorTest(unittest.TestCase):
         self.assertEqual(self.orchestrate(), 0, self.last_output)
         self.assertEqual(count(), 1)
         self.assertIn("full dashboard: ", self.last_output)
+        for loop in ("backend-dev", "frontend-dev"):  # each loop's own log, a real path
+            self.assertIn(f"log ({loop}): {os.path.join(self.t.workspace_dir, loop)}",
+                          self.last_output)
         self.assertEqual(self.orchestrate(), 0, self.last_output)
         self.assertEqual(count(), 1)  # nothing ran: no new full dashboard
 

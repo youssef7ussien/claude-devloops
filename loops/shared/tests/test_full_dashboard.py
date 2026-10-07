@@ -26,10 +26,12 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.configure()
         self.dash_dir = os.path.join(self.t.root, ".devloops", "dashboards", WS)
 
-    def configure(self, **extra):
-        self.t.make_project(self.t.root, dict({"workspaces_dir": "workspaces",
-                                               "config": {"secrets": {"literals": [SECRET]}}},
-                                              **extra))
+    def configure(self, full_on_stop=True, **extra):
+        # Most of these tests are about the dashboards written at a final status, which
+        # `dashboard.full_on_stop` turns on (by default only `devloops dashboard` writes one).
+        self.t.make_project(self.t.root, dict({"workspaces_dir": "workspaces", "config": {
+            "secrets": {"literals": [SECRET]}, "dashboard": {"full_on_stop": full_on_stop}}},
+            **extra))
 
     def dashboards(self):
         try:
@@ -70,6 +72,27 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.cli("run", "backend-dev")
         self.assertNotIn("full dashboard:", self.last_output)
         self.assertEqual(self.dashboards(), [name])
+
+    def test_by_default_only_the_dashboard_command_writes_one(self):
+        self.configure(full_on_stop=False)
+        self.approved("--max-trials", "1")
+        self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
+                         self.last_output)
+        self.assertEqual(self.dashboards(), [])
+        # The summary says how to get one instead.
+        self.assertIn("full dashboard (files and conversations): devloops dashboard --workspace "
+                      f"{WS}", self.last_output)
+        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
+        self.assertEqual(len(self.dashboards()), 1)
+
+    def test_full_on_stop_follows_the_project_files_as_they_are_now(self):
+        # A view preference: switched on after the run started, it applies at the next stop.
+        self.configure(full_on_stop=False)
+        self.approved("--max-trials", "1")
+        self.configure(full_on_stop=True)
+        self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
+                         self.last_output)
+        self.assertEqual(len(self.dashboards()), 1)
 
     def test_written_after_a_stop_on_failure(self):
         self.approved("--max-trials", "1")

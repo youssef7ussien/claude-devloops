@@ -173,6 +173,23 @@ def config_sources(project, workspace_config_path):
             "workspace": file_sha256(workspace_config_path) if workspace_config_path else None}
 
 
+# Settings read as they are when used, not frozen with the run: they only shape views, so a change
+# to them is not drift (`dashboard.full_on_stop`).
+LIVE_KEYS = ("dashboard",)
+
+
+def live_value(project, workspace_config_path, dotted, defaults_path=DEFAULTS_PATH):
+    """A `LIVE_KEYS` setting as a run starting now would get it, or None when a file is invalid."""
+    try:
+        value = load_effective(defaults_path, workspace_config_path, {},
+                               project.run_config_layers())
+    except state.DevloopsError:
+        return None
+    for part in dotted.split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+    return value
+
+
 def drift(run_state, project, workspace_config_path, defaults_path=DEFAULTS_PATH):
     """The dotted keys whose value would differ if the run started now (FR-015); nothing is
     applied. Keys the command line set are left out, and so is a run recorded before 002 (no
@@ -187,9 +204,9 @@ def drift(run_state, project, workspace_config_path, defaults_path=DEFAULTS_PATH
                              project.run_config_layers())
     except state.DevloopsError:
         return []  # an invalid file is reported when it is next read; status stays read-only
-    cli = set(run_state.get("config_cli_keys") or [])
+    skipped = set(run_state.get("config_cli_keys") or []) | set(LIVE_KEYS)
     return [k for k in _changed_keys(frozen, now)
-            if k not in cli and not any(k.startswith(c + ".") for c in cli)]
+            if k not in skipped and not any(k.startswith(c + ".") for c in skipped)]
 
 
 def backend_base_url(config):

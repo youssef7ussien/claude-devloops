@@ -39,11 +39,27 @@ Missing spec-kit inputs (both are input errors, exit 30):
 - a feature folder without `spec.md` stops the run with `missing-input`;
 - a `US<n>` with no matching heading stops it with `story-not-found` (FR-026).
 
-**Full dashboard after a final status**: when `run`, `approve`, `replan`, `retry`, or `orchestrate`
-ends in `completed`, `stopped-on-failure`, `stopped-on-input-error`, or `stopped-on-service-error`,
+**Full dashboard after a final status**: only when `dashboard.full_on_stop` is set (in the
+configuration files as they are when the command ends; it is not frozen and never drift), and `run`, `approve`, `replan`, `retry`, or `orchestrate` ends in
+`completed`, `stopped-on-failure`, `stopped-on-input-error`, or `stopped-on-service-error`,
 devloops writes a full dashboard (FR-039) and prints `full dashboard: <path> (<size>)`. `--json`
 adds `full_dashboard: {path, bytes}`. A write failure prints `devloops: warning: could not write
-the full dashboard: …` and leaves the exit code unchanged.
+the full dashboard: …` and leaves the exit code unchanged. Otherwise the summary ends with
+`full dashboard (files and conversations): devloops dashboard [--workspace <ws>]`.
+
+**Progress** (FR-039a): `run`, `orchestrate`, `approve`, `replan`, and `retry` take `--quiet` or
+`--verbose`. Before running they print the paths of `dashboard.html` and `state/run.log` and the
+`devloops dashboard` command; then, on stderr, one line per event and per Claude call:
+
+```
+HH:MM:SS <loop> [<milestone> #<trial>]  <message>
+```
+
+While a call runs, a terminal shows a status line redrawn in place (`<step> · <elapsed> · <n> tool
+call(s) · last: <tool>`); without a terminal, a `still <step> ...` line is printed every minute.
+`--verbose` adds a line per tool (`  Bash: pytest -q`, `  Edit app/models.py`); `--quiet`, and
+`--json` without `--verbose`, print none of this. Colors only in a terminal and without
+`NO_COLOR`. Every line, tools included, is appended to `<workspace>/<loop>/state/run.log`.
 
 ## `init [DIR]` (new)
 

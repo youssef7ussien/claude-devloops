@@ -12,11 +12,13 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 
+from . import progress as progress_mod
 from . import prompts, schema, state
 
 WRITE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"]
@@ -25,6 +27,7 @@ READ_ONLY_DISALLOWED = WRITE_TOOLS + ["Bash"]
 
 # Prompts larger than this go through stdin instead of argv (Linux caps one argument at 128 KiB).
 MAX_ARGV_PROMPT_BYTES = 100_000
+PIPE_DRAIN_SECONDS = 10  # after a call exits, how long its output may take to drain
 KILL_GRACE_SECONDS = 5
 
 _VR = schema.load("validation-result.schema.json")
@@ -76,8 +79,11 @@ STEPS = {
     "fix": {"schema": IMPLEMENT_RESULT_SCHEMA, "writes": True, "tools": None},
     "author-checks": {"schema": "checks.schema.json", "writes": False, "tools": READ_ONLY_TOOLS},
     "validate-ui": {"schema": VALIDATE_UI_SCHEMA, "writes": False,
-                    "tools": ["Read", "mcp__playwright__*"], "stream": True},
+                    "tools": ["Read", "mcp__playwright__*"], "keep_stream": True},
 }
+# Every call streams its events (`--output-format stream-json`), so a command can show what
+# Claude is doing while it works (progress.py); `keep_stream` also saves the stream in the trial
+# folder, as evidence of the browser session.
 
 # Service-failure classification (research R-19). Checked only when the process exited non-zero
 # without producing a result. Order matters: the first matching reason wins.
@@ -147,7 +153,7 @@ class ClaudeRunner:
     """
 
     def __init__(self, kit, loop, loop_dir, config, redactor, run_state, env=None,
-                 project_root=None):
+                 project_root=None, progress=None):
         self.kit = kit
         self.project_root = project_root  # its .devloops/prompts/ overrides the kit (002 FR-030)
         self.loop = loop
@@ -156,6 +162,7 @@ class ClaudeRunner:
         self.redactor = redactor
         self.run_state = run_state
         self.env = dict(os.environ if env is None else env)
+        self.progress = progress  # a progress.Progress, told about each call and its tools
 
     # --- paths -----------------------------------------------------------------------------------
 
@@ -216,15 +223,12 @@ class ClaudeRunner:
     def build_argv(self, step, prompt, session_id, settings_path, mcp_config_path=None,
                    add_dirs=(), model=None):
         spec = STEPS[step]
-        stream = spec.get("stream", False)
         tools = spec["tools"] if spec["tools"] is not None else list(self.config["implement_tools"])
         argv = [self.env.get("DEVLOOPS_CLAUDE_BIN") or "claude", "-p"]
         if prompt is not None:
             argv.append(prompt)
-        argv += ["--session-id", session_id,
-                 "--output-format", "stream-json" if stream else "json"]
-        if stream:
-            argv.append("--verbose")  # required by -p with stream-json
+        argv += ["--session-id", session_id, "--output-format", "stream-json",
+                 "--verbose"]  # required by -p with stream-json
         argv += ["--json-schema", json.dumps(self.cli_schema(step), separators=(",", ":")),
                  "--allowedTools", *tools]
         if spec["writes"]:
@@ -282,22 +286,39 @@ class ClaudeRunner:
 
         out = CallResult(record={})
         out.snapshot_before = snapshot() if snapshot else None
+        if self.progress:
+            self.progress.call_started(self.loop, step, milestone_id, trial, model,
+                                       progress_mod.log_path(self.loop_dir), target_dir)
         started_at, t0 = state.now_iso(), time.monotonic()
-        stdout, stderr, returncode, timed_out = self._run(argv, prompt if via_stdin else None,
-                                                          target_dir, env)
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        ended_at = state.now_iso()
-        out.snapshot_after = snapshot() if snapshot else None
+        try:
+            stdout, stderr, returncode, timed_out, exited = self._run(
+                argv, prompt if via_stdin else None, target_dir, env, self._on_stream_line)
+            elapsed_ms = int((exited - t0) * 1000)  # not counting the cleanup after it
+            ended_at = state.now_iso()
+            out.snapshot_after = snapshot() if snapshot else None
 
-        stream = STEPS[step].get("stream", False)
-        result, out.tool_uses = _parse_stream(stdout) if stream else (_parse_json(stdout), Counter())
-        out.mcp_servers = _mcp_servers(stdout) if stream else []
-        if stream and trial_dir:
-            os.makedirs(trial_dir, exist_ok=True)
-            with open(os.path.join(trial_dir, "stream.jsonl"), "w", encoding="utf-8") as f:
-                f.write(self.redactor.redact(stdout)[0])
-        out.result = result
-        self._classify(out, step, result, returncode, stderr, timed_out)
+            result, out.tool_uses = _parse_stream(stdout)
+            out.mcp_servers = _mcp_servers(stdout)
+            if STEPS[step].get("keep_stream") and trial_dir:
+                os.makedirs(trial_dir, exist_ok=True)
+                with open(os.path.join(trial_dir, "stream.jsonl"), "w", encoding="utf-8") as f:
+                    f.write(self.redactor.redact(stdout)[0])
+            out.result = result
+            self._classify(out, step, result, returncode, stderr, timed_out)
+        except BaseException as e:
+            # The call never got to its end: say why, so the status line stops too.
+            if self.progress:
+                self.progress.call_ended(step, time.monotonic() - t0, failure=(
+                    "interrupted" if isinstance(e, KeyboardInterrupt)
+                    else self.redactor.redact(f"{type(e).__name__}: {e}"[:300])[0]))
+            raise
+        if self.progress:
+            cost = (result or {}).get("total_cost_usd")
+            self.progress.call_ended(
+                step, elapsed_ms / 1000, cost if isinstance(cost, (int, float)) else None,
+                None if out.ok else self.redactor.redact(
+                    f"{out.failure_reason}: {out.failure_detail or ''}"[:300])[0],
+                sum(out.tool_uses.values()))
 
         record = self._record(seq, session_id, step, milestone_id, trial, prompt_path, started_at,
                               ended_at, elapsed_ms, result, timed_out, out.failure_class, model)
@@ -332,21 +353,79 @@ class ClaudeRunner:
             return {"conversation": "unavailable", "conversation_reason": "unreadable"}, False
         return {"conversation": "copied", "conversation_path": self._rel(path)}, redacted
 
-    def _run(self, argv, stdin_text, cwd, env):
+    def _on_stream_line(self, line):
+        """Tell the progress reporter about each tool Claude uses, as the stream arrives."""
+        if not self.progress or '"tool_use"' not in line:
+            return
+        try:
+            event = json.loads(line)
+        except ValueError:
+            return
+        # Redacted once decoded (a secret's JSON-escaped form may differ from the secret): the
+        # tool's input is printed and logged.
+        event, _ = self.redactor.redact_obj(event)
+        if not isinstance(event, dict) or event.get("type") != "assistant":
+            return
+        for block in (event.get("message") or {}).get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                self.progress.tool_use(block.get("name") or "?", block.get("input"))
+
+    def _run(self, argv, stdin_text, cwd, env, on_line=None):
+        """Run the call; return `(stdout, stderr, returncode, timed_out, exited)`, `exited` being
+        the `time.monotonic()` at which the call's process ended (before any cleanup).
+
+        stdout is read line by line as it arrives, each line passed to `on_line`, so progress can
+        follow the stream; stderr and stdin are served by their own threads so no pipe fills up.
+        """
         proc = subprocess.Popen(argv, cwd=cwd, env=env, text=True, start_new_session=True,
                                 stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        timeout = self.config["invocation_timeout_seconds"]
+        out_lines, err = [], []
+
+        def read_stdout():
+            for line in proc.stdout:
+                out_lines.append(line)
+                if on_line:
+                    try:
+                        on_line(line)
+                    except Exception:  # noqa: BLE001 - progress is a view; the call goes on
+                        pass
+
+        def read_stderr():
+            err.append(proc.stderr.read())
+
+        def write_stdin():
+            try:
+                proc.stdin.write(stdin_text)
+                proc.stdin.close()
+            except (OSError, ValueError):
+                pass  # the process exited without reading it all; its result says why
+
+        threads = [threading.Thread(target=read_stdout, daemon=True),
+                   threading.Thread(target=read_stderr, daemon=True)]
+        if stdin_text is not None:
+            threads.append(threading.Thread(target=write_stdin, daemon=True))
+        for t in threads:
+            t.start()
+        timed_out = False
         try:
-            stdout, stderr = proc.communicate(stdin_text, timeout=timeout)
-            return stdout, stderr, proc.returncode, False
+            proc.wait(timeout=self.config["invocation_timeout_seconds"])
+            exited = time.monotonic()
         except subprocess.TimeoutExpired:
-            _kill_group(proc)
-            stdout, stderr = proc.communicate()
-            return stdout or "", stderr or "", proc.returncode, True
+            exited, timed_out = time.monotonic(), True
         except BaseException:
-            _kill_group(proc)  # e.g. KeyboardInterrupt: never leave the call running
+            _stop_group(proc)  # e.g. KeyboardInterrupt: never leave the call running
+            _close_pipes(proc)
             raise
+        # The call has ended (or timed out): stop it and whatever it left running in its process
+        # group (a server started with `&`, a watcher), which would hold the port or the pipes.
+        _stop_group(proc)
+        for t in threads:
+            # A process that left the group and holds the pipes must not hold up the run.
+            t.join(timeout=PIPE_DRAIN_SECONDS)
+        if not any(t.is_alive() for t in threads):
+            _close_pipes(proc)
+        return "".join(out_lines), "".join(err), proc.returncode, timed_out, exited
 
     def _classify(self, out, step, result, returncode, stderr, timed_out):
         if timed_out:
@@ -474,19 +553,37 @@ def redact_transcript(text, redactor):
     return "\n".join(lines), changed
 
 
-def _kill_group(proc):
+def _stop_group(proc):
+    """Stop the process group of `proc` (the call and what it started): SIGTERM, up to
+    KILL_GRACE_SECONDS for it to go, then SIGKILL; `proc` itself is reaped."""
+    pgid = proc.pid
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
+        os.killpg(pgid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
-        return
+        proc.wait()
+        return  # nothing left of the group
+    deadline = time.monotonic() + KILL_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            try:
+                os.killpg(pgid, 0)
+            except (ProcessLookupError, PermissionError):
+                return  # the whole group is gone
+        time.sleep(0.05)
     try:
-        proc.wait(timeout=KILL_GRACE_SECONDS)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)  # also reaps children that ignored SIGTERM
+        os.killpg(pgid, signal.SIGKILL)  # also children that ignored SIGTERM
     except (ProcessLookupError, PermissionError):
         pass
+    proc.wait()
+
+
+def _close_pipes(proc):
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        try:
+            if stream:
+                stream.close()
+        except (OSError, ValueError):
+            pass
 
 
 def _int_or_none(value):
@@ -498,21 +595,6 @@ def _int_or_none(value):
 def _tail(text, limit=500):
     text = (text or "").strip()
     return text if len(text) <= limit else "..." + text[-limit:]
-
-
-def _parse_json(stdout):
-    """The `--output-format json` result object, or None."""
-    text = (stdout or "").strip()
-    if not text:
-        return None
-    for candidate in (text, text.splitlines()[-1]):
-        try:
-            obj = json.loads(candidate)
-        except ValueError:
-            continue
-        if isinstance(obj, dict):
-            return obj
-    return None
 
 
 def _mcp_servers(stdout):

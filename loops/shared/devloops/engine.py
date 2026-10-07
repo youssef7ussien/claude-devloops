@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from . import (boundary, config, inputs, preflight, prompts, render, schema, selector, speckit,
                state)
 from . import plan as plan_mod
+from . import progress as progress_mod
 from .claude import CallFailed, ClaudeRunner
 from .kit import Kit
 from .redact import Redactor
@@ -119,6 +120,9 @@ class Engine:
         # Called after each recorded event, so a view (the lightweight dashboard) can follow the
         # run; it must never raise or change the run.
         self.on_progress = None
+        # A progress.Progress the CLI passes: each event and Claude call is printed as it
+        # happens, and logged to state/run.log.
+        self.progress = None
         # `replan --no-continue` pauses at its new plan, even under questions: accept-suggested:
         # the developer asked to see it.
         self.review_plan = False
@@ -904,6 +908,9 @@ class Engine:
         mid = milestone["id"]
         ctx = self._adapter_context(milestone, trial["n"], trial_dir)
         adapter = self._adapter()
+        if self.progress:
+            self.progress.line(f"{self.loop} {mid} #{trial['n']}", "validating",
+                               progress_mod.log_path(self.loop_dir))
         result = adapter.validate(ctx)
         result["boundary"] = {"passed": True, "violations": []}  # the implement audit was clean
         result.setdefault("unit_tests", {"enabled": False})
@@ -1184,7 +1191,8 @@ class Engine:
 
     def _runner(self):
         return ClaudeRunner(self.kit, self.loop, self.loop_dir, self.config, self.redactor,
-                            self.rs, env=self.env, project_root=self.project.root)
+                            self.rs, env=self.env, project_root=self.project.root,
+                            progress=self.progress)
 
     def _snapshot(self):
         targets = [self.rs["target_dir"]] + [p for loop, p in self.ws.targets().items()
@@ -1220,6 +1228,9 @@ class Engine:
     def _event(self, type, message, milestone=None, trial=None):
         state.record_event(self.loop_dir, type, message, milestone=milestone, trial=trial,
                            redactor=self.redactor)
+        if self.progress:
+            self.progress.event(self.loop, type, self.redactor.redact(message)[0], milestone,
+                                trial, progress_mod.log_path(self.loop_dir))
         if self.on_progress:
             self.on_progress()
 

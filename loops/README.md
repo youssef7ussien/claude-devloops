@@ -235,10 +235,76 @@ version is newer, install that version.
 | `status [<loop>]` | Show the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the full dashboards. Read-only |
 | `orchestrate` | Run `backend-dev`, then `frontend-dev` ([orchestrator/README.md](orchestrator/README.md)) |
 | `export-sessions [--csv <file>]` | Write every Claude invocation as CSV (standard output by default) |
-| `dashboard [--light]` | Write a new full dashboard, then refresh the lightweight one; `--light` refreshes only the lightweight one (see [Dashboards](#dashboards)) |
+| `dashboard [--light]` | Write a new full dashboard (files and conversations), then refresh the lightweight one; `--light` refreshes only the lightweight one (see [Dashboards](#dashboards)). Other commands do not write full dashboards unless `dashboard.full_on_stop` is set |
 
 `approve`, `replan`, `retry`, `run`, and `orchestrate` also take `--force-unlock` (see
-[Recovery](#recovery)), and `--review-plan` or `--accept-suggested` (see `run` options).
+[Recovery](#recovery)), `--review-plan` or `--accept-suggested` (see `run` options), and
+`--quiet` or `--verbose` (see [Progress](#progress)).
+
+### Progress
+
+`run`, `orchestrate`, `approve`, `replan`, and `retry` report what they are doing as they do it, on
+stderr. First, where to look while the command works:
+
+```
+         dashboard: /repo/.devloops/workspaces/main/dashboard.html
+         full dashboard (files and conversations): devloops dashboard
+         log: /repo/.devloops/workspaces/main/backend-dev/state/run.log
+```
+
+Then one line per step: each recorded event (a trial starting, passing, or failing, a plan stored,
+an approval, a question, a stop) and each Claude call, with the model it runs on, and when it
+ends, its duration, cost, and number of tool calls. A line names the loop, then the milestone and
+trial (`M01 #2`) or the planning trial (`plan #1`):
+
+```
+12:04:01 backend-dev  first run
+12:04:01 backend-dev  requirements /repo/docs/prd.md (sha256 ..., mode prd), target /repo/backend
+12:04:01 backend-dev plan #1  planning trial 1 (plan)
+12:04:01 backend-dev plan #1  planning (opus)
+12:06:40 backend-dev plan #1  plan done (2m39s, $0.84, 23 tool call(s))
+12:06:40 backend-dev plan #1  plan stored: 5 milestone(s), 2 open question(s)
+12:06:40 backend-dev  ‖ awaiting approval
+12:06:40 backend-dev  ✓ plan approved automatically (questions: accept-suggested) ...
+12:06:41 backend-dev M01 #1  trial 1 (implement)
+12:06:41 backend-dev M01 #1  writing checks (opus)
+12:07:30 backend-dev M01 #1  author-checks done (49s, $0.31, 9 tool call(s))
+12:07:30 backend-dev M01 #1  implementing (sonnet)
+12:15:02 backend-dev M01 #1  implement done (7m32s, $1.20, 41 tool call(s))
+12:15:02 backend-dev M01 #1  task M01-T01: ...
+12:15:02 backend-dev M01 #1  validating
+12:15:09 backend-dev M01 #1  ✕ trial 1 failed: validation-failed: M01-AC1: failed (C4 failed: ...)
+12:15:10 backend-dev M01 #2  trial 2 (fix)
+...
+12:40:55 backend-dev  ■ all 5 milestone(s) achieved
+```
+
+While a Claude call runs (an `implement` call can take many minutes), a terminal shows a status
+line under the last line, redrawn in place:
+`⠼ backend-dev M03 #2  implementing · 6m12s · 41 tool call(s) · last: Edit app/routes.py`. When
+the output is not a terminal (piped, in CI, under `nohup`), a `still implementing · 6m12s · ...`
+line is printed every minute instead.
+
+| Option | Prints |
+|--------|--------|
+| (none) | The lines above, then the summary |
+| `--verbose` | Also one line per tool Claude uses: `  Bash: pytest -q`, `  Edit app/models.py` |
+| `--quiet` | Only the summary |
+| `--json` | Only the JSON object (as `--quiet`), unless `--verbose` is also given |
+
+Colors are used only in a terminal, and never when `NO_COLOR` is set. Secrets are redacted from
+every line, as everywhere.
+
+**The log**: every line, tools included and without colors, is also appended to the loop's
+`state/run.log`, whatever the option, with a `still ...` line every minute while a call runs. Follow a run started elsewhere (in the background, or by a
+Claude Code skill with `--json`) with:
+
+```bash
+tail -f .devloops/workspaces/main/backend-dev/state/run.log
+```
+
+The log is devloops' own file: a Claude call that runs while it is written is not charged with a
+write outside its target.
 
 ### `approve`, `replan`, and `retry`
 
@@ -457,8 +523,13 @@ tool call, and every tool result.
   summarized on one line and opened for their input, results, thinking, and system records shown
   or hidden), its prompt with the parts it was composed from, and its settings.
 
-- **When**: a new one is written when `run`, `approve`, `replan`, `retry`, or `orchestrate` ends in
-  `completed` or a `stopped-*` status, and by `devloops dashboard`. The command prints its path and
+- **When**: a new one is written by `devloops dashboard`, when you want one. Other commands end
+  their summary with that command instead of writing one. To have `run`, `approve`, `replan`,
+  `retry`, and `orchestrate` write one each time they end in `completed` or a `stopped-*` status,
+  as earlier versions did, set `dashboard.full_on_stop` to `true`. Unlike the other settings, it is
+  not frozen: it is read from the configuration files (`.devloops/devloops.json`,
+  `devloops.local.json`, and the workspace's config file) as they are when the command ends, so
+  it also applies to runs already started, and changing it is not reported as drift. The command prints its path and
   size; `dashboard` also lists the five largest embedded items. A file over 5 MB is listed but
   not embedded (the command names it); open it on disk.
 - **Where**: `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>.html` (UTC), `.devloops/dashboards/`
@@ -640,6 +711,9 @@ process, the call dies with exit 143, its result is lost, and the trial fails wi
   Killing by PID (`kill $(cat app.pid)`), checking it (`kill -0 $(cat app.pid)`,
   `ps -p $(cat app.pid)`), freeing a port (`fuser -k 8000/tcp`, `kill $(lsof -t -i:8000)`), and a
   mere mention (`grep -rn pkill .`) are allowed. The block message says how to do it instead;
+- when a call ends, whatever it left running in its process group (a server started with `&`, a
+  watcher) is stopped: `SIGTERM`, then `SIGKILL` after a few seconds. A process that detached
+  itself into another session (`setsid`, a daemon) is not in the group and is not stopped;
 - the driver starts the application itself for validation, from the plan's runtime, and stops it
   afterwards, whatever Claude left running.
 
@@ -713,6 +787,7 @@ to that run: `status` lists the keys that would now differ (`config_drift`). CLI
 | `playwright.headless` | true | false shows the browser while frontend-dev validates (see below) |
 | `playwright.executable_path` | null | The browser the Playwright MCP server starts; `~` is expanded |
 | `playwright.mcp_command` | null | The full command that starts the Playwright MCP server, used exactly as written. When null, it is `npx @playwright/mcp@latest`, plus `--headless` and `--executable-path` from the two keys above |
+| `dashboard.full_on_stop` | false | Also write a full dashboard each time a command ends in `completed` or a `stopped-*` status. Off: write one with `devloops dashboard` when you want it (see [Dashboards](#dashboards)). Not frozen: read from the configuration files when the command ends, and never drift |
 | `git.commit_per_milestone` | false | After each achieved milestone, commit the target's changes (only paths under the target) as `feat(<loop>): complete <id> <title>`. The outcome is a `git-commit` event; a failed commit does not fail the milestone |
 | `secrets.env` / `secrets.literals` | [] / [] | Values to redact (see below) |
 | `boundary.allowed_extra` | [] | Paths inside an audited git repository that tools may write to, such as a cache directory |

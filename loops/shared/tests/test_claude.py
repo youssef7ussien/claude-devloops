@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import time
@@ -5,7 +6,7 @@ import unittest
 
 import helpers
 import samples
-from devloops import claude, schema, state
+from devloops import claude, progress, schema, state
 from devloops.redact import Redactor
 
 IMPLEMENTED = {"tasks": [{"task_id": "M01-T01", "status": "implemented", "note": ""}],
@@ -94,7 +95,9 @@ class ClaudeRunnerTest(unittest.TestCase):
                 self.assertEqual(self.flag_values(argv, "--disallowedTools"),
                                  ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"])
                 self.assertNotIn("--permission-mode", argv)
-                self.assertEqual(self.flag_values(argv, "--output-format"), ["json"])
+                # Every call streams, so progress can follow it (progress.py).
+                self.assertEqual(self.flag_values(argv, "--output-format"), ["stream-json"])
+                self.assertIn("--verbose", argv)
                 self.assertEqual(self.t.fake_calls()[-1]["allowed_roots"], "")
 
     def test_json_schema_matches_the_step(self):
@@ -167,6 +170,60 @@ class ClaudeRunnerTest(unittest.TestCase):
         self.assertNotIn("--model", self.last_argv())
         self.assertIsNone(out.record["model"])
 
+    def test_what_a_call_leaves_running_is_stopped_with_it(self):
+        """A process the call started and left behind (a server started with `&`) holds the
+        output pipes; the call still ends promptly, and the process is stopped."""
+        pid_file = os.path.join(self.t.base, "left.pid")
+        started = time.monotonic()
+        out = self.call("implement", dict({"structured_output": IMPLEMENTED},
+                                          leave_running=pid_file))
+        self.assertTrue(out.ok, out.failure_detail)
+        self.assertLess(time.monotonic() - started, 30)
+        with open(pid_file) as f:
+            pid = int(f.read())
+        def alive():
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            with open(f"/proc/{pid}/stat") as f:  # a zombie waiting for its parent is gone
+                return f.read().split()[2] != "Z"
+        self.assertFalse(alive(), f"process {pid} still running")
+
+    def test_progress_hears_about_each_call_and_its_real_failure(self):
+        stream = io.StringIO()
+        self.t.write_scenario({"steps": {}})  # the runner copies the environment that names it
+        runner = self.runner()
+        runner.progress = progress.Progress("verbose", stream=stream, env={}, tty=False)
+        self.call("implement", dict({"structured_output": IMPLEMENTED}, tool_uses=[
+            {"name": "Bash", "input": {"command": "pytest -q"}}]), runner=runner)
+        text = stream.getvalue()
+        self.assertIn("implementing", text)
+        self.assertIn("  Bash: pytest -q", text)
+        self.assertIn("implement done", text)
+        runner.env["DEVLOOPS_CLAUDE_BIN"] = os.path.join(self.t.base, "no-such-claude")
+        with self.assertRaises(FileNotFoundError):
+            self.call("fix", {"structured_output": IMPLEMENTED}, runner=runner)
+        self.assertIn("fix failed: FileNotFoundError", stream.getvalue())
+        logged = open(os.path.join(self.loop_dir, "state", "run.log"), encoding="utf-8").read()
+        self.assertIn("  Bash: pytest -q", logged)
+
+    def test_tool_lines_are_redacted_after_decoding(self):
+        """A secret with a quote or a non-ASCII letter is escaped in the JSON stream, so it is
+        redacted once decoded, before it is printed or logged."""
+        secret = 'pa"ss-é-word'
+        stream = io.StringIO()
+        self.t.write_scenario({"steps": {}})
+        runner = self.runner(secrets={"env": [], "literals": [secret]})
+        runner.progress = progress.Progress("verbose", stream=stream, env={}, tty=False)
+        self.call("implement", dict({"structured_output": IMPLEMENTED}, tool_uses=[
+            {"name": "Bash", "input": {"command": f"curl -H 'Authorization: {secret}' x"}}]),
+            runner=runner)
+        logged = open(os.path.join(self.loop_dir, "state", "run.log"), encoding="utf-8").read()
+        for text in (stream.getvalue(), logged):
+            self.assertNotIn(secret, text)
+            self.assertIn("Authorization: ***", text)
+
     def test_add_dirs_are_passed_resolved_and_deduplicated(self):
         inputs_dir = os.path.join(self.t.base, "inputs")
         os.makedirs(inputs_dir)
@@ -177,7 +234,7 @@ class ClaudeRunnerTest(unittest.TestCase):
     def test_optional_flags_are_omitted_by_default(self):
         self.call("plan", {"structured_output": samples.plan()})
         argv = self.last_argv()
-        for flag in ("--model", "--max-budget-usd", "--mcp-config", "--verbose", "--add-dir"):
+        for flag in ("--model", "--max-budget-usd", "--mcp-config", "--add-dir"):
             self.assertNotIn(flag, argv)
 
     def test_validate_ui_streams_and_counts_tool_uses(self):

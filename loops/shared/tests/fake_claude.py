@@ -24,12 +24,15 @@ Answer fields (all optional):
                       "Bash" (default: written directly, which only the boundary audit can see) or
                       "Edit"/"Write"/"MultiEdit"/"NotebookEdit" (the PreToolUse hooks from
                       `--settings` run first; exit 2 blocks the write and records a denial)
-  tool_uses           tool names emitted as `tool_use` events (stream-json)
+  tool_uses           tools emitted as `tool_use` events (stream-json): a name, or
+                      `{name, input}`
   mcp_servers         `[{name, status}]` in the stream-json init event (default: [])
   api_error_status    number or null
   is_error            bool (default: false, or true when api_error_status is set)
   subtype             default "success", or "error_during_execution" when is_error
   sleep_seconds       sleep before answering (to exercise timeouts and interruption)
+  leave_running       a file path: start a `sleep 300` that inherits stdout and stderr (like a
+                      server started with `&`), write its PID there, and exit without it
   exit_code           process exit code (default: 1 when is_error, else 0)
   no_result           true: print nothing on stdout (a failure before any result)
   stderr              text written to stderr
@@ -246,11 +249,14 @@ def emit_stream(result, tool_uses, session_id, cwd, opts, mcp_servers=()):
          "model": one(opts, "--model") or "fake", "tools": [],
          "permissionMode": one(opts, "--permission-mode") or "default",
          "mcp_servers": list(mcp_servers)})
-    for name in tool_uses or []:
+    for tool in tool_uses or []:
+        name, tool_input = (tool["name"], tool.get("input", {})) if isinstance(tool, dict) \
+            else (tool, {})
         tool_use_id = "toolu_" + uuid.uuid4().hex[:24]
         out({"type": "assistant", "session_id": session_id, "message": {
             "role": "assistant",
-            "content": [{"type": "tool_use", "id": tool_use_id, "name": name, "input": {}}],
+            "content": [{"type": "tool_use", "id": tool_use_id, "name": name,
+                         "input": tool_input}],
         }})
         out({"type": "user", "session_id": session_id, "message": {
             "role": "user",
@@ -347,6 +353,10 @@ def main(argv):
 
     if answer.get("sleep_seconds"):
         time.sleep(answer["sleep_seconds"])
+    if answer.get("leave_running"):
+        child = subprocess.Popen(["sleep", "300"])  # same group, same pipes
+        with open(answer["leave_running"], "w") as f:
+            f.write(str(child.pid))
 
     settings = load_json_arg(one(opts, "--settings"))
     denials = apply_writes(answer.get("writes"), settings, session_id, cwd, permission_mode)
