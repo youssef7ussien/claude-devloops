@@ -161,6 +161,18 @@ class UpgradeTest(unittest.TestCase):
         self.assertEqual(self.read(".gitignore"), gitignore)
         self.assertEqual(gitignore.decode().count(initcmd.IGNORE_BEGIN), 1)
 
+    def test_a_project_without_models_is_told_how_to_add_them(self):
+        self.assertEqual(self.upgrade()[0], 0, self.output)
+        self.assertNotIn("set no model", self.upgrade()[1]["message"])  # init wrote them
+        config = json.loads(self.read(CONFIG))
+        config["config"] = {}
+        self.write(CONFIG, json.dumps(config))
+        code, result = self.upgrade()
+        self.assertEqual(code, 0, self.output)
+        self.assertIn("the project files set no model", result["message"])
+        self.assertIn('"model": "sonnet"', result["message"])
+        self.assertEqual(json.loads(self.read(CONFIG))["config"], {})  # only told, never changed
+
     def test_the_manifest_records_the_new_version(self):
         installed = self.manifest()
         self.assertEqual(installed["devloops_version"], "0.2.0")

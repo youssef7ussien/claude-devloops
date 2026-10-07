@@ -116,7 +116,7 @@ devloops run frontend-dev --api-spec .devloops/workspaces/main/backend-dev/outpu
 
 ### `devloops init`
 
-`init [DIR]` sets up `DIR` (default: the current folder) as a project. On a terminal it asks three
+`init [DIR]` sets up `DIR` (default: the current folder) as a project. On a terminal it asks four
 questions; press Enter to keep the default:
 
 - *Backend target* [`backend`] and *Frontend target* [`frontend`]: the folders each loop writes code
@@ -124,11 +124,17 @@ questions; press Enter to keep the default:
   root.
 - *Requirements*: a PRD or story file, a spec-kit feature folder, or `active` for the active
   spec-kit feature. The default is the active feature when `.specify/feature.json` names one.
+- *Recommended models* [`y`]: write the recommended model split into `devloops.json`: sonnet, with
+  opus to plan, write checks, and make a milestone's last fix trial (see
+  [Models per step](#models-per-step)). Answer `n`, or pass `--no-models`, to leave the choice to
+  Claude Code (your `/model` setting or its default), for example on Bedrock or Vertex where those
+  names may not exist.
 
 | Flag | Effect |
 |------|--------|
 | `--backend-target <dir>`, `--frontend-target <dir>` | The targets, without asking |
 | `--requirements <file>` / `--speckit-feature [DIR]` | The default requirements (`active` with no `DIR`) |
+| `--no-models` | Write no model choice (`"config": {}`); without it, the recommended models are written |
 | `--no-prompt` | Never ask (implied when stdin or stdout is not a terminal, and by `--json`) |
 | `--track-workspaces`, `--track-dashboards` | Leave that folder out of the `.gitignore` block |
 | `--allow-skills` | Pre-approve devloops for Claude Code (see [Claude Code skills](#claude-code-skills)) |
@@ -186,7 +192,10 @@ The project is found from the current folder upward; `DEVLOOPS_PROJECT=<dir>` na
   "dashboards_dir": ".devloops/dashboards",
   "targets": {"backend-dev": "backend", "frontend-dev": "frontend"},
   "requirements": {"speckit_feature": "active"},
-  "config": {}
+  "config": {
+    "model": "sonnet",
+    "models": {"plan": "opus", "replan": "opus", "author-checks": "opus", "fix_last_trial": "opus"}
+  }
 }
 ```
 
@@ -194,7 +203,7 @@ The project is found from the current folder upward; `DEVLOOPS_PROJECT=<dir>` na
   `<workspaces_dir>/<name>`.
 - `targets` and `requirements` (`{"path": "docs/prd.md"}` or `{"speckit_feature": "active" | "<dir>"}`):
   what `run` and `orchestrate` use when no flag is given.
-- `config`: run settings, with the keys of [Configuration](#configuration).
+- `config`: run settings, with the keys of [Configuration](#configuration). `init` writes the recommended models here ([Models per step](#models-per-step)); `--no-models` writes `{}`.
 
 Paths are relative to the project root. The workspace stores the targets and inputs relative to the
 project root too, so a moved or cloned project resumes where it was.
@@ -831,6 +840,11 @@ much less than one strong model everywhere, for little loss in quality:
 | `implement`, `fix` | sonnet (`model`) | Most of the tokens; the work is laid out by the plan and tested by the checks |
 | `fix_last_trial` | opus | A milestone's last allowed fix trial (by default trial 3; after a `retry` grant, the grant's last one, so each grant ends on it): a hard failure gets a stronger attempt before the run stops. With `max_trials: 1` there is no fix trial, so it is never used |
 | `validate-ui` | sonnet (`model`) | Mostly drives the browser and reports what it sees |
+
+`devloops init` writes exactly this into a new project's `.devloops/devloops.json` (unless you
+answer `n` or pass `--no-models`). A project set up earlier has no model configured, so every call
+uses Claude Code's default; `devloops init --upgrade` says so and shows the block to add, but
+never changes the file.
 
 A step not named in `models` (or set to null) uses `model`; with both unset, Claude Code picks
 its default. Any name `claude --model` accepts works: an alias (`opus`, `sonnet`) or a full model

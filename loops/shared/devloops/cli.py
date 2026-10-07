@@ -161,6 +161,9 @@ def build_parser():
                      help="default spec-kit feature folder (no value: the active feature)")
     init.add_argument("--no-prompt", action="store_true",
                       help="never ask (implied when stdin or stdout is not a terminal)")
+    init.add_argument("--no-models", action="store_true",
+                      help="write no model choice into devloops.json (default: opus to plan and "
+                           "write checks, sonnet to build); Claude Code then picks the model")
     init.add_argument("--track-workspaces", action="store_true",
                       help="do not git-ignore the workspaces folder")
     init.add_argument("--track-dashboards", action="store_true",
@@ -688,7 +691,8 @@ def _init(args, kit):
         backend_target=args.backend_target, frontend_target=args.frontend_target,
         requirements=args.requirements, speckit_feature=args.speckit_feature,
         no_prompt=args.no_prompt or args.json, track_workspaces=args.track_workspaces,
-        track_dashboards=args.track_dashboards, allow_skills=args.allow_skills)
+        track_dashboards=args.track_dashboards, allow_skills=args.allow_skills,
+        models=not args.no_models)
     root = os.path.abspath(args.dir)
     if args.restore and not args.upgrade:
         raise state.UsageError("--restore needs --upgrade")
@@ -697,7 +701,8 @@ def _init(args, kit):
             ("--backend-target", args.backend_target), ("--frontend-target", args.frontend_target),
             ("--requirements", args.requirements), ("--speckit-feature", args.speckit_feature),
             ("--track-workspaces", args.track_workspaces),
-            ("--track-dashboards", args.track_dashboards)) if value]
+            ("--track-dashboards", args.track_dashboards),
+            ("--no-models", args.no_models)) if value]
         if given:
             raise state.UsageError(f"--upgrade does not change the project configuration "
                                    f"({', '.join(given)}): edit .devloops/devloops.json instead")

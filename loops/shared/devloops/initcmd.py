@@ -9,6 +9,7 @@ A project counts as initialized once `.devloops/manifest.json` exists. A `devloo
 a manifest is kept as it is (it belongs to the developer, FR-028) and the rest is installed
 (research P-17).
 """
+import copy
 import hashlib
 import json
 import os
@@ -49,6 +50,7 @@ class InitOptions:
     track_workspaces: bool = False
     track_dashboards: bool = False
     allow_skills: bool = False
+    models: bool = True  # write RECOMMENDED_MODELS into devloops.json; `--no-models` turns it off
 
 
 def sha256_bytes(data):
@@ -139,7 +141,19 @@ def allow_skills(project_root, command):
     return {"path": SETTINGS_PATH, "rule": rule, "changed": True, "created": not existed}
 
 
-def default_project_config(targets, requirements):
+# The model split `init` writes into a new devloops.json (README "Models per step"): a strong
+# model where every later step is decided (the plan, the frozen checks, a milestone's last fix
+# trial), a cheaper one for the code. Written into the project, not shipped as a default, so it is
+# visible, editable, and never overrides the model of a setup that has no such names (Bedrock,
+# Vertex, a gateway): `init --no-models` leaves it out, and Claude Code picks the model.
+RECOMMENDED_MODELS = {
+    "model": "sonnet",
+    "models": {"plan": "opus", "replan": "opus", "author-checks": "opus",
+               "fix_last_trial": "opus"},
+}
+
+
+def default_project_config(targets, requirements, models=True):
     """The `devloops.json` that `init` writes. `targets` are already project-relative."""
     return {
         "schema_version": 1,
@@ -148,7 +162,7 @@ def default_project_config(targets, requirements):
         "dashboards_dir": project_mod.DEFAULT_DASHBOARDS_DIR,
         "targets": dict(targets),
         "requirements": requirements,
-        "config": {},
+        "config": copy.deepcopy(RECOMMENDED_MODELS) if models else {},
     }
 
 
@@ -203,7 +217,8 @@ def default_requirements(proj):
 
 
 def ask_missing(opts, project_root, kit, stdin, stdout):
-    """Ask for each value not given as a flag; return `(targets, requirements)` (research P-13).
+    """Ask for each value not given as a flag; return `(targets, requirements, models)` (research
+    P-13).
 
     Only on a terminal and without `--no-prompt`; otherwise return `None`. Answers are relative to
     the project root. An invalid answer is explained and asked again.
@@ -268,7 +283,18 @@ def ask_missing(opts, project_root, kit, stdin, stdout):
                 break
             except ValueError as e:
                 rejected(question, str(e))
-    return targets, requirements
+
+    models = opts.models
+    if models:  # `--no-models` already answered it
+        question = ("Recommended models (opus to plan and write checks, sonnet to build; "
+                    "y/n)")
+        while True:
+            answer = ask(question, "y").lower()
+            if answer in ("y", "yes", "n", "no"):
+                models = answer.startswith("y")
+                break
+            rejected(question, "answer y or n")
+    return targets, requirements, models
 
 
 def _flag_requirements(opts, proj):
@@ -363,8 +389,9 @@ def init(project_root, kit, opts, answers=None):
     if existing_config:
         config = proj.shared_config  # validated (FR-016); kept as it is
     else:
+        models = opts.models
         if answers is not None:
-            targets, requirements = answers
+            targets, requirements, models = answers
         else:
             targets = {loop: os.path.abspath(given) if given else proj.resolve(default)
                        for (loop, default), given in zip(DEFAULT_TARGETS.items(),
@@ -374,7 +401,7 @@ def init(project_root, kit, opts, answers=None):
         checked = check_targets(proj, kit, targets)
         config = default_project_config(
             {loop: proj.relative_or_absolute(p) if p else None for loop, p in checked.items()},
-            requirements)
+            requirements, models)
 
     files = installed_files(kit, proj.root)
     conflicts, adopted, to_write = [], [], {}
@@ -428,6 +455,10 @@ def init(project_root, kit, opts, answers=None):
     if not config.get("requirements"):
         notes.append(f"no requirements set: add \"requirements\" to {config_rel}, or pass "
                      "--requirements <file> or --speckit-feature [dir] to run/orchestrate")
+    if not existing_config and (config.get("config") or {}).get("models"):
+        notes.append(f"models: sonnet, with opus to plan, write checks, and make a milestone's "
+                     f"last fix trial (edit \"config\" in {config_rel}; init --no-models leaves "
+                     f"the choice to Claude Code)")
     if not os.path.isdir(os.path.join(proj.root, ".git")):
         notes.append("no git repository here; the ignore rules are in .gitignore anyway")
     extra = {}
@@ -579,10 +610,25 @@ def upgrade_result(proj, kit, upgraded):
     if upgraded["deleted"]:
         notes.append(f"{len(upgraded['deleted'])} deleted file(s) not restored (use --upgrade "
                      "--restore)")
+    if not _sets_a_model(proj):
+        notes.append(f"the project files set no model, so unless a workspace or --config file "
+                     f"does, every call uses Claude Code's default; to plan with opus and build "
+                     f"with sonnet, add to \"config\" in "
+                     f"{os.path.relpath(proj.config_path, proj.root)}: "
+                     f"{json.dumps(RECOMMENDED_MODELS, separators=(', ', ': '))}")
     return _result(proj, kit, created=upgraded["added"] + upgraded["restored"],
                    changed=upgraded["updated"], adopted=upgraded["adopted"],
                    kept=upgraded["kept"], deleted=upgraded["deleted"],
                    removed=upgraded["removed"], upgraded=True, message="; ".join(notes))
+
+
+def _sets_a_model(proj):
+    """Whether either project configuration file names a model (`model` or `models`)."""
+    try:
+        layers = proj.run_config_layers()
+    except Exception:  # noqa: BLE001 - an unreadable file is reported elsewhere
+        return True
+    return any(layer.get("model") or layer.get("models") for layer in layers)
 
 
 def _allowed_fields(allowed):

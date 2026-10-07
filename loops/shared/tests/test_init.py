@@ -87,6 +87,11 @@ class InitTest(unittest.TestCase):
         self.assertEqual(config["workspace"], "main")
         self.assertIsNone(config["requirements"])
         self.assertIn("no requirements set", result["message"])
+        # The recommended model split is written into the project, visible and editable.
+        self.assertEqual(config["config"], {
+            "model": "sonnet", "models": {"plan": "opus", "replan": "opus",
+                                          "author-checks": "opus", "fix_last_trial": "opus"}})
+        self.assertIn("models: sonnet, with opus to plan", result["message"])
 
         manifest = json.loads(self.read(".devloops/manifest.json"))
         self.assertEqual(sorted(manifest["files"]), INSTALLED)
@@ -97,6 +102,12 @@ class InitTest(unittest.TestCase):
         from devloops import schema
         self.assertEqual(schema.validate(manifest, "manifest.schema.json"), [])
         self.assertEqual(schema.validate(config, "project-config.schema.json"), [])
+
+    def test_no_models_leaves_the_choice_to_claude_code(self):
+        code, result = self.init_json("--no-models")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(json.loads(self.read(".devloops/devloops.json"))["config"], {})
+        self.assertNotIn("models:", result["message"])
 
     def test_skills_call_the_project_command(self):
         self.init_json()
@@ -269,16 +280,31 @@ class InteractiveInitTest(unittest.TestCase):
             return json.load(f)
 
     def test_accepting_the_defaults(self):
-        code, out = self.run_tty(["", "", ""])
+        code, out = self.run_tty(["", "", "", ""])
         self.assertEqual(code, 0, out)
         self.assertIn("Backend target [backend]", out)
         self.assertIn("Frontend target [frontend]", out)
+        self.assertIn("Recommended models (opus to plan and write checks, sonnet to build; "
+                      "y/n) [y]", out)
         self.assertEqual(self.config()["targets"],
                          {"backend-dev": "backend", "frontend-dev": "frontend"})
         self.assertIsNone(self.config()["requirements"])
+        self.assertEqual(self.config()["config"]["model"], "sonnet")
+
+    def test_declining_the_recommended_models(self):
+        code, out = self.run_tty(["", "", "", "maybe", "n"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("answer y or n", out)
+        self.assertEqual(self.config()["config"], {})
+
+    def test_no_models_is_not_asked_about(self):
+        code, out = self.run_tty(["", "", ""], "--no-models")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("Recommended models", out)
+        self.assertEqual(self.config()["config"], {})
 
     def test_an_invalid_backend_answer_is_asked_again(self):
-        code, out = self.run_tty([".devloops/x", "api", "", ""])
+        code, out = self.run_tty([".devloops/x", "api", "", "", ""])
         self.assertEqual(code, 0, out)
         self.assertEqual(out.count("Backend target [backend]"), 2, out)
         self.assertIn("overlaps", out)
@@ -291,7 +317,7 @@ class InteractiveInitTest(unittest.TestCase):
         os.makedirs(os.path.join(self.dir, ".specify"))
         with open(os.path.join(self.dir, ".specify", "feature.json"), "w") as f:
             json.dump({"feature_directory": "specs/001-x"}, f)
-        code, out = self.run_tty(["", "", ""])
+        code, out = self.run_tty(["", "", "", ""])
         self.assertEqual(code, 0, out)
         self.assertIn("active spec-kit feature (specs/001-x)", out)
         self.assertEqual(self.config()["requirements"], {"speckit_feature": "active"})
@@ -299,7 +325,7 @@ class InteractiveInitTest(unittest.TestCase):
     def test_a_missing_requirements_file_is_asked_again(self):
         with open(os.path.join(self.dir, "prd.md"), "w") as f:
             f.write("# PRD\n")
-        code, out = self.run_tty(["", "", "nope.md", "prd.md"])
+        code, out = self.run_tty(["", "", "nope.md", "prd.md", ""])
         self.assertEqual(code, 0, out)
         self.assertIn("does not exist", out)
         self.assertEqual(self.config()["requirements"], {"path": "prd.md"})

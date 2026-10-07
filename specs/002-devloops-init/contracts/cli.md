@@ -72,6 +72,7 @@ files are listed in [project-layout.md](./project-layout.md).
 | `--requirements <file>` | Written as `requirements.path` |
 | `--speckit-feature [DIR]` | Written as `requirements.speckit_feature` (`active` with no value) |
 | `--no-prompt` | Never ask questions. Implied when stdin or stdout is not a terminal |
+| `--no-models` | Write `config: {}`, with no model choice (FR-007c) |
 | `--track-workspaces` | Do not add the workspaces ignore rule |
 | `--track-dashboards` | Do not add the full-dashboards ignore rule |
 | `--allow-skills` | Add the skills' permission rule to `.claude/settings.json` (also on an initialized project; FR-022b) |
@@ -83,6 +84,8 @@ files are listed in [project-layout.md](./project-layout.md).
 - *Backend target* [`backend`]
 - *Frontend target* [`frontend`]
 - *Requirements* [`active spec-kit feature (<dir>)` or blank]
+- *Recommended models (opus to plan and write checks, sonnet to build; y/n)* [`y`], unless
+  `--no-models` (FR-007c)
 
 An invalid answer is explained and the question is asked again.
 
@@ -94,7 +97,7 @@ An invalid answer is explained and the question is asked again.
 | Already initialized, no `--upgrade` / `--allow-skills` | 0 | `already initialized (devloops <v>); use "devloops init --upgrade" to update`. Nothing is written |
 | Conflicting existing files | 30 (`init-conflict`) | Every conflicting path. Nothing is written |
 | Invalid flag value (target overlaps `.devloops/`, the kit, or the other target) | 30 (`target-unwritable`) | The reason. Nothing is written |
-| `--upgrade` | 0 | The files updated, kept (with the `.devloops-new` path), reported as deleted, added, and removed |
+| `--upgrade` | 0 | The files updated, kept (with the `.devloops-new` path), reported as deleted, added, and removed; when neither configuration file sets `model` or `models`, a note with the recommended block to add (nothing is written) |
 | `--upgrade` with a newer manifest version | 30 (`downgrade-refused`) | Both versions. Nothing is written |
 | `--allow-skills` with unreadable settings | 30 (`settings-unreadable`) | The problem and the rule to add by hand. The settings file is untouched |
 

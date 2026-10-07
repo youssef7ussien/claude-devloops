@@ -405,6 +405,13 @@ override file and its fingerprint.
 - **FR-007b** [I, from FR-007a + FR-014]: A target value that would be rejected by the target guard
   MUST be rejected by `init` before any file is written. Asked interactively, the question is
   repeated. Given non-interactively, `init` stops with an input error.
+- **FR-007c** [cost; 001 FR-033a]: A new `devloops.json` MUST carry the recommended model split in
+  its `config` (`model: sonnet`; `models`: `opus` for `plan`, `replan`, `author-checks`, and
+  `fix_last_trial`), written into the project rather than shipped as a packaged default, so it is
+  visible and editable and never overrides the model of a setup without those names. On a terminal
+  `init` asks first (default yes); `--no-models` leaves `config` empty, so Claude Code picks the
+  model. An existing `devloops.json` is never changed: `init --upgrade` only notes the block to add
+  when neither configuration file sets `model` or `models`.
 
 #### Project discovery and configuration
 
