@@ -349,11 +349,12 @@ def _question_lines(qid, question, context, affects, suggested, reason, answer="
 def _intro(loop, workspace_name):
     return [f"# Open questions: {loop}", "",
             f"Claude suggests an answer where it can. Leave {ANSWER_MARK} empty to accept the "
-            f"suggestion, or write your own answer after the marker (more lines are fine). Then "
-            f"run `devloops approve {loop} --workspace {workspace_name}` to accept the plan, or "
-            f"`devloops replan {loop} --workspace {workspace_name}` to plan again with the "
-            f"answers. Approving (or `retry` after a needs-input stop) copies each accepted "
-            f"suggestion into its answer and marks it with {SOURCE_MARK}.", ""]
+            f"suggestion, or write your own answer after the marker (more lines are fine). By "
+            f"default the run accepts the suggestions itself. When it pauses for review, run "
+            f"`devloops approve {loop} --workspace {workspace_name}` to accept the plan and "
+            f"continue, or `devloops replan {loop} --workspace {workspace_name}` to plan again "
+            f"with the answers. Approving (or `retry` after a needs-input stop) copies each "
+            f"accepted suggestion into its answer and marks it with {SOURCE_MARK}.", ""]
 
 
 def render_open_questions(loop, workspace_name, questions, existing_text=None):
@@ -428,6 +429,24 @@ def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validati
     if run.get("openapi_artifact"):
         art = run["openapi_artifact"]
         lines.append(f"- **OpenAPI artifact**: {art.get('path')} (sha256 {art.get('sha256')})")
+    # The decisions the requirements left open come first: review them before the results.
+    accepted = [(qid, q) for qid, q in (questions or {}).items()
+                if effective_answer(q)[1] == "accepted"]
+    if accepted:
+        lines += ["", "## Suggested answers accepted", "",
+                  "Claude suggested these answers and nobody wrote a different one; review them "
+                  "like assumptions.", ""]
+        lines += [f"- **{qid}** {q['question']} **Answer:** {q['answer']} ({q['source']})"
+                  for qid, q in accepted]
+    lines += ["", "## Assumptions for review", ""]
+    items = [f"- **{a['id']}** (planning) {a['text']} (source: {a['source']})"
+             for a in plan["assumptions"]]
+    for m in plan["milestones"]:
+        for t in trials_by_mid.get(m["id"], []):
+            for a in t.get("assumptions") or []:
+                items.append(f"- ({m['id']}, trial {t['n']}) {a['text']} "
+                             f"(affects: {_refs(a.get('affects'))})")
+    lines += items or ["_None._"]
     lines += ["", "## Milestones", ""]
     rows = []
     for m in plan["milestones"]:
@@ -451,23 +470,6 @@ def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validati
                      ("exit " + str(unit.get("exit_code"))) if unit.get("enabled") else "disabled"])
     lines.append(_table(["Milestone", "Validation", "Criteria passed", "Contract", "Unit tests"],
                         rows))
-    accepted = [(qid, q) for qid, q in (questions or {}).items()
-                if effective_answer(q)[1] == "accepted"]
-    if accepted:
-        lines += ["", "## Suggested answers accepted", "",
-                  "Claude suggested these answers and nobody wrote a different one; review them "
-                  "like assumptions.", ""]
-        lines += [f"- **{qid}** {q['question']} **Answer:** {q['answer']} ({q['source']})"
-                  for qid, q in accepted]
-    lines += ["", "## Assumptions for review", ""]
-    items = [f"- **{a['id']}** (planning) {a['text']} (source: {a['source']})"
-             for a in plan["assumptions"]]
-    for m in plan["milestones"]:
-        for t in trials_by_mid.get(m["id"], []):
-            for a in t.get("assumptions") or []:
-                items.append(f"- ({m['id']}, trial {t['n']}) {a['text']} "
-                             f"(affects: {_refs(a.get('affects'))})")
-    lines += items or ["_None._"]
     return "\n".join(lines) + "\n"
 
 
@@ -578,7 +580,7 @@ def render_orchestrator_progress(workspace_name, orch):
     for s in steps:
         if s["status"] == "awaiting-approval":
             lines += ["", f"**Action:** review `{s['loop']}/outputs/`, then run `devloops approve "
-                          f"{s['loop']}` and `devloops orchestrate` again."]
+                          f"{s['loop']}`, which continues the run."]
         elif s["status"] in STOPPED:
             lines += ["", f"**Action:** `{s['loop']}` stopped ({s.get('reason')}); see "
                           f"`{s['loop']}/progress.md`."]

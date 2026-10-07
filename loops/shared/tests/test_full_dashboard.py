@@ -57,7 +57,7 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
     def test_written_at_a_final_status_only(self):
         self.assertEqual(self.first_run(), 10, self.last_output)
         self.assertEqual(self.dashboards(), [])
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
         self.assertEqual(self.dashboards(), [])
         self.assertEqual(self.cli("run", "backend-dev", "--json"), 0, self.last_output)
         [name] = self.dashboards()

@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass
 
 from . import engine, inputs, render, state
-from .state import EXIT_CODES, DevloopsError
+from .state import EXIT_CODES, DevloopsError, StopRun
 
 LOOP_ORDER = ("backend-dev", "frontend-dev")
 BACKEND_RUNTIME_KEYS = ("start_command", "cwd", "base_url", "ready_url")
@@ -28,7 +28,8 @@ class OrchestrateOptions:
     frontend_target: str = None
     config_path: str = None
     force_unlock: bool = False
-    questions: str = None  # "accept-suggested" from --accept-suggested; None keeps the config's
+    questions: str = None  # --accept-suggested or --review-plan (ask); None: as recorded, else
+    #                        the config's
 
 
 class Orchestrator:
@@ -42,10 +43,22 @@ class Orchestrator:
         self.state = None
         self.message = ""
         self.last_run = None  # the loop this command ran last; None if it ran none
+        # While a decision (`run(action)`) is not recorded yet, nothing is written: a refused
+        # decision, or one that meets another driver's lock, leaves state.json to its owner.
+        self.deciding = False
         self.on_progress = None  # passed to each loop's engine (Engine.on_progress)
 
-    def run(self):
-        """Run or resume both loops in order; return the exit code of the loop that stopped, or 0."""
+    def run(self, action=None):
+        """Run or resume both loops in order; return the exit code of the loop that stopped, or 0.
+
+        `action` is `(loop, fn)`: a decision (`approve`, `retry`, `replan` in an orchestrated
+        workspace) that resumes that loop instead of `Engine.run`; `fn(engine)` returns its exit
+        code. Until the decision is recorded nothing is written here, so a refused one (or one
+        that meets another driver's lock) leaves the orchestrator's record as it was.
+        """
+        if action and action[0] == "frontend-dev" and \
+                engine.status_object(self.ws, "backend-dev")["status"] != "completed":
+            raise state.UsageError("frontend-dev has not started: backend-dev is not completed")
         # Record both targets now, so a later `orchestrate` without flags still has the
         # frontend's, and a bad frontend target stops before the backend runs.
         for loop, target in (("backend-dev", self.opts.backend_target),
@@ -54,19 +67,26 @@ class Orchestrator:
                 self.ws.set_target(loop, os.path.abspath(target))
         self.state = state.read_json(self.state_path) or {"status": "running", "steps": [],
                                                            "handoff": None}
+        self.deciding = action is not None
+        # --review-plan or --accept-suggested holds for the whole orchestrated run, so the
+        # frontend's first start, on a later command without the flag, keeps it.
+        if self.opts.questions:
+            self.state["questions"] = self.opts.questions
+        self.opts.questions = self.state.get("questions") or self._backend_questions()
+        self._check_tools()  # before anything is spent: a missing frontend tool stops it now
         old_root = self.state.get("project_root")
         if old_root:  # a moved or cloned project: the handoff's paths follow it (FR-013)
             self.state = self.ws.project.relocate(self.state, old_root)
         self.state["project_root"] = self.ws.project.root
         self.state["status"] = "running"
         self._save()
-        code = self._run_loop("backend-dev", self._loop_options("backend-dev"))
+        code = self._run_loop("backend-dev", self._loop_options("backend-dev"), action)
         if code != EXIT_CODES["completed"]:
             return code
         # FR-042, FR-056: the frontend starts only after the backend is completed.
         self.state["handoff"] = self._handoff()
         self._save()
-        code = self._run_loop("frontend-dev", self._loop_options("frontend-dev"))
+        code = self._run_loop("frontend-dev", self._loop_options("frontend-dev"), action)
         if code != EXIT_CODES["completed"]:
             return code
         self.state["status"] = "completed"
@@ -76,9 +96,42 @@ class Orchestrator:
 
     # --- steps ---------------------------------------------------------------------------------------
 
-    def _run_loop(self, loop, options):
+    def _backend_questions(self):
+        """The backend's frozen `questions`, for a workspace orchestrated before the mode was
+        recorded here: its frontend keeps the backend's mode, not a newer default. A run frozen
+        before the setting existed paused at every plan (`ask`)."""
+        rs = state.read_json(os.path.join(self.ws.loop_dir("backend-dev"), "state", "run.json"))
+        return (rs["effective_config"].get("questions") or "ask") if rs else None
+
+    def sync_step(self, loop):
+        """After a decision recorded with --no-continue, show the loop's new status (the run
+        continues on the next `orchestrate`). Nothing else changes."""
+        self.state = state.read_json(self.state_path)
+        if not self.state:
+            return
+        loop_status = engine.status_object(self.ws, loop)
         step = self._step(loop)
-        if step["status"] == "completed" and \
+        step.update(status=loop_status["status"],
+                    reason=(loop_status.get("status_reason") or {}).get("code"))
+        self._save()
+
+    def _check_tools(self):
+        """Each loop with work left checks its tools, with no handoff yet (nothing is written)."""
+        self.tools_checked = set()
+        for loop in LOOP_ORDER:
+            opts = engine.Options(config_path=self.opts.config_path,
+                                  cli_overrides={"questions": self.opts.questions})
+            try:
+                if engine.Engine(loop, self.ws, opts, kit=self.kit, env=self.env).check_tools():
+                    self.tools_checked.add(loop)
+            except StopRun as e:
+                raise StopRun(e.status, e.code, f"{loop}: {e.message}; nothing was run (see "
+                              "`devloops check`)", **e.details)
+
+    def _run_loop(self, loop, options, action=None):
+        step = self._step(loop)
+        fn = action[1] if action and action[0] == loop else None
+        if fn is None and step["status"] == "completed" and \
                 engine.status_object(self.ws, loop)["status"] == "completed":
             # Nothing to resume: keep the step's record, so its times stay those of the real run.
             return EXIT_CODES["completed"]
@@ -90,8 +143,15 @@ class Orchestrator:
         try:
             eng = engine.Engine(loop, self.ws, options, kit=self.kit, env=self.env)
             eng.on_progress = self.on_progress
-            code = eng.run()
+            eng.resume_command = "devloops orchestrate"
+            eng.tools_checked = loop in self.tools_checked  # by _check_tools, this command
+            if fn:
+                eng.on_decided = self._decided
+            code = fn(eng) if fn else eng.run()
         except DevloopsError as e:  # usage error or lock held: nothing ran; record and re-raise
+            if self.deciding:  # the decision was not recorded: neither is anything here
+                self.last_run = None
+                raise
             self._finish_step(step, loop, e.message)
             self.state["status"] = "stopped"
             self._save()
@@ -103,6 +163,11 @@ class Orchestrator:
                 else "stopped"
         self._save()
         return code
+
+    def _decided(self):
+        """The engine recorded the decision: from now on this run is recorded as usual."""
+        self.deciding = False
+        self._save()
 
     def _finish_step(self, step, loop, error=None):
         loop_status = engine.status_object(self.ws, loop)
@@ -171,6 +236,8 @@ class Orchestrator:
                 "backend_runtime": backend}
 
     def _save(self):
+        if self.deciding:
+            return
         state.write_json_atomic(self.state_path, self.state)
         state.write_text_atomic(os.path.join(self.dir, "progress.md"),
                                 render.render_orchestrator_progress(self.ws.name, self.state))

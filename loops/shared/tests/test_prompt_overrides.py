@@ -145,7 +145,7 @@ class PromptOverridesTest(unittest.TestCase):
         self.assertEqual(self.status()["prompt_drift"], ["steps/plan.md", "steps/implement.md"])
 
         # The calls of a later start use the current override.
-        self.assertEqual(self.cli("approve", "backend-dev")[0], 0, self.output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev")[0], 0, self.output)
         self.assertEqual(self.cli("run", "backend-dev")[0], 0, self.output)
         implement = [r for r in self.records() if r["step"] == "implement"]
         self.assertTrue(implement)

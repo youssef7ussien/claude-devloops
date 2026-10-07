@@ -63,7 +63,7 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
                                                                ("OQ2", "Use SQLite."))))
         self.assertEqual(self.first_run(), 10, self.last_output)
         self.answer("OQ2", "Use PostgreSQL.")
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
 
         qs = self.questions()
         self.assertEqual(qs["OQ1"]["answer"], "Port 8765.")
@@ -92,7 +92,8 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.cli("run", "backend-dev"), 20, self.last_output)
         self.assertIn("an empty answer accepts Claude's suggested answer", self.last_output)
 
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason",
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason",
                                   "suggestion is fine"), 0, self.last_output)
         q = self.questions()["OQ1"]
         self.assertEqual((q["answer"], q["source"]),
@@ -111,7 +112,8 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
                                                 suggested=SUGGESTION)})
         self.assertEqual(self.cli("run", "backend-dev"), 20, self.last_output)
         self.answer("OQ1", "Page size 50.")
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason", "x"),
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason", "x"),
                          0, self.last_output)
         q = self.questions()["OQ1"]
         self.assertEqual((q["answer"], q["source"]), ("Page size 50.", ""))
@@ -154,7 +156,7 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
         self.scenario(steps(plan_with(("OQ1", "Port 8765."), ("OQ2", "")),
                             replan={"structured_output": plan_with(("OQ1", "Port 8765."))}))
         self.assertEqual(self.first_run("--accept-suggested"), 10, self.last_output)
-        self.assertEqual(self.cli("replan", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10, self.last_output)
         rs = self.run_state()
         self.assertEqual((rs["status"], rs["approval"]), ("awaiting-approval", None))
         self.assertNotIn("implement", self.steps_called())
@@ -217,7 +219,8 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
         self.assertNotIn("auto_answers", rs)
         self.assertEqual(self.questions()["OQ1"]["answer"], "")
 
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason", "ok"),
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason", "ok"),
                          0, self.last_output)
         self.assertEqual(self.run_state()["grants"][-1]["accepted_suggestions"], ["OQ1"])
 

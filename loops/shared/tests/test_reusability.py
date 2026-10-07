@@ -189,7 +189,8 @@ class ReusabilityTest(unittest.TestCase):
             app["story"], "Backend", runtime)}})
         self.assertEqual(self.cli(ws, "run", "backend-dev", "--requirements", requirements,
                                   "--target", target), 10, self.last_output)
-        self.assertEqual(self.cli(ws, "approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli(ws, "approve", "--no-continue",
+                                  "backend-dev"), 0, self.last_output)
         self.scenario({
             "author-checks": {"structured_output": {"milestone_id": "M01",
                                                     "checks": app["checks"]}},
@@ -214,7 +215,8 @@ class ReusabilityTest(unittest.TestCase):
         self.assertEqual(self.cli(ws, "run", "frontend-dev", "--requirements", requirements,
                                   "--target", target, "--api-spec", api_spec, "--config", config),
                          10, self.last_output)
-        self.assertEqual(self.cli(ws, "approve", "frontend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli(ws, "approve", "--no-continue",
+                                  "frontend-dev"), 0, self.last_output)
 
         evidence = os.path.join(self.loop_dir(ws, "frontend-dev"), "state", "milestones", "M01",
                                 "trials", "1", "evidence", "page.png")

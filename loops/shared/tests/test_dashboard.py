@@ -63,7 +63,8 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         tones = [tone for tone, _ in dashboard.attention(self.data())]
         self.assertEqual(tones[0], "critical")
         self.assertIn('Needs attention <span class="count">', page)
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason",
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason",
                                   "try again"), 0, self.last_output)
         self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
         page = self.page()

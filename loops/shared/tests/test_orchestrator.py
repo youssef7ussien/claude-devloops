@@ -107,7 +107,7 @@ class OrchestratorTest(unittest.TestCase):
         return code
 
     def approve(self, loop):
-        code, out, err = self.t.run_cli(["approve", loop, "--workspace", WS])
+        code, out, err = self.t.run_cli(["approve", "--no-continue", loop, "--workspace", WS])
         self.assertEqual(code, 0, out + err)
 
     def loop_path(self, loop, *parts):
@@ -284,7 +284,8 @@ class OrchestratorTest(unittest.TestCase):
 
         def approve(loop):
             with contextlib.redirect_stdout(io.StringIO()):
-                return cli.main(["approve", loop, "--workspace", WS], kit=self.t.kit(), project=self.t.project())
+                return cli.main(["approve", "--no-continue",
+                                loop, "--workspace", WS], kit=self.t.kit(), project=self.t.project())
 
         with mock.patch.dict(os.environ, self.t.env, clear=True), \
                 mock.patch.object(engine, "Engine", SpyEngine):

@@ -151,7 +151,7 @@ class StoryInputTest(StubLoopMixin, unittest.TestCase):
         self.assertIn("never implement the other story", scope["rule"])
         self.assertIn("## Single-story scope", prompt)  # the matching common.md section
 
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
         self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
         implement = self.context_of(self.calls("implement")[0])
         self.assertEqual(implement["story_scope"]["story_id"], "US-2")

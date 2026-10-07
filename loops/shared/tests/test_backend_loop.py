@@ -120,7 +120,7 @@ class BackendLoopTest(unittest.TestCase):
                                         {"structured_output": self.m02_checks()}]})
         self.assertEqual(self.first_run(), 10, self.last_output)
         self.assertIsNone(self.published_openapi())  # nothing published while awaiting approval
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
 
         self.scenario({"implement": [implemented("M01-T01", M01_OPENAPI),
                                      implemented("M02-T01", M02_OPENAPI_WITH_UNVERIFIED_OP)],

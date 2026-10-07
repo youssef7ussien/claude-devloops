@@ -71,11 +71,11 @@ devloops check
 4. Run:
 
    ```bash
-   devloops orchestrate --speckit-feature        # pauses at approval (exit 10)
+   devloops orchestrate --speckit-feature --review-plan   # pauses at the backend plan (exit 10)
    # review .devloops/workspaces/main/backend-dev/outputs/plan-summary.md
    # (spec-kit tasks planned and omitted)
-   devloops approve backend-dev && devloops orchestrate
-   devloops approve frontend-dev && devloops orchestrate
+   devloops approve backend-dev    # builds the backend, then pauses at the frontend plan
+   devloops approve frontend-dev   # builds the frontend; exit 0
    ```
 
 **Expected**:

@@ -74,7 +74,8 @@ class StoppedRunTest(StubLoopMixin, unittest.TestCase):
     def test_retry_records_a_grant_and_the_reason_reaches_the_fix_prompt(self):
         self.exhausted()
         reason = "the fixture needs port 8765 free; it is now"
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason", reason),
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason", reason),
                          0, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "implementing")
@@ -100,7 +101,8 @@ class StoppedRunTest(StubLoopMixin, unittest.TestCase):
 
     def test_retry_trials_option_sets_the_extra_trials(self):
         self.exhausted()
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason", "x",
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason", "x",
                                   "--trials", "1"), 0, self.last_output)
         self.assertEqual(self.run_state()["grants"][-1]["extra_trials"], 1)
         self.assertEqual(self.cli("run", "backend-dev", env=FAIL), 20, self.last_output)
@@ -108,7 +110,8 @@ class StoppedRunTest(StubLoopMixin, unittest.TestCase):
 
     def assert_refused(self, *expected_in_message):
         before = self.snapshot_state()
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason", "x"),
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason", "x"),
                          2, self.last_output)
         self.assertNotIn("invalid choice", self.last_output)  # refused by retry, not argparse
         for text in expected_in_message:
@@ -118,7 +121,7 @@ class StoppedRunTest(StubLoopMixin, unittest.TestCase):
     def test_retry_is_refused_in_any_other_status(self):
         self.assertEqual(self.first_run(), 10, self.last_output)
         self.assert_refused("stopped-on-failure", "awaiting-approval")
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
         self.assert_refused("stopped-on-failure", "implementing")
         self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
         self.assert_refused("stopped-on-failure", "completed")
@@ -126,7 +129,8 @@ class StoppedRunTest(StubLoopMixin, unittest.TestCase):
     def test_retry_of_a_milestone_that_did_not_fail_is_refused(self):
         self.exhausted()
         before = self.snapshot_state()
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M02", "--reason", "x"),
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M02", "--reason", "x"),
                          2, self.last_output)
         self.assertIn("M02", self.last_output)
         self.assertEqual(self.snapshot_state(), before)

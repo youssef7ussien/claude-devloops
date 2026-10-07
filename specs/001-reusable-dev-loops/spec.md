@@ -424,11 +424,12 @@ changing only the inputs and configuration. No loop instructions or shared infra
 
 #### Handling incomplete or ambiguous requirements
 
-- **FR-053** [D-4]: After planning, each loop MUST record every open question it found in the
-  requirements in its outputs. It MUST then pause before implementing and resume only after the
-  developer answers the questions or approves the plan. The developer MAY either approve (the
-  answers become binding context) or request replanning with the answers (the loop pauses again).
-  Both actions and the answers MUST be recorded [R, CHK030].
+- **FR-053** [D-4, D-13]: After planning, each loop MUST record every open question it found in
+  the requirements in its outputs. When plans are reviewed (`questions: ask`, `--review-plan`), or
+  a question has no suggested answer, it MUST then pause before implementing and resume only after
+  the developer answers the questions or approves the plan. The developer MAY either approve (the
+  answers become binding context) or request replanning with the answers. Both actions and the
+  answers MUST be recorded [R, CHK030]. Otherwise the plan is approved automatically (FR-055c).
 - **FR-053a** [D-12]: Every open question, at planning and as *needs-input*, MUST carry the
   answer the loop suggests and why. An answer the developer leaves empty accepts the suggestion
   when they approve (or `retry` after *needs-input*): the suggestion is written into the answers
@@ -443,8 +444,8 @@ changing only the inputs and configuration. No loop instructions or shared infra
   NOT be made after approval. Instead, the milestone MUST fail immediately with reason
   *needs-input*, without using its remaining trials. That ends the run (D-1), and the developer can
   continue under FR-063.
-- **FR-055c** [D-12]: An opt-in setting (`questions: accept-suggested`, default `ask`) MAY replace
-  the developer's acceptance with an automatic one. Then the planning pause approves the plan
+- **FR-055c** [D-12, D-13]: The setting `questions: accept-suggested` (the default since D-13;
+  `ask` restores the review) replaces the developer's acceptance with an automatic one. Then the planning pause approves the plan
   with the suggested answers and implementation continues, and a *needs-input* trial fails alone
   (it counts) while its suggestions are accepted for the next trial, instead of ending the run. A
   question without a suggestion, or one raised on the milestone's last trial, still pauses or stops
@@ -453,6 +454,15 @@ changing only the inputs and configuration. No loop instructions or shared infra
   listed for review in the final report, and flagged in the dashboards.
 - **FR-056** [I — from D-4 plus FR-040]: Under the orchestrator, each loop's planning pause MUST
   also pause the orchestrated run. Work that depends on the paused loop MUST NOT start.
+- **FR-056a** [D-13]: `approve`, `replan`, and `retry` MUST record their decision and then
+  continue the run in the same command, as `run` would (in an orchestrated workspace, the
+  orchestrated run), unless `--no-continue` is given. A refused decision MUST change nothing,
+  including the orchestrator's record. In a terminal, a planning pause MAY ask the developer
+  inline (approve, edit the answers, replan, or quit with the pause's exit code); without one, or
+  with `--json`, it MUST NOT ask.
+- **FR-056b** [D-13]: `orchestrate` MUST check the required tools (FR-013b) of every loop with
+  work left before running either, so a tool missing for `frontend-dev` stops it before
+  `backend-dev` spends anything, with nothing recorded.
 
 #### Stack selection
 
@@ -654,8 +664,8 @@ below). No open questions remain.
   an output that Playwright tests. Applied in FR-022.
 - **D-3 (was Q-3) Artifact location**: One workspace per target application or run. Applied in
   FR-001, FR-049 to FR-052, and A-4.
-- **D-4 Unresolvable requirements**: Open questions pause the loop after planning; after approval,
-  new issues become flagged assumptions. Applied in FR-025, FR-028, FR-053 to FR-056, and the Edge
+- **D-4 Unresolvable requirements**: Open questions pause the loop after planning (only when plans
+  are reviewed, since D-13); after approval, new issues become flagged assumptions. Applied in FR-025, FR-028, FR-053 to FR-056, and the Edge
   Cases.
 - **D-5 (was Q-4) Stack selection**: Priority is existing code, then a named stack, then a stack
   proposed and approved at the planning pause. Applied in FR-015, FR-021, and FR-057 to FR-060.
@@ -676,6 +686,12 @@ below). No open questions remain.
 - **D-12 Suggested answers** (decided 2026-10-06): Claude suggests an answer to each open question;
   an empty answer accepts it, and `questions: accept-suggested` accepts suggestions without the
   developer for unattended runs. Applied in FR-053a and FR-055c.
+- **D-13 Runs need no attention by default** (decided 2026-10-07): The planning pause of D-4 is
+  opt-in. By default (`questions: accept-suggested`) a run plans, approves with the suggested
+  answers, and implements in one command; the developer reviews the accepted answers and
+  assumptions in the final report, which lists them first. `--review-plan` (`questions: ask`)
+  restores the pause. Commands that record a decision continue the run, and `orchestrate` checks
+  both loops' tools before starting. Applied in FR-053, FR-055c, FR-056a, and FR-056b.
 - **Review decisions**: Items marked **[R]** adopt the recommended fixes from
   `checklists/loops-review.md` (2026-09-27). They also settle plan decisions U-1 (FR-016), U-2
   (FR-030a), U-3 (FR-039), U-4 (FR-071), U-5 (FR-063), and U-6 (A-6).

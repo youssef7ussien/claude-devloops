@@ -298,7 +298,7 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
         # A later start without flags resumes the recorded feature, whatever is active then.
         with open(os.path.join(self.t.root, ".specify", "feature.json"), "w") as f:
             json.dump({"feature_directory": "specs/none"}, f)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
         self.assertNotEqual(self.cli("run", "backend-dev"), 30, self.last_output)
         self.cli("status", "backend-dev", "--json")
         self.assertEqual(json.loads(self.last_output)["speckit_feature"], self.feature_dir)

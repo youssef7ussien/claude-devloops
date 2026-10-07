@@ -50,10 +50,10 @@ for a health endpoint and one page showing its value. It exists only to exercise
 ```bash
 bin/devloops run backend-dev --workspace smoke \
   --requirements loops/shared/tests/fixtures/smoke/requirements.md \
-  --target /tmp/devloops-smoke/backend
-# → exit 10: review workspaces/smoke/backend-dev/outputs/, answer open-questions.md if any
-bin/devloops approve backend-dev --workspace smoke
-bin/devloops run backend-dev --workspace smoke          # → exit 0
+  --target /tmp/devloops-smoke/backend                  # → exit 0 (plan approved with the
+                                                        #   suggested answers, then built)
+# with --review-plan: exit 10; review workspaces/smoke/backend-dev/outputs/, then
+# bin/devloops approve backend-dev --workspace smoke    # approves and builds → exit 0
 bin/devloops status backend-dev --workspace smoke --json
 ```
 
@@ -72,8 +72,6 @@ bin/devloops run frontend-dev --workspace smoke \
   --api-spec workspaces/smoke/backend-dev/outputs/openapi.json \
   --target /tmp/devloops-smoke/frontend \
   --config workspaces/smoke/frontend-config.json   # backend.start_command / base_url (R-12)
-bin/devloops approve frontend-dev --workspace smoke && \
-bin/devloops run frontend-dev --workspace smoke
 ```
 
 **Expected**:
@@ -88,7 +86,8 @@ bin/devloops run frontend-dev --workspace smoke
 bin/devloops orchestrate --workspace smoke-orch \
   --requirements loops/shared/tests/fixtures/smoke/requirements.md \
   --target-root /tmp/devloops-smoke-orch
-# pauses (exit 10) at each loop's planning approval; approve, then re-run orchestrate
+# → exit 0; with --review-plan it pauses (exit 10) at each loop's plan, and
+#   `bin/devloops approve <loop> --workspace smoke-orch` approves and continues
 ```
 
 **Expected**: `workspaces/smoke-orch/orchestrator/state.json` shows backend-dev `completed` before

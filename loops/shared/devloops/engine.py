@@ -119,9 +119,18 @@ class Engine:
         # Called after each recorded event, so a view (the lightweight dashboard) can follow the
         # run; it must never raise or change the run.
         self.on_progress = None
-        # `replan` always pauses at its new plan, even under questions: accept-suggested: the
-        # developer asked to see it.
+        # `replan --no-continue` pauses at its new plan, even under questions: accept-suggested:
+        # the developer asked to see it.
         self.review_plan = False
+        # The command that resumes this run, for the messages: `devloops orchestrate` when the
+        # workspace is orchestrated (the CLI sets it).
+        self.resume_command = f"devloops run {loop_name}"
+        # Set once `approve`, `replan`, or `retry` has saved its decision: an error after that is
+        # not a refusal (the orchestrator keeps its record of the run).
+        self.decided = False
+        self.on_decided = None  # called once the decision is saved (the orchestrator records)
+        # Set by the orchestrator once it has checked this loop's tools for this command.
+        self.tools_checked = False
 
     # --- commands ----------------------------------------------------------------------------------
 
@@ -134,17 +143,30 @@ class Engine:
             except StopRun as stop:
                 return self._stop(stop)
 
-    def approve(self):
-        """Accept the stored plan and the current answers (FR-053, FR-054)."""
+    def approve(self, continue_run=False):
+        """Accept the stored plan and the current answers (FR-053, FR-054), then, with
+        `continue_run`, implement it under the same lock, like `run`."""
         with self._lock():
             self.rs = self._require_status("approve", "awaiting-approval")
             self._use_config(self.rs["effective_config"])
+            if continue_run:  # a missing tool refuses the decision, rather than ending the run
+                self._check_tools(self.config)
             accepted = self._approve("approve", "by `devloops approve`")
+            self._mark_decided()
             self._event("approved", "plan approved with the answers in outputs/open-questions.md"
                         + self._accepted_note(accepted))
             self._render()
-            self.message = f"plan approved; run `devloops run {self.loop}` to implement it"
+            if continue_run:
+                return self._continue()
+            self.message = f"plan approved; run `{self.resume_command}` to implement it"
             return 0
+
+    def _continue(self):
+        """Resume the run after a recorded decision, as `run` would: the same checks, then on."""
+        try:
+            return self._resume()
+        except StopRun as stop:
+            return self._stop(stop)
 
     def _approve(self, action, how):
         """Record the approval of the stored plan with the current answers; status `implementing`.
@@ -169,13 +191,20 @@ class Engine:
         self._save()
         return accepted
 
+    def _mark_decided(self):
+        self.decided = True
+        if self.on_decided:
+            self.on_decided()
+
     @staticmethod
     def _accepted_note(accepted):
         return (f"; suggested answer(s) accepted for {', '.join(accepted)}, review them"
                 if accepted else "")
 
-    def replan(self):
-        """Plan again with the answers, then pause again (research R-6)."""
+    def replan(self, continue_run=False):
+        """Plan again with the answers (research R-6). With `continue_run`, the new plan is
+        handled like a first plan: approved and implemented under questions: accept-suggested,
+        paused under `ask`. Without it, the run pauses at the new plan."""
         with self._lock():
             try:
                 self.rs = self._require_status("replan", "awaiting-approval")
@@ -186,21 +215,25 @@ class Engine:
                         f"no planning trials left ({used} of {self.config['max_trials']} used); "
                         f"approve the current plan with `devloops approve {self.loop}` or start "
                         "a new workspace")
-                preflight.check_tools(self.loop_def, self.config, self.env)
+                self._check_tools(self.config)
                 self._check_fingerprints()
+                if continue_run:  # a --review-plan or --accept-suggested given to this command
+                    self._use_config(self._resolved_config())
                 self.rs["status"] = "planning"
                 self._save()
-                self.review_plan = True
+                self._mark_decided()
+                self.review_plan = not continue_run
                 return self._planning("replan")
             except StopRun as stop:
                 return self._stop(stop)
 
-    def retry(self, milestone_id, reason, trials=None):
+    def retry(self, milestone_id, reason=None, trials=None, continue_run=False):
         """Grant a failed milestone more trials and move the run back to `implementing` (FR-063).
 
         Allowed only in `stopped-on-failure` with that milestone `failed`, and never after
         `planning-trials-exhausted`, which is final (FR-061). The grant records the current
-        answers' fingerprint, which later starts compare against (T055). It starts nothing.
+        answers' fingerprint, which later starts compare against (T055). With `continue_run`,
+        the run then resumes under the same lock, like `run`.
         """
         with self._lock():
             self._load_run()
@@ -221,9 +254,13 @@ class Engine:
                     f"({'unknown' if ms is None else ms['status']}); retry "
                     + (f"--milestone {', '.join(failed)}" if failed else "has nothing to grant"))
             self._use_config(self.rs["effective_config"])
+            if continue_run:  # a missing tool refuses the decision, rather than ending the run
+                self._check_tools(self.config)
             accepted = []
-            if stop_reason.get("code") == "needs-input" and \
-                    stop_reason.get("milestone_id") == milestone_id:
+            needs_input = stop_reason.get("code") == "needs-input" and \
+                stop_reason.get("milestone_id") == milestone_id
+            reason = reason or ""  # no guidance: nothing is passed to the fix prompt
+            if needs_input:
                 text, accepted = self._require_answers(milestone_id)
                 if accepted:
                     state.write_text_atomic(self.answers_path, text)
@@ -241,12 +278,16 @@ class Engine:
             self.rs["status"] = "implementing"
             self.rs["status_reason"] = None
             self._save()
+            self._mark_decided()
             self._event("retry-granted", f"{milestone_id}: {grant['extra_trials']} more trial(s): "
-                                         f"{reason}" + self._accepted_note(accepted),
+                                         f"{reason or 'no reason given'}"
+                        + self._accepted_note(accepted),
                         milestone=milestone_id)
             self._render()
+            if continue_run:
+                return self._continue()
             self.message = (f"granted {grant['extra_trials']} more trial(s) to {milestone_id}; run "
-                            f"`devloops run {self.loop}` to continue")
+                            f"`{self.resume_command}` to continue")
             return 0
 
     def _require_answers(self, milestone_id):
@@ -283,6 +324,30 @@ class Engine:
 
     # --- start ---------------------------------------------------------------------------------------
 
+    def check_tools(self):
+        """Raise `missing-tool` now for a loop that still has work: with its frozen configuration,
+        or the one its first start would freeze. Nothing is written (`orchestrate` checks both
+        loops before the backend spends anything). True if it checked (a stopped or completed run
+        is not)."""
+        rs = state.read_json(self.run_path)
+        if rs and rs["status"] in TERMINAL_STATUSES:
+            return False
+        if rs and rs.get("project_root") and \
+                os.path.normpath(rs["project_root"]) != self.project.root:
+            rs = self.project.relocate(rs, rs["project_root"])  # as the run will (not saved)
+        cfg = rs["effective_config"] if rs else config.load_effective(
+            self.kit.path("shared", "config", "defaults.json"),
+            os.path.abspath(self.opts.config_path) if self.opts.config_path
+            else self.ws.config_path(),
+            self.opts.cli_overrides, self.project.run_config_layers())
+        preflight.check_tools(self.loop_def, cfg, self.env)
+        return True
+
+    def _check_tools(self, cfg):
+        """FR-013b, unless the orchestrator already checked this loop for this command."""
+        if not self.tools_checked:
+            preflight.check_tools(self.loop_def, cfg, self.env)
+
     def _first_start(self):
         self._event("run-started", "first run")
         workspace_config = self._workspace_config_path()
@@ -290,7 +355,7 @@ class Engine:
                                     workspace_config, self.opts.cli_overrides,
                                     self.project.run_config_layers())
         self._use_config(cfg)
-        preflight.check_tools(self.loop_def, cfg, self.env)
+        self._check_tools(cfg)
         requirements = self._requirements_input()
         req_path = requirements["path"]
         api_spec = None
@@ -347,7 +412,7 @@ class Engine:
         self._use_config(self.rs["effective_config"])
         terminal = status in TERMINAL_STATUSES
         try:
-            preflight.check_tools(self.loop_def, self.config, self.env)
+            self._check_tools(self.config)
         except StopRun as stop:
             if not terminal:
                 raise
@@ -366,12 +431,16 @@ class Engine:
         self._recover_interrupted()
         self._event("run-started", f"resumed in status {self.rs['status']}")
         self._check_prompt_sources()
-        self._use_config(config.resolve_for_run(
-            self.rs, self.loop_dir, self.opts.cli_overrides,
-            defaults_path=self.kit.path("shared", "config", "defaults.json"),
-            redactor=self.redactor, project_layers=self.project.run_config_layers()))
+        self._use_config(self._resolved_config())
         self._save()
         return self._advance()
+
+    def _resolved_config(self):
+        """The frozen configuration with this start's command-line overrides (recorded)."""
+        return config.resolve_for_run(
+            self.rs, self.loop_dir, self.opts.cli_overrides,
+            defaults_path=self.kit.path("shared", "config", "defaults.json"),
+            redactor=self.redactor, project_layers=self.project.run_config_layers())
 
     def _prompt_sources(self):
         return prompts.sources(self.kit, self.project.root, prompts.loop_parts(self.kit, self.loop))
@@ -500,9 +569,10 @@ class Engine:
             if status == "awaiting-approval":
                 if self._auto_approve():
                     continue
-                self.message = (f"plan stored; review outputs/, answer outputs/open-questions.md, "
-                                f"then run `devloops approve {self.loop}` or `devloops replan "
-                                f"{self.loop}`") + self._unsuggested_note()
+                self.message = (f"plan stored; review outputs/plan-summary.md, answer "
+                                f"outputs/open-questions.md, then run `devloops approve "
+                                f"{self.loop}` or `devloops replan {self.loop}`"
+                                + self._unsuggested_note())
                 return EXIT_CODES["awaiting-approval"]
             if status == "implementing":
                 return self._implementing()
@@ -674,8 +744,9 @@ class Engine:
                     f"{self.config['max_invocations_per_run']} before milestone {mid} finished")
         ms = self.rs["milestones"][mid]
         return (f"milestone {mid} failed after {len(selector.counted_trials(ms))} of "
-                f"{selector.trial_limit(self.rs, mid)} trial(s); see progress.md and the last "
-                "trial's validation.json and evidence/")
+                f"{selector.trial_limit(self.rs, mid)} trial(s); read the last trial's "
+                f"validation.json and evidence/, then run `devloops retry {self.loop} --milestone "
+                f"{mid}`, with --reason to guide the fix")
 
     def _trial(self, mid, n):
         milestone = self._milestone(mid)
@@ -794,8 +865,8 @@ class Engine:
         raise StopRun("stopped-on-failure", "needs-input",
                       f"milestone {mid} needs input: answer {', '.join(ids)} in "
                       f"outputs/open-questions.md (an empty answer accepts Claude's suggested "
-                      f"answer), then run `devloops retry {self.loop} "
-                      f"--milestone {mid} --reason \"...\"`", milestone_id=mid)
+                      f"answer), then run `devloops retry {self.loop} --milestone {mid}`",
+                      milestone_id=mid)
 
     def _auto_answer(self, milestone, trial, text, ids, detail):
         """Accept the suggestions of `ids` in `text` (the answers file with them appended).
@@ -909,7 +980,7 @@ class Engine:
                     trial=trial)
         raise StopRun("stopped-on-service-error", reason,
                       f"Claude Code service failure ({reason}): {detail[:300]}; no trial was "
-                      f"used, run `devloops run {self.loop}` again to resume",
+                      f"used, run `{self.resume_command}` again to resume",
                       milestone_id=milestone)
 
     def _finish(self, milestone, trial, reason, detail):
@@ -1001,7 +1072,8 @@ class Engine:
                 "validation_path": os.path.join(prev_dir, "validation.json"),
                 "evidence_dir": os.path.join(prev_dir, "evidence"),
             }
-        guidance = [g["reason"] for g in self.rs.get("grants") or [] if g.get("milestone_id") == mid]
+        guidance = [g["reason"] for g in self.rs.get("grants") or []
+                    if g.get("milestone_id") == mid and g.get("reason")]
         if guidance:
             ctx["developer_guidance"] = guidance
         self._add_story_scope(ctx)

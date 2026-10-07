@@ -115,7 +115,7 @@ class FrontendLoopTest(unittest.TestCase):
 
         edited = dict(API_SPEC, info={"title": "items", "version": "1.0.1"})
         self.t.write_file(os.path.join("contract", "openapi.json"), json.dumps(edited))
-        self.assertEqual(self.cli("approve", "frontend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "frontend-dev"), 0, self.last_output)
         self.assertEqual(self.cli("run", "frontend-dev"), 30, self.last_output)
         reason = self.run_state()["status_reason"]
         self.assertEqual(reason["code"], "input-changed")
@@ -126,7 +126,7 @@ class FrontendLoopTest(unittest.TestCase):
     def test_ui_url_is_recorded_and_the_milestone_is_achieved(self):
         self.scenario({"plan": {"structured_output": self.plan()}})
         self.assertEqual(self.first_run(), 10, self.last_output)
-        self.assertEqual(self.cli("approve", "frontend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "frontend-dev"), 0, self.last_output)
 
         self.scenario({
             "implement": {"structured_output": {

@@ -54,7 +54,8 @@ class NeedsInputTest(StubLoopMixin, unittest.TestCase):
     def test_retry_is_refused_until_the_questions_are_answered(self):
         self.stopped_on_needs_input()
         before = self.snapshot_state()
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason", "x"),
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason", "x"),
                          2, self.last_output)
         self.assertIn("answer OQ1", self.last_output)
         self.assertEqual(self.snapshot_state(), before)  # no grant was recorded
@@ -73,7 +74,8 @@ class NeedsInputTest(StubLoopMixin, unittest.TestCase):
     def test_answering_and_retry_resumes_the_milestone(self):
         self.stopped_on_needs_input()
         self.answer("OQ1", "No pagination; return every item.")
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason",
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason",
                                   "answered OQ1"), 0, self.last_output)
         self.scenario({"fix": implemented("M01-T01"), "implement": implemented("M02-T01")})
         self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
@@ -105,9 +107,9 @@ class NeedsInputTest(StubLoopMixin, unittest.TestCase):
         self.answer("OQ1", "8765")
         self.assertEqual(self.cli("run", "backend-dev"), 10, self.last_output)  # still paused
         self.assertEqual(self.run_state()["status"], "awaiting-approval")
-        self.assertEqual(self.cli("replan", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10, self.last_output)
         self.answer("OQ1", "8766")
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
         self.assertEqual(self.run_state()["approval"]["answers_sha256"], self.answers_sha256())
 
     def test_editing_answers_after_a_needs_input_stop_is_recorded_by_the_grant(self):
@@ -117,7 +119,8 @@ class NeedsInputTest(StubLoopMixin, unittest.TestCase):
         new_hash = self.answers_sha256()
         self.assertNotEqual(new_hash, approved_hash)
 
-        self.assertEqual(self.cli("retry", "backend-dev", "--milestone", "M01", "--reason",
+        self.assertEqual(self.cli("retry", "--no-continue",
+                                  "backend-dev", "--milestone", "M01", "--reason",
                                   "answered"), 0, self.last_output)
         self.assertEqual(self.run_state()["grants"][-1]["answers_sha256"], new_hash)
         # The latest grant's hash is the one compared now, so the run proceeds.

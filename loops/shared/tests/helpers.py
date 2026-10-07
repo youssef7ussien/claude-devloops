@@ -64,7 +64,7 @@ class TempEnv:
       claude-config/   `CLAUDE_CONFIG_DIR`, where the fake Claude writes transcripts
 
 `repo/` is also a devloops project: `.devloops/devloops.json` keeps workspaces at
-`repo/workspaces/`, as in this repository (002 research P-17).
+`repo/workspaces/`, as in this repository (002 research P-17), and sets `questions: ask`.
 
     `self.env` is a copy of `os.environ` wired to the fake Claude binary. Copying is the default
     so that tests which write into `loops/` or `bin/` (boundary audits) cannot touch the real repo.
@@ -118,8 +118,12 @@ class TempEnv:
 
     def make_project(self, path, config=None):
         """Make `path` a devloops project: write `.devloops/devloops.json` (schema_version 1,
-        plus `config`'s keys). Return the file's path."""
+        plus `config`'s keys). Return the file's path.
+
+        Most tests drive the plan pause, so the run configuration sets `questions: ask` unless
+        `config` gives `questions` (tests of the default pass `accept-suggested`)."""
         data = dict({"schema_version": 1}, **(config or {}))
+        data["config"] = dict({"questions": "ask"}, **(data.get("config") or {}))
         file = os.path.join(path, ".devloops", "devloops.json")
         os.makedirs(os.path.dirname(file), exist_ok=True)
         with open(file, "w", encoding="utf-8") as f:

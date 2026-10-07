@@ -3,10 +3,12 @@ import argparse
 import csv
 import json
 import os
+import shlex
+import subprocess
 import sys
 
 from . import (__version__, checkcmd, dashboard, engine, fulldash, initcmd, orchestrator, prompts,
-               state, workspace)
+               render, state, workspace)
 from . import project as project_mod
 from .kit import Kit
 from .state import EXIT_USAGE, DevloopsError
@@ -46,13 +48,26 @@ def _add_story_options(cmd):
 
 
 def _add_questions_option(parser):
-    parser.add_argument("--accept-suggested", action="store_true",
-                        help="accept Claude's suggested answers to open questions instead of "
-                             "pausing (sets questions: accept-suggested; review them afterwards)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--review-plan", action="store_true",
+                      help="pause after each plan for review, and stop on open questions (sets "
+                           "questions: ask)")
+    mode.add_argument("--accept-suggested", action="store_true",
+                      help="approve plans and accept Claude's suggested answers without pausing "
+                           "(questions: accept-suggested, the default; review them afterwards)")
 
 
 def _questions_override(args):
+    if getattr(args, "review_plan", False):
+        return "ask"
     return "accept-suggested" if getattr(args, "accept_suggested", False) else None
+
+
+def _add_decision_options(cmd):
+    cmd.add_argument("--no-continue", action="store_true",
+                     help="only record the decision; run nothing (the run continues on the next "
+                          "`run` or `orchestrate`)")
+    _add_questions_option(cmd)
 
 
 def build_parser():
@@ -89,20 +104,22 @@ def build_parser():
     _add_questions_option(orch)
     orch.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
-    for name, text in (("approve", "accept the stored plan and the answers"),
-                       ("replan", "plan again with the answers, then pause again")):
+    for name, text in (("approve", "accept the stored plan and the answers, then continue"),
+                       ("replan", "plan again with the answers, then continue")):
         cmd = sub.add_parser(name, parents=[common], help=text)
         cmd.add_argument("loop", choices=LOOPS)
+        _add_decision_options(cmd)
         cmd.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     retry = sub.add_parser("retry", parents=[common],
-                           help="grant a failed milestone more trials (FR-063)")
+                           help="grant a failed milestone more trials, then continue (FR-063)")
     retry.add_argument("loop", choices=LOOPS)
     retry.add_argument("--milestone", required=True, help="the failed milestone, e.g. M01")
-    retry.add_argument("--reason", required=True,
-                       help="why; recorded with the grant and passed to later fix prompts")
+    retry.add_argument("--reason",
+                       help="guidance for the next fix trial; recorded with the grant")
     retry.add_argument("--trials", type=_positive_int,
                        help="trials to grant (default: max_trials)")
+    _add_decision_options(retry)
     retry.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     export = sub.add_parser("export-sessions", parents=[common],
@@ -381,17 +398,22 @@ def _project_defaults(project, ws, loop, requirements, speckit_feature, story_id
     return target, requirements, speckit_feature, story_id, story_file
 
 
-def _orchestrate(args, kit, project, env):
+def _orchestrate(args, kit, project, env, action=None):
+    """`orchestrate`, or `approve`/`retry`/`replan` continuing an orchestrated workspace
+    (`action`, see `Orchestrator.run`; their args lack the orchestrate flags)."""
     for loop in orchestrator.LOOP_ORDER:
         engine.load_loop_def(kit, loop)  # before a workspace is created
-    root = os.path.abspath(args.target_root) if args.target_root else None
-    targets = {"backend": args.backend_target, "frontend": args.frontend_target}
+    target_root = getattr(args, "target_root", None)
+    root = os.path.abspath(target_root) if target_root else None
+    targets = {"backend": getattr(args, "backend_target", None),
+               "frontend": getattr(args, "frontend_target", None)}
     for name, given in targets.items():
         targets[name] = os.path.abspath(given) if given else \
             (os.path.join(root, name) if root else None)
     ws = workspace.open_workspace(args.workspace, project, kit, create=True)
-    requirements, story_id, story_file = args.requirements, args.story_id, args.story_file
-    feature = _speckit_flag(args.speckit_feature)
+    requirements = getattr(args, "requirements", None)
+    story_id, story_file = getattr(args, "story_id", None), getattr(args, "story_file", False)
+    feature = _speckit_flag(getattr(args, "speckit_feature", None))
     for name, loop in (("backend", "backend-dev"), ("frontend", "frontend-dev")):
         target, requirements, feature, story_id, story_file = _project_defaults(
             project, ws, loop, requirements, feature, story_id, story_file)
@@ -406,7 +428,7 @@ def _orchestrate(args, kit, project, env):
     error = full = None
     before = _event_marks(ws, orchestrator.LOOP_ORDER)
     try:
-        code = orch.run()
+        code = orch.run(action)
     except BaseException as e:
         error = e
         raise
@@ -422,6 +444,8 @@ def _orchestrate(args, kit, project, env):
     if args.json:
         obj = {"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
                "exit_code": code, "message": orch.message, "dashboard": _dashboard_path(ws)}
+        if action:
+            obj["decision"] = {"command": args.command, "loop": action[0]}
         if full:
             obj["full_dashboard"] = {"path": full["path"], "bytes": full["bytes"]}
         _dump(args, obj)
@@ -434,6 +458,157 @@ def _orchestrate(args, kit, project, env):
         if _dashboard_path(ws):
             print(f"dashboard: {_dashboard_path(ws)}")
         _print_full(full)
+    if code == state.EXIT_CODES["awaiting-approval"] and orch.last_run and _interactive(args):
+        return _review(args, kit, project, env, ws, orch.last_run)
+    return code
+
+
+# --- the review prompt ----------------------------------------------------------------------------
+
+def _interactive(args):
+    """Whether a plan pause may ask in the terminal: never with --json or without a terminal."""
+    if getattr(args, "json", False):
+        return False
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+REVIEW_CHOICES = "[a]pprove  [e]dit answers  [r]eplan  [q]uit"
+
+
+def _plan_line(ws, loop):
+    loop_dir = ws.loop_dir(loop)
+    plan = state.read_json(os.path.join(loop_dir, "state", "plan.json")) or {}
+    questions = render.load_questions(loop_dir)
+    sources = {qid: render.effective_answer(q)[1] for qid, q in questions.items()}
+    answered = sum(1 for source in sources.values() if source in ("developer", "accepted"))
+    suggested = sum(1 for source in sources.values() if source == "suggested")
+    neither = [qid for qid, source in sources.items() if not source]
+    text = (f"{loop} plan: {len(plan.get('milestones') or [])} milestone(s), "
+            f"{len(questions)} question(s)")
+    if questions:
+        parts = [f"{answered} answered"] if answered else []
+        parts += [f"{suggested} with a suggested answer"] if suggested else []
+        parts += [f"{', '.join(neither)} with neither"] if neither else []
+        text += ": " + ", ".join(parts)
+    return text
+
+
+def _edit(path, env):
+    editor = env.get("VISUAL") or env.get("EDITOR")
+    if not editor:
+        try:
+            input(f"Edit {path}, then press Enter: ")
+        except EOFError:
+            pass
+        return
+    try:
+        subprocess.call(shlex.split(editor) + [path])
+    except OSError as e:
+        print(f"devloops: could not start {editor!r}: {e}", file=sys.stderr)
+
+
+def _review(args, kit, project, env, ws, loop):
+    """Ask at `loop`'s plan pause: approve or replan (and continue), edit the answers, or quit
+    with the pause's exit code 10."""
+    outputs = os.path.join(ws.loop_dir(loop), "outputs")
+    print()
+    print(_plan_line(ws, loop))
+    print(f"Review: {os.path.join(outputs, 'plan-summary.md')}")
+    while True:
+        try:
+            choice = input(f"{REVIEW_CHOICES}: ").strip().lower()[:1]
+        except EOFError:
+            choice = "q"
+        if choice == "e":
+            _edit(os.path.join(outputs, "open-questions.md"), env)
+            print(_plan_line(ws, loop))
+        elif choice in ("a", "r"):
+            break
+        elif choice == "q":
+            print(f"The plan awaits approval: `devloops approve {loop}` approves it and continues.")
+            return state.EXIT_CODES["awaiting-approval"]
+    # Only what `devloops approve|replan <loop>` would get: the run's inputs and targets are
+    # recorded, and its questions mode is already frozen (or recorded by the orchestrator).
+    decided = argparse.Namespace(
+        command="approve" if choice == "a" else "replan", loop=loop, workspace=args.workspace,
+        config=args.config, json=args.json, force_unlock=args.force_unlock, no_continue=False,
+        review_plan=False, accept_suggested=False, warnings=getattr(args, "warnings", []))
+    return _loop_command(decided, kit, project, env)
+
+
+# --- run, approve, replan, retry ------------------------------------------------------------------
+
+def _orchestrated(ws):
+    return os.path.exists(os.path.join(ws.path, "orchestrator", "state.json"))
+
+
+def _loop_command(args, kit, project, env):
+    """`run`, or a decision (`approve`, `replan`, `retry`) that then continues the run, unless
+    --no-continue: under one lock for a single loop; in an orchestrated workspace the decision is
+    recorded, then `orchestrate` continues both loops."""
+    engine.load_loop_def(kit, args.loop)  # before a workspace is created
+    ws = workspace.open_workspace(args.workspace, project, kit, create=args.command == "run")
+    requirements = getattr(args, "requirements", None)
+    feature = _speckit_flag(getattr(args, "speckit_feature", None))
+    story_id = getattr(args, "story_id", None)
+    story_file = getattr(args, "story_file", False)
+    target = getattr(args, "target", None)
+    if args.command == "run":
+        default_target, requirements, feature, story_id, story_file = _project_defaults(
+            project, ws, args.loop, requirements, feature, story_id, story_file)
+        target = target or default_target
+    options = engine.Options(
+        requirements=requirements,
+        speckit_feature=feature,
+        story_id=story_id,
+        story_file=story_file,
+        target=target,
+        api_spec=getattr(args, "api_spec", None),
+        config_path=args.config,
+        cli_overrides={"max_trials": getattr(args, "max_trials", None),
+                       "questions": _questions_override(args)},
+        force_unlock=args.force_unlock,
+    )
+    continuing = args.command != "run" and not getattr(args, "no_continue", False)
+    if not continuing and args.command != "run" and _questions_override(args):
+        raise state.UsageError("--review-plan and --accept-suggested apply to the continued run; "
+                               "with --no-continue, pass them to the next `run` or "
+                               "`orchestrate`")
+
+    def decide(eng):
+        if args.command == "retry":
+            return eng.retry(args.milestone, args.reason, args.trials, continue_run=continuing)
+        if args.command == "run":
+            return eng.run()
+        return getattr(eng, args.command)(continue_run=continuing)
+
+    if continuing and _orchestrated(ws):
+        return _orchestrate(args, kit, project, env, action=(args.loop, decide))
+    eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
+    eng.on_progress = _follow(ws)
+    if _orchestrated(ws):
+        eng.resume_command = "devloops orchestrate"
+    error = full = None
+    before = _event_marks(ws, [args.loop])
+    try:
+        code = decide(eng)
+    except BaseException as e:
+        error = e
+        raise
+    finally:
+        if _ends_final(error, engine.status_object(ws, args.loop)["status"]) \
+                and _event_marks(ws, [args.loop]) != before:
+            full = _write_full_dashboard(ws, f"{args.command} {args.loop}", env)
+        _write_dashboard(ws, announce=False)
+    if args.command != "run" and _orchestrated(ws):
+        orchestrator.Orchestrator(ws, kit=kit, env=env).sync_step(args.loop)
+    _emit(args, ws, args.loop, eng.message, code, full)
+    if code == state.EXIT_CODES["awaiting-approval"] and _interactive(args) \
+            and not getattr(args, "no_continue", False):
+        return _review(args, kit, project, env, ws, args.loop)
     return code
 
 
@@ -610,50 +785,7 @@ def main(argv=None, kit=None, project=None, env=None):
         if args.command == "orchestrate":
             return _orchestrate(args, kit, project, env)
 
-        engine.load_loop_def(kit, args.loop)  # before a workspace is created
-        ws = workspace.open_workspace(args.workspace, project, kit,
-                                      create=args.command == "run")
-        requirements = getattr(args, "requirements", None)
-        feature = _speckit_flag(getattr(args, "speckit_feature", None))
-        story_id = getattr(args, "story_id", None)
-        story_file = getattr(args, "story_file", False)
-        target = getattr(args, "target", None)
-        if args.command == "run":
-            default_target, requirements, feature, story_id, story_file = _project_defaults(
-                project, ws, args.loop, requirements, feature, story_id, story_file)
-            target = target or default_target
-        options = engine.Options(
-            requirements=requirements,
-            speckit_feature=feature,
-            story_id=story_id,
-            story_file=story_file,
-            target=target,
-            api_spec=getattr(args, "api_spec", None),
-            config_path=args.config,
-            cli_overrides={"max_trials": getattr(args, "max_trials", None),
-                           "questions": _questions_override(args)},
-            force_unlock=args.force_unlock,
-        )
-        eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
-        eng.on_progress = _follow(ws)
-        error = full = None
-        before = _event_marks(ws, [args.loop])
-        try:
-            if args.command == "retry":
-                code = eng.retry(args.milestone, args.reason, args.trials)
-            else:
-                code = {"run": eng.run, "approve": eng.approve,
-                        "replan": eng.replan}[args.command]()
-        except BaseException as e:
-            error = e
-            raise
-        finally:
-            if _ends_final(error, engine.status_object(ws, args.loop)["status"]) \
-                    and _event_marks(ws, [args.loop]) != before:
-                full = _write_full_dashboard(ws, f"{args.command} {args.loop}", env)
-            _write_dashboard(ws, announce=False)
-        _emit(args, ws, args.loop, eng.message, code, full)
-        return code
+        return _loop_command(args, kit, project, env)
     except DevloopsError as e:
         if args.json:
             _dump(args, {"error": e.message, "exit_code": e.exit_code})

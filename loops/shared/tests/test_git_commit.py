@@ -34,7 +34,8 @@ class GitCommitTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.cli("run", "backend-dev", "--requirements", self.prd, "--target",
                                   target or self.target, *config_args, env=env), 10,
                          self.last_output)
-        self.assertEqual(self.cli("approve", "backend-dev", env=env), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue",
+                                  "backend-dev", env=env), 0, self.last_output)
         self.assertEqual(self.cli("run", "backend-dev", env=env), 0, self.last_output)
 
     def commits(self):

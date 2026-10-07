@@ -107,7 +107,7 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_approve_then_run_completes(self):
         self.assertEqual(self.first_run(), 10)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "implementing")
         self.assertEqual(rs["approval"]["action"], "approve")
@@ -143,7 +143,7 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_fix_prompt_carries_the_previous_failure_and_only_open_tasks(self):
         self.assertEqual(self.first_run(), 10)
-        self.cli("approve", "backend-dev")
+        self.cli("approve", "--no-continue", "backend-dev")
         self.scenario({"implement": implemented("M01-T01"), "fix": implemented("M01-T01")})
         self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20)
         fix_prompt = [c for c in self.t.fake_calls() if c["step"] == "fix"][0]["prompt"]
@@ -184,7 +184,7 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_model_claims_are_never_a_pass(self):
         self.assertEqual(self.first_run(), 10)
-        self.cli("approve", "backend-dev")
+        self.cli("approve", "--no-continue", "backend-dev")
         self.scenario({"implement": implemented("M01-T01"), "fix": implemented("M01-T01")})
         self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
                          self.last_output)
@@ -202,7 +202,7 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_boundary_violation_fails_the_trial(self):
         self.assertEqual(self.first_run("--max-trials", "1"), 10)
-        self.cli("approve", "backend-dev")
+        self.cli("approve", "--no-continue", "backend-dev")
         outside = os.path.join(self.t.root, "loops", "shared", "sneaky.txt")
         answer = implemented("M01-T01")
         answer["writes"].append({"path": outside, "content": "x"})  # Bash-style: no hook
@@ -217,7 +217,7 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_boundary_is_audited_even_when_the_call_fails(self):
         self.assertEqual(self.first_run("--max-trials", "2"), 10)
-        self.cli("approve", "backend-dev")
+        self.cli("approve", "--no-continue", "backend-dev")
         outside = os.path.join(self.t.root, "loops", "shared", "sneaky.txt")
         self.scenario({"implement": {"is_error": True,
                                      "writes": [{"path": outside, "content": "first"}]},
@@ -235,7 +235,7 @@ class EngineCoreTest(unittest.TestCase):
 
     def failed_trial_after(self, stub_mode):
         self.assertEqual(self.first_run(), 10)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
         self.cli("run", "backend-dev", "--max-trials", "1", env={"DEVLOOPS_STUB": stub_mode})
         return self.trial("M01", 1)["failure"]
 
@@ -250,7 +250,7 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_failed_call_without_violation_keeps_its_own_reason(self):
         self.assertEqual(self.first_run("--max-trials", "1"), 10)
-        self.cli("approve", "backend-dev")
+        self.cli("approve", "--no-continue", "backend-dev")
         self.scenario({"implement": {"structured_output": {"tasks": []}}})
         self.assertEqual(self.cli("run", "backend-dev"), 20)
         self.assertEqual(self.trial("M01", 1)["failure"]["reason"], "invalid-output")
@@ -289,10 +289,10 @@ class EngineCoreTest(unittest.TestCase):
     # --- commands and output ---
 
     def test_approve_only_when_awaiting_approval(self):
-        self.assertEqual(self.cli("approve", "backend-dev"), 2)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 2)
         self.assertEqual(self.first_run(), 10)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0)
-        self.assertEqual(self.cli("approve", "backend-dev"), 2)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 2)
         self.assertIn("awaiting-approval", self.last_output)
 
     def test_replan_uses_the_answers_and_pauses_again(self):
@@ -308,7 +308,7 @@ class EngineCoreTest(unittest.TestCase):
             text = f.read()
         with open(path, "w") as f:
             f.write(text.replace("**Answer:**", "**Answer:** use 8765"))
-        self.assertEqual(self.cli("replan", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10, self.last_output)
         replan_prompt = self.t.fake_calls()[-1]["prompt"]
         self.assertIn("use 8765", replan_prompt)
         rs = self.run_state()
@@ -319,30 +319,31 @@ class EngineCoreTest(unittest.TestCase):
         self.scenario({"plan": {"structured_output": samples.plan()},
                        "replan": {"structured_output": samples.plan()}})
         self.assertEqual(self.first_run(), 10)                       # planning trial 1 of 3
-        self.assertEqual(self.cli("replan", "backend-dev"), 10)      # 2 of 3
-        self.assertEqual(self.cli("replan", "backend-dev"), 10)      # 3 of 3
+        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10)      # 2 of 3
+        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10)      # 3 of 3
         plan_before = self.read("state/plan.json")
-        self.assertEqual(self.cli("replan", "backend-dev"), 2, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 2, self.last_output)
         self.assertIn("no planning trials left (3 of 3 used)", self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "awaiting-approval")
         self.assertIsNone(rs["status_reason"])
         self.assertEqual(len(self.t.fake_calls()), 3)
         self.assertEqual(self.read("state/plan.json"), plan_before)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0)     # the plan is still usable
+        self.assertEqual(self.cli("approve", "--no-continue",
+                                  "backend-dev"), 0)     # the plan is still usable
 
     def test_replan_that_finds_no_valid_plan_keeps_the_previous_one(self):
         self.scenario({"plan": {"structured_output": samples.plan()},
                        "replan": {"structured_output": {"milestones": []}}})
         self.assertEqual(self.first_run("--max-trials", "2"), 10)
         plan_before = self.read("state/plan.json")
-        self.assertEqual(self.cli("replan", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10, self.last_output)
         self.assertIn("previous plan still awaits approval", self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "awaiting-approval")
         self.assertEqual([t["status"] for t in rs["planning"]["trials"]], ["passed", "failed"])
         self.assertEqual(self.read("state/plan.json"), plan_before)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0)
 
     def test_status_json(self):
         self.assertEqual(self.first_run(), 10)

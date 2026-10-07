@@ -201,8 +201,8 @@
         "ask",
         "accept-suggested"
       ],
-      "default": "ask",
-      "description": "ask: open questions pause the run for the developer (FR-053, FR-055a). accept-suggested: Claude's suggested answers are accepted automatically and flagged for review; a question without a suggestion still pauses"
+      "default": "accept-suggested",
+      "description": "accept-suggested (default): the plan is approved and Claude's suggested answers are accepted automatically and flagged for review; a question without a suggestion still pauses or stops the run. ask: every plan pauses for review, and open questions stop the run for the developer (FR-053, FR-055a; `--review-plan`)"
     }
   }
 }

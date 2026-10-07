@@ -63,7 +63,7 @@ class ProjectRunsTest(unittest.TestCase):
 
     def test_run_writes_code_only_into_the_configured_target(self):
         self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.output)
         self.assertEqual(self.cli("run", "backend-dev"), 0, self.output)
         self.assertTrue(os.path.isfile(os.path.join(self.t.root, "backend", "app.py")))
         self.assertFalse(os.path.exists(os.path.join(self.t.root, "app.py")))
@@ -129,7 +129,8 @@ class ProjectRunsTest(unittest.TestCase):
         shutil.rmtree(self.t.root)
         self.t.env["DEVLOOPS_CLAUDE_BIN"] = os.path.join(moved, "loops", "shared", "tests",
                                                          "fake_claude.py")
-        self.assertEqual(self.cli("approve", "backend-dev", root=moved), 0, self.output)
+        self.assertEqual(self.cli("approve", "--no-continue",
+                                  "backend-dev", root=moved), 0, self.output)
         self.assertEqual(self.cli("run", "backend-dev", root=moved), 0, self.output)
         rs = self.run_state(root=moved)
         self.assertEqual(rs["status"], "completed")
@@ -148,7 +149,8 @@ class ProjectRunsTest(unittest.TestCase):
         self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
         original = self.run_state()
         clone = self.clone()
-        self.assertEqual(self.cli("replan", "backend-dev", root=clone), 10, self.output)
+        self.assertEqual(self.cli("replan", "--no-continue",
+                                  "backend-dev", root=clone), 10, self.output)
         rs = self.run_state(root=clone)
         self.assertEqual(rs["project_root"], clone)
         self.assertEqual(rs["target_dir"], os.path.join(clone, "backend"))

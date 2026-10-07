@@ -101,7 +101,7 @@ class StubLoopMixin:
     def approved(self, *extra):
         """Plan and approve; the run is then `implementing`."""
         self.assertEqual(self.first_run(*extra), 10, self.last_output)
-        self.assertEqual(self.cli("approve", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
 
     def config_file(self, overrides):
         return self.t.write_file("config.json", json.dumps(overrides))

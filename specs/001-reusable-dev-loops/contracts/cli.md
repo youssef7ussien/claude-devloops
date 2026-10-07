@@ -34,11 +34,17 @@ Starts or resumes one loop directly (FR-039, FR-040).
 | `--target <dir>` | This loop's directory for application code (D-7, FR-035a) | Required on the first run; created if missing; must be writable, outside `loops/`, and not the other loop's target |
 | `--api-spec <file>` | An OpenAPI JSON document | **Required for `frontend-dev`** (FR-011) |
 | `--max-trials <n>` | Overrides `max_trials` (FR-006) | Integer ≥ 1 |
-| `--accept-suggested` | Sets `questions: accept-suggested` (FR-055c) | Also allowed on a later start; recorded as a `config-override` |
+| `--review-plan` | Sets `questions: ask`: pause after each plan for review (FR-053, D-13) | Also allowed on a later start; recorded as a `config-override`. Mutually exclusive with `--accept-suggested` |
+| `--accept-suggested` | Sets `questions: accept-suggested`, the default (FR-055c) | Also allowed on a later start; recorded as a `config-override` |
 
 **Behavior** (see the iteration model in [plan.md](../plan.md#iteration-model)):
 - A run exits when it reaches `awaiting-approval`, a terminal state, `stopped-on-service-error`, or
-  a hard limit.
+  a hard limit. By default the plan is approved automatically, so `awaiting-approval` is reached
+  only when plans are reviewed or a question has no suggested answer.
+- At `awaiting-approval`, when standard input and output are a terminal and `--json` is not given,
+  it asks `[a]pprove [e]dit answers [r]eplan [q]uit` (FR-056a): `a` and `r` act as `approve` and
+  `replan` (continuing), `e` opens `open-questions.md` in `$VISUAL` or `$EDITOR`, `q` (or end of
+  input) exits 10.
 - Before planning, and again on every start, it checks the required tools (FR-013b) and, for
   frontend-dev, that `--api-spec` parses as OpenAPI 3 (FR-013a).
 - **Exit codes**:
@@ -59,13 +65,30 @@ Accepts the stored plan together with any answers written in `outputs/open-quest
 the run to `implementing`. It is allowed only in `awaiting-approval`. It records `Approval`
 (FR-053, FR-054). An empty answer under a suggested answer accepts the suggestion: it is copied
 into the answer and marked `**Answer source:**` before the file is fingerprinted, and its ID is
-listed in `approval.accepted_suggestions` (FR-053a). It does not start implementation; call `run`
-afterwards.
+listed in `approval.accepted_suggestions` (FR-053a). It then continues the run (FR-056a).
 
 ### `replan <loop>`
 
-Re-runs planning with the answers in `outputs/open-questions.md`, then pauses again at
-`awaiting-approval`. This consumes a planning trial (research R-6).
+Re-runs planning with the answers in `outputs/open-questions.md`. This consumes a planning trial
+(research R-6). It then continues the run: under `questions: ask` it pauses again at
+`awaiting-approval`; under `accept-suggested` the new plan is approved and implemented. With
+`--no-continue` it always pauses at the new plan.
+
+### Continuing after a decision (`approve`, `replan`, `retry`)
+
+These commands take `--no-continue`, `--review-plan` / `--accept-suggested` (which apply to the
+continued run, so they are refused with `--no-continue`), and `--force-unlock`.
+Unless `--no-continue` is given, after recording the decision they continue as `run` does, and exit
+with the run's code (FR-056a):
+
+- for a single loop, under the same lock as the decision;
+- in a workspace with `orchestrator/state.json`, through the orchestrator, from the decided loop
+  on, so a completed backend goes on to the frontend. `--json` then prints the `orchestrate`
+  object with `decision: {command, loop}`.
+
+A refused decision runs nothing and leaves `run.json` and the orchestrator's `state.json`
+unchanged: a usage error (exit 2), another driver's lock (40), or, when it would continue, a
+missing tool (30, checked before the decision is recorded).
 
 ### `status [<loop>]`
 
@@ -82,18 +105,21 @@ research R-15).
 | `--requirements`, `--story-id`, `--story-file` | Passed to both loops |
 | `--target-root <dir>` | The default targets are `<dir>/backend` and `<dir>/frontend` [RC] |
 | `--backend-target`, `--frontend-target` | Override the per-loop targets |
-| `--accept-suggested` | Passed to both loops (FR-055c) |
+| `--review-plan`, `--accept-suggested` | Passed to both loops and recorded in `orchestrator/state.json` (`questions`), so later calls keep them (FR-055c, D-13) |
 
+- Before running either loop it checks the required tools of every loop with work left; a missing
+  one exits 30 (`missing-tool`) with nothing recorded (FR-056b).
 - The orchestrator stops and uses the same exit codes as `run`: 10 if a loop is awaiting
   approval, 20 or 30 if a loop stopped, 50 on a service error.
 - Running it again resumes. It never starts `frontend-dev` unless `backend-dev` is `completed`.
 
-### `retry <loop> --milestone <id> --reason "<text>" [--trials <n>]` (FR-063)
+### `retry <loop> --milestone <id> [--reason "<text>"] [--trials <n>]` (FR-063)
 
 Moves a `stopped-on-failure` run back to `implementing`, granting `n` more trials (default:
-`max_trials`) to the failed milestone. The grant is recorded in `run.json` `grants[]` and as a
-`retry-granted` event, with its time and reason. The reason text is passed to later fix prompts as
-developer guidance.
+`max_trials`) to the failed milestone, then continues the run (FR-056a). The grant is recorded in
+`run.json` `grants[]` and as a `retry-granted` event, with its time and reason. The reason text is
+passed to later fix prompts as developer guidance; without `--reason` it is empty and no
+guidance is passed.
 
 - For a `needs-input` stop (FR-055a), answer the questions in `outputs/open-questions.md` first,
   or leave an answer empty to accept its suggested answer (FR-053a); `retry` copies accepted
