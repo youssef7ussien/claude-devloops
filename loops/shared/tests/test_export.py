@@ -8,7 +8,7 @@ import helpers  # noqa: F401
 from devloops import cli, workspace
 from stub_loop import StubLoopMixin, WS
 
-COLUMNS = ["workspace", "loop", "step", "milestone", "trial", "session_id", "prompt_path",
+COLUMNS = ["workspace", "loop", "step", "model", "milestone", "trial", "session_id", "prompt_path",
            "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens",
            "cost_usd", "started_at", "ended_at"]
 

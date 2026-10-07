@@ -140,6 +140,33 @@ class ClaudeRunnerTest(unittest.TestCase):
         self.assertTrue(bash["hooks"][0]["command"].endswith(
             os.path.join("loops", "shared", "hooks", "guard_processes.py")))
 
+    def test_models_pick_a_model_per_step(self):
+        """`models.<step>` overrides `model`; `fix_last_trial` applies only to a last fix trial;
+        the model used is recorded on the call."""
+        self.config.update(model="sonnet", models={"plan": "opus", "fix_last_trial": "opus",
+                                                   "implement": None})
+        cases = [("plan", {}, "opus"), ("implement", {}, "sonnet"), ("fix", {}, "sonnet"),
+                 ("fix", {"last_trial": True}, "opus"),
+                 ("implement", {"last_trial": True}, "sonnet")]
+        for step, kw, model in cases:
+            with self.subTest(step=step, **kw):
+                answer = {"structured_output": samples.plan() if step == "plan" else IMPLEMENTED}
+                out = self.call(step, answer, **kw)
+                self.assertEqual(self.flag_values(self.last_argv(), "--model"), [model])
+                self.assertEqual(out.record["model"], model)
+                self.assertEqual(schema.validate(out.record, "invocation-record.schema.json"), [])
+
+    def test_models_names_every_step_and_nothing_else(self):
+        """The config schema lists the steps by hand (`additionalProperties: false`): keep it in
+        step with `STEPS`, so a new step can be given a model."""
+        names = set(schema.load("config.schema.json")["properties"]["models"]["properties"])
+        self.assertEqual(names, set(claude.STEPS) | {"fix_last_trial"})
+
+    def test_without_any_model_claude_code_picks_and_none_is_recorded(self):
+        out = self.call("plan", {"structured_output": samples.plan()})
+        self.assertNotIn("--model", self.last_argv())
+        self.assertIsNone(out.record["model"])
+
     def test_add_dirs_are_passed_resolved_and_deduplicated(self):
         inputs_dir = os.path.join(self.t.base, "inputs")
         os.makedirs(inputs_dir)

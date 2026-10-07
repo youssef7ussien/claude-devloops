@@ -188,7 +188,7 @@ def large_evidence(ws, loops=LOOPS):
     return sorted(found, key=lambda item: (-item["bytes"], item["path"]))
 
 
-SESSION_COLUMNS = ("workspace", "loop", "step", "milestone", "trial", "session_id",
+SESSION_COLUMNS = ("workspace", "loop", "step", "model", "milestone", "trial", "session_id",
                    "prompt_path", "input_tokens", "output_tokens", "cache_creation_tokens",
                    "cache_read_tokens", "cost_usd", "started_at", "ended_at")
 
@@ -197,7 +197,7 @@ def session_rows(ws):
     """One row per invocation in every loop's `state/invocations.jsonl`, in loop then call order.
 
     `prompt_path` is relative to the workspace. A token count or cost Claude did not report is
-    left empty.
+    left empty, and so is `model` when the call ran on Claude Code's default model.
     """
     for loop in LOOPS:
         loop_dir = ws.loop_dir(loop)
@@ -207,7 +207,7 @@ def session_rows(ws):
             prompt = rec.get("prompt_path")
             yield {
                 "workspace": ws.name, "loop": rec.get("loop") or loop, "step": rec.get("step"),
-                "milestone": rec.get("milestone_id"), "trial": rec.get("trial"),
+                "model": rec.get("model"), "milestone": rec.get("milestone_id"), "trial": rec.get("trial"),
                 "session_id": rec.get("session_id"),
                 "prompt_path": os.path.join(loop, prompt) if prompt else None,
                 "input_tokens": tokens.get("input"), "output_tokens": tokens.get("output"),

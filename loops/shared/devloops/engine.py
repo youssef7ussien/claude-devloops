@@ -785,7 +785,9 @@ class Engine:
             out = self._runner().call(kind, self._milestone_context(milestone, n),
                                       self.rs["target_dir"], milestone_id=mid, trial=n,
                                       trial_dir=trial_dir, snapshot=self._snapshot,
-                                      add_dirs=self._input_dirs(mid, n))
+                                      add_dirs=self._input_dirs(mid, n),
+                                      last_trial=(kind == "fix"
+                                                  and n >= selector.trial_limit(self.rs, mid)))
             trial["invocations"].append(out.record["session_id"])
             if out.ok:
                 self._record_implementation(milestone, trial, out.structured_output)

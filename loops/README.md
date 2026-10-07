@@ -703,7 +703,8 @@ to that run: `status` lists the keys that would now differ (`config_drift`). CLI
 | `max_invocations_per_run` | 60 | Hard ceiling on Claude calls per run |
 | `invocation_timeout_seconds` | 1800 | A call that runs longer fails its trial (`timeout`) |
 | `max_budget_usd_per_invocation` | null | Passed to Claude Code as a per-call budget when set |
-| `model` | null | Passed as `--model` when set |
+| `model` | null | Passed as `--model` when set: the model of every step `models` does not name. null lets Claude Code use its default |
+| `models` | {} | A model per step: `plan`, `replan`, `author-checks`, `implement`, `fix`, `validate-ui`, and `fix_last_trial` (a milestone's last allowed fix trial). See [Models per step](#models-per-step) |
 | `questions` | accept-suggested | `accept-suggested`: plans are approved and Claude's suggested answers accepted without pausing, and flagged for review. `ask`: each plan pauses for review, and open questions stop the run (`--review-plan`; see [Approval](#approval-replan-and-open-questions)) |
 | `implement_tools` | Read, Edit, Write, Glob, Grep, Bash | Tools allowed in `implement` and `fix` calls |
 | `unit_tests.enabled` / `unit_tests.command` | false / null | Run unit tests as part of validation; the command defaults to the plan's `runtime.unit_test_command` |
@@ -728,6 +729,46 @@ file, since a machine without a display cannot show it):
 `executable_path` is only needed when the Chrome channel is not installed. `devloops check` warns
 when a visible browser is configured with no display, or in the shared `devloops.json`. Like every
 setting, it is frozen at a run's first start.
+
+### Models per step
+
+Most of a run's cost is in `implement` and `fix`: one long call per milestone trial, with many
+tool calls and a growing context. `plan` runs once per run and `author-checks` once per
+milestone. So a strong model where the decisions are made and a cheaper one for the code costs
+much less than one strong model everywhere, for little loss in quality:
+
+```json
+{"config": {
+  "model": "sonnet",
+  "models": {
+    "plan": "opus",
+    "replan": "opus",
+    "author-checks": "opus",
+    "fix_last_trial": "opus"
+  }
+}}
+```
+
+| Step | Model | Why |
+|------|-------|-----|
+| `plan`, `replan` | opus | Rare, and every later step builds on the milestones and criteria they write |
+| `author-checks` | opus | Once per milestone; the checks are then frozen for every trial, and a wrong check fails trials whatever writes the code |
+| `implement`, `fix` | sonnet (`model`) | Most of the tokens; the work is laid out by the plan and tested by the checks |
+| `fix_last_trial` | opus | A milestone's last allowed fix trial (by default trial 3; after a `retry` grant, the grant's last one, so each grant ends on it): a hard failure gets a stronger attempt before the run stops. With `max_trials: 1` there is no fix trial, so it is never used |
+| `validate-ui` | sonnet (`model`) | Mostly drives the browser and reports what it sees |
+
+A step not named in `models` (or set to null) uses `model`; with both unset, Claude Code picks
+its default. Any name `claude --model` accepts works: an alias (`opus`, `sonnet`) or a full model
+ID. Put the setting in `.devloops/devloops.json` to share it, or in `devloops.local.json` for
+yourself; like every setting it is frozen at a run's first start, so it applies to new runs.
+
+To see whether a split pays off, compare runs: each call records the model it was started with
+(`model` in `invocations.jsonl`), `export-sessions` has a `model` column next to `cost_usd`, and
+the dashboards' **Claude calls** view shows the cost by model when calls ran on more than one
+(the full dashboard also shows each call's model, and groups by the model ID its transcript names).
+Calls made without `--model` count as `(Claude Code default)`, and calls recorded before devloops
+kept the model as `(not recorded)`. If the cheaper model needs many more fix trials on your project, those trials
+eat into the saving: move `fix` (or `implement`) back to the stronger model.
 
 ## Prompt overrides
 

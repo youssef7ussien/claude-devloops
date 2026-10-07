@@ -14,8 +14,12 @@ claude -p "<composed prompt>" \
   [--add-dir <directories of the input files>]   # read access outside the target
   --settings <per-call settings JSON: PreToolUse guard hook> \
   --strict-mcp-config [--mcp-config <playwright config>] \
-  [--model <config.model>] [--max-budget-usd <config.max_budget_usd_per_invocation>]
+  [--model <model>] [--max-budget-usd <config.max_budget_usd_per_invocation>]
 ```
+
+- `<model>` is `models.fix_last_trial` on a milestone's last allowed `fix` trial, else
+  `models.<step>`, else `model`; with none of them set, `--model` is left out and Claude Code uses
+  its default. The record's `model` is that value (FR-033a).
 
 - The call runs with `cwd = target_dir`.
 - `--add-dir` gives read access to the directories of the inputs (requirements, API spec, answers,

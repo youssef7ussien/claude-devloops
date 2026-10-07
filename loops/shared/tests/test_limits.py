@@ -36,6 +36,24 @@ class LimitsTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual([t["n"] for t in m1["trials"]], [1, 2])
         self.assertEqual(self.steps_called(), ["plan", "implement", "fix"])
 
+    def test_models_per_step_and_the_last_fix_trial(self):
+        """`models` picks each step's model; only the last allowed fix trial, also the last one
+        a `retry` grants, runs on `fix_last_trial`."""
+        config = self.config_file({"model": "sonnet", "models": {
+            "plan": "opus", "fix_last_trial": "opus"}})
+        self.approved("--config", config)
+        self.assertEqual(self.cli("run", "backend-dev", env=FAIL), 20, self.last_output)
+        self.assertEqual(self.cli("retry", "--no-continue", "backend-dev", "--milestone", "M01",
+                                  "--trials", "2"), 0, self.last_output)
+        self.assertEqual(self.cli("run", "backend-dev", env=FAIL), 20, self.last_output)
+
+        def model(call):
+            argv = call["argv"]
+            return argv[argv.index("--model") + 1] if "--model" in argv else None
+        self.assertEqual([(c["step"], model(c)) for c in self.t.fake_calls()],
+                         [("plan", "opus"), ("implement", "sonnet"), ("fix", "sonnet"),
+                          ("fix", "opus"), ("fix", "sonnet"), ("fix", "opus")])
+
     def test_a_call_past_the_time_limit_fails_its_trial_with_timeout(self):
         # 30 s is the schema minimum for invocation_timeout_seconds; the fake sleeps past it.
         config = self.config_file({"invocation_timeout_seconds": 30})

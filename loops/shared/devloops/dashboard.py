@@ -879,7 +879,8 @@ def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources=""):
                       else '<span class="muted small">ok</span>')
             cid = call_ids(loop, r) if call_ids else None
             prompt = r.get("prompt_path")
-            last = (f'<td class="muted small">{e((models or {}).get((loop, r.get("seq"))) or "")}</td>'
+            model = (models or {}).get((loop, r.get("seq"))) or r.get("model") or ""
+            last = (f'<td class="muted small">{e(model)}</td>'
                     if call_ids else
                     f"<td>{links.path(f'{loop}/{prompt}', 'prompt') if prompt else ''}</td>")
             attrs = f' class="row-link" data-open="{e(cid)}"' if cid else ""
@@ -899,13 +900,29 @@ def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources=""):
     head = [("Loop", 0), ("#", 1), ("Step", 0), ("Milestone", 0), ("Trial", 1), ("Session", 0),
             ("Model" if call_ids else "Prompt", 0), ("Tokens", 1), ("Cost", 1), ("Duration", 1),
             ("Result", 0)]
+    by_model = {}
+    for loop, d in data["loops"].items():
+        for r in d["invocations"]:
+            # The same name the Model column shows (the transcript's, in the full dashboard).
+            # A call from before models were recorded has no `model` key at all.
+            name = ((models or {}).get((loop, r.get("seq"))) or r.get("model")
+                    or ("(Claude Code default)" if "model" in r else "(not recorded)"))
+            entry = by_model.setdefault(name, [0, 0])
+            entry[0] += 1
+            entry[1] += r.get("cost_usd") or 0
+    # Only worth a line when calls ran on more than one model (`models` in the config).
+    split = ("" if len(by_model) < 2 else
+             '<p class="muted small">Cost by model: ' + " · ".join(
+                 f"{e(name)} {e(money(cost))} ({count} call(s))"
+                 for name, (count, cost) in sorted(by_model.items(), key=lambda x: -x[1][1]))
+             + "</p>")
     hint = ("Select a call to read its conversation, prompt, and settings." if call_ids else
             "The full dashboard shows each call's conversation.")
     body = (f'<div class="toolbar"><input class="input" type="search" placeholder="Filter calls…" '
             f'aria-label="Filter calls" data-filter-for="calls-table"><div class="chips" role="group" '
             f'aria-label="Loops">{chips}</div></div>'
             + table(head, rows, ' id="calls-table"', empty="No Claude call recorded.")
-            + f'<p class="muted small">{hint}</p>{sources}')
+            + f'{split}<p class="muted small">{hint}</p>{sources}')
     total = sum(len(d["invocations"]) for d in data["loops"].values())
     return ui.view("calls", "Claude calls", body, f"{total} headless Claude Code call(s)")
 

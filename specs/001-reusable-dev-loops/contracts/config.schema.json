@@ -35,7 +35,57 @@
         "null"
       ],
       "default": null,
-      "description": "Passed as --model when set"
+      "description": "Passed as --model when set; the model of every step `models` does not name"
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "description": "A model per step, passed as --model for that step's calls; a step not named here (or null) uses `model`. `fix_last_trial` is the model of a milestone's last allowed fix trial",
+      "properties": {
+        "plan": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "replan": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "author-checks": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "implement": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fix_last_trial": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validate-ui": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "implement_tools": {
       "type": "array",

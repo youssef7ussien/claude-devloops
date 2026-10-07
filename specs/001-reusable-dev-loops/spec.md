@@ -412,6 +412,11 @@ changing only the inputs and configuration. No loop instructions or shared infra
 - **FR-033** [I — the full-task deliverable requires a spreadsheet of "all used prompts and session
   IDs"; wording per R, CHK012]: Each loop MUST record the session ID and full prompt of **every**
   Claude Code call, tagged with its milestone and trial, so that deliverable can be compiled. Producing the spreadsheet itself is outside this spec.
+- **FR-033a** [cost]: The model MAY be configured per step (`models.<step>`, falling back to
+  `model`), and a milestone's last allowed `fix` trial MAY run on its own model
+  (`models.fix_last_trial`), so cheap work runs on a cheaper model and a hard failure gets a
+  stronger last attempt. Each call MUST record the model it was started with, and
+  `export-sessions` and the dashboards MUST show it, so the cost of a split can be measured.
 - **FR-034** [I — the progress record may be edited mid-run; promoted from A-3 per R, CHK017]:
   `state/` is the authoritative record. The milestone files and `progress.md` are views derived
   from it. If they disagree about a task's status, the loop MUST NOT treat the task as achieved

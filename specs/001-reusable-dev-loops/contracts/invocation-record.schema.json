@@ -43,6 +43,13 @@
         "validate-ui"
       ]
     },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The --model this call was started with (from `models` or `model`); null when none was passed and Claude Code used its default"
+    },
     "milestone_id": {
       "type": [
         "string",

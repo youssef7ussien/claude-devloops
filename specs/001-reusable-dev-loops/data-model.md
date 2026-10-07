@@ -223,6 +223,8 @@ Added by 002: `conversation` (`copied` or `unavailable`), with `conversation_pat
 `conversation_reason` (`not-found`, `interrupted`, `unreadable`) (002 FR-042), and
 `prompt_sources`: `[{part, source: packaged|override, path, sha256}]` of the call's three prompt
 parts (002 FR-031).
+`model`: the `--model` the call was started with (`models.<step>`, `models.fix_last_trial` on a
+milestone's last allowed fix trial, else `model`), or `null` when Claude Code chose (FR-033a).
 
 ## Approval
 

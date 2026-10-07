@@ -4,6 +4,7 @@
   "invocation_timeout_seconds": 1800,
   "max_budget_usd_per_invocation": null,
   "model": null,
+  "models": {},
   "questions": "accept-suggested",
   "implement_tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
   "unit_tests": {

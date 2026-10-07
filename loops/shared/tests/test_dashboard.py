@@ -53,6 +53,26 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual((stats["milestones"], stats["achieved"], stats["trials"],
                           stats["first_try"], stats["calls"]), (2, 2, 2, 2, 3))
 
+    def test_cost_by_model_when_calls_ran_on_more_than_one(self):
+        self.approved()
+        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertNotIn("Cost by model", self.page())  # one model: nothing to split
+
+        records = [{"seq": 1, "step": "plan", "model": "opus", "cost_usd": 0.5},
+                   {"seq": 2, "step": "implement", "model": "sonnet", "cost_usd": 0.25},
+                   {"seq": 3, "step": "fix", "model": "sonnet", "cost_usd": 0.25},
+                   {"seq": 4, "step": "fix", "model": None, "cost_usd": 0.1},  # no --model
+                   {"seq": 5, "step": "fix", "cost_usd": 0.05}]  # recorded before `model`
+        view = dashboard.calls_view({"loops": {"backend-dev": {"invocations": records}}})
+        self.assertIn("Cost by model: opus $0.50 (1 call(s)) · sonnet $0.50 (2 call(s)) · "
+                      "(Claude Code default) $0.10 (1 call(s)) · (not recorded) $0.05 (1 call(s))",
+                      view)
+        # The full dashboard groups by the model the transcript names, like its Model column.
+        view = dashboard.calls_view({"loops": {"backend-dev": {"invocations": records}}},
+                                    call_ids=lambda loop, r: f"c{r['seq']}",
+                                    models={("backend-dev", 1): "claude-opus-5-5"})
+        self.assertIn("claude-opus-5-5 $0.50 (1 call(s))", view)
+
     def test_failed_trials_and_retries_are_counted(self):
         self.approved()
         self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,

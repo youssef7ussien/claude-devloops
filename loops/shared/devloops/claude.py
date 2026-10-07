@@ -205,8 +205,16 @@ class ClaudeRunner:
             {"matcher": "Bash", "hooks": hook("guard_processes.py")},
         ]}}
 
+    def model_for(self, step, last_trial=False):
+        """The `--model` of a call: `models.fix_last_trial` for a milestone's last allowed fix
+        trial, else `models.<step>`, else `model`; None lets Claude Code pick its default."""
+        models = self.config.get("models") or {}
+        if step == "fix" and last_trial and models.get("fix_last_trial"):
+            return models["fix_last_trial"]
+        return models.get(step) or self.config.get("model") or None
+
     def build_argv(self, step, prompt, session_id, settings_path, mcp_config_path=None,
-                   add_dirs=()):
+                   add_dirs=(), model=None):
         spec = STEPS[step]
         stream = spec.get("stream", False)
         tools = spec["tools"] if spec["tools"] is not None else list(self.config["implement_tools"])
@@ -228,8 +236,8 @@ class ClaudeRunner:
         argv += ["--settings", settings_path, "--strict-mcp-config"]
         if mcp_config_path:
             argv += ["--mcp-config", mcp_config_path]
-        if self.config.get("model"):
-            argv += ["--model", self.config["model"]]
+        if model:
+            argv += ["--model", model]
         if self.config.get("max_budget_usd_per_invocation") is not None:
             argv += ["--max-budget-usd", str(self.config["max_budget_usd_per_invocation"])]
         return argv
@@ -237,13 +245,14 @@ class ClaudeRunner:
     # --- the call --------------------------------------------------------------------------------
 
     def call(self, step, context, target_dir, milestone_id=None, trial=None, trial_dir=None,
-             mcp_config_path=None, snapshot=None, add_dirs=()):
+             mcp_config_path=None, snapshot=None, add_dirs=(), last_trial=False):
         """Run one step and return a `CallResult`.
 
         `snapshot`, if given, is a zero-argument function called just before the process starts
         and just after it exits, so the two snapshots bracket only Claude's own activity.
         `add_dirs` are directories Claude may read outside the target (the input files); the
-        write guard still confines writes.
+        write guard still confines writes. `last_trial` marks a milestone's last allowed `fix`
+        trial, which runs on `models.fix_last_trial` when that is set.
         """
         if step not in STEPS:
             raise ValueError(f"unknown step {step!r}")
@@ -265,8 +274,9 @@ class ClaudeRunner:
         session_id = str(uuid.uuid4())
         via_stdin = len(prompt.encode("utf-8")) > MAX_ARGV_PROMPT_BYTES
         add_dirs = sorted({os.path.realpath(d) for d in add_dirs if d and os.path.isdir(d)})
+        model = self.model_for(step, last_trial)
         argv = self.build_argv(step, None if via_stdin else prompt, session_id, settings_path,
-                               mcp_config_path, add_dirs)
+                               mcp_config_path, add_dirs, model)
         env = dict(self.env)
         env["DEVLOOPS_ALLOWED_ROOTS"] = os.path.realpath(target_dir) if STEPS[step]["writes"] else ""
 
@@ -290,7 +300,7 @@ class ClaudeRunner:
         self._classify(out, step, result, returncode, stderr, timed_out)
 
         record = self._record(seq, session_id, step, milestone_id, trial, prompt_path, started_at,
-                              ended_at, elapsed_ms, result, timed_out, out.failure_class)
+                              ended_at, elapsed_ms, result, timed_out, out.failure_class, model)
         conversation, conversation_redacted = self._copy_conversation(
             seq, step, record["session_id"], target_dir, timed_out)
         record.update(conversation, prompt_sources=prompt_sources)
@@ -374,7 +384,7 @@ class ClaudeRunner:
         out.ok = True
 
     def _record(self, seq, session_id, step, milestone_id, trial, prompt_path, started_at,
-                ended_at, elapsed_ms, result, timed_out, failure_class):
+                ended_at, elapsed_ms, result, timed_out, failure_class, model=None):
         result = result or {}
         usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
         return {
@@ -382,6 +392,7 @@ class ClaudeRunner:
             "session_id": result.get("session_id") or session_id,
             "loop": self.loop,
             "step": step,
+            "model": model,
             "milestone_id": milestone_id,
             "trial": trial,
             "prompt_path": self._rel(prompt_path),

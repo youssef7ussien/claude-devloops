@@ -110,6 +110,7 @@ _CONFIG = {
     "invocation_timeout_seconds": 1800,
     "max_budget_usd_per_invocation": None,
     "model": None,
+    "models": {},
     "implement_tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
     "unit_tests": {"enabled": False, "command": None},
     "runtime": {"ready_timeout_seconds": 120},
