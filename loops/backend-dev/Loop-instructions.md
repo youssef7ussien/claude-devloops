@@ -33,6 +33,12 @@ implements it; never document an endpoint ahead of implementing it, and never le
 operation in the document once it stops existing. A Swagger UI or other rendering of this document
 is optional.
 
+The driver publishes this document as the backend's contract with only the operations its checks
+have called. An implemented operation that no check covers does not fail the milestone: it is
+simply left out of the published contract until a check calls it. So never delete an implemented
+endpoint from the document to get past validation; only a check that calls an operation the
+document does not declare fails the contract.
+
 ## Implementing a milestone
 
 Change only what the milestone's tasks need. Do not refactor unrelated code, and keep the

@@ -17,6 +17,19 @@ done: only the driver's own validation can mark a milestone achieved.
   target are blocked or detected, and they fail the trial.
 - Never edit, move, or delete the requirements or any input file.
 
+## Processes you start
+
+- Stop only the processes you started, by their PID: start a server in the background with
+  `cmd > server.log 2>&1 & echo $! > server.pid`, and stop it with `kill $(cat server.pid)`.
+- Never stop processes by name or pattern (`pkill`, `killall`, `kill $(pgrep ...)`,
+  `ps ... | grep ... | xargs kill`). This call and the driver run with the target path in their
+  command lines, so such a pattern can end this very call: the trial then fails with exit 143 and
+  your result is lost. These commands are blocked, as are `kill 0`, `kill -1`, and killing a
+  process group. To check that a process stopped, use `kill -0 $(cat server.pid)` or
+  `ps -p $(cat server.pid)`; to free a port, `fuser -k <port>/tcp` is fine.
+- Stop everything you started before you return your result. The driver starts the application
+  itself, on the plan's runtime, to validate it.
+
 ## Single-story scope
 
 When the Context block has a `story_scope` block, the run covers one user story only:

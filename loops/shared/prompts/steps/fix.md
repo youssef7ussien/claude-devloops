@@ -27,5 +27,6 @@ directory so that the milestone passes.
 
 Return the same result as the `implement` step: `tasks` (`task_id`, `status`, `note`),
 `assumptions` (`{text, affects}`), `needs_input` (`{question, requirement_refs, suggested_answer,
-suggestion_reason}`; anything that would add, remove, or contradict a requirement goes here), and
+suggestion_reason}`; anything that would add, remove, or contradict a requirement goes here; as
+in `implement`, still finish the milestone, building on your suggested answer), and
 `files_changed`.

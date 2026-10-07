@@ -735,8 +735,11 @@ def milestone_card(loop, m, links=FILE_LINKS, call_ref=None):
     contract = validation.get("contract")
     if contract:
         unmatched = contract.get("unmatched_operations") or []
+        unverified = contract.get("unverified_operations") or []
         parts.append(f'<p>API contract: {pill("passed" if contract.get("passed") else "failed", TRIAL_STATUS)}'
                      + (f' Unmatched: <code>{e(", ".join(unmatched))}</code>' if unmatched else "")
+                     + (f' Not verified by any check, so not published: '
+                        f'<code>{e(", ".join(unverified))}</code>' if unverified else "")
                      + "</p>")
 
     rows = []

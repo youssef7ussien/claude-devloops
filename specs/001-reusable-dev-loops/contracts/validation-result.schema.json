@@ -145,7 +145,22 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "calls to operations the document does not declare (backend checks, or the browser's requests for frontend-dev); any fails the contract"
+        },
+        "unverified_operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "backend: documented operations no achieved milestone's check has verified; they do not fail the trial and are left out of the published outputs/openapi.json (FR-019)"
+        },
+        "covered_operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "backend: the documented operations this milestone's checks verified (a success status on the path really called); later milestones and publishing use them"
         }
       }
     },

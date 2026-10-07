@@ -332,7 +332,8 @@ needs one fails.
      and its evidence.
    - The driver then validates: it starts the runtime and runs the checks (backend), or serves
      the UI and runs a restricted `validate-ui` browser call (frontend). It checks the contract,
-     runs the optional unit tests, and audits that nothing was written outside the target.
+     runs the optional unit tests, and audits that nothing was written outside the target. What
+     passes and what fails is under [Trials and failures](#trials-and-failures).
    - A pass marks the milestone and its tasks achieved. A failure uses one of `max_trials` trials.
 4. **Complete** when every milestone is achieved. The final report is written to
    `outputs/final-report.md`.
@@ -491,12 +492,12 @@ The `questions` setting decides who answers:
 
 | `questions` | Plan | A question during implementation (`needs-input`) |
 |-------------|------|--------------------------------------------------|
-| `accept-suggested` (default) | Approved at once with the suggested answers (`approval.action: auto-approve`), including a stack Claude proposed (FR-058) | Its suggestion is accepted; that trial fails with `needs-input` and counts, and the next trial (a `fix`) gets the answer |
+| `accept-suggested` (default) | Approved at once with the suggested answers (`approval.action: auto-approve`), including a stack Claude proposed (FR-058) | Its suggestion is accepted and the trial, which Claude built on that suggestion, is validated as it is: it passes or fails like any trial, and a later `fix` trial gets the answer |
 | `ask` (`--review-plan`) | The run pauses (exit 10, or the [review prompt](#quick-start)) until `approve` or `replan` | The milestone fails at once (exit 20) until you answer and `retry` |
 
 Under both, a question **without** a suggested answer pauses the plan or stops the milestone,
-because there is nothing to accept. On a milestone's last trial a `needs-input` question stops
-the run too, since no trial is left to use the answer.
+because there is nothing to accept. See [Trials and failures](#trials-and-failures) for how a
+question fits into a milestone's trials.
 
 ### Reviewing a plan
 
@@ -531,12 +532,141 @@ or `answers-accepted` event, and is listed first in `final-report.md`, under **S
 accepted**, next to **Assumptions for review**. The dashboards show them under **Needs
 attention**. Review them like assumptions: they decided something the requirements left open.
 
+## Trials and failures
+
+A milestone is built in **trials**. Each trial is one Claude call (`implement` the first time,
+`fix` after that) followed by the driver's own validation. A milestone has `max_trials` trials
+(3 by default; `retry` grants more). A trial is failed only by what the driver finds, never by
+what Claude says, and every failure is recorded with a reason, a detail, and its evidence.
+
+### What a trial sees
+
+A `fix` trial starts from the previous trial's failure: its reason and detail, and the paths of
+its `validation.json` and `evidence/` (curl commands and responses, screenshots, runtime logs).
+It also gets every answer in `open-questions.md` (yours and accepted suggestions), and the
+`--reason` of each `retry` for that milestone as developer guidance. The milestone's acceptance
+criteria and, for the backend, its HTTP checks are frozen: a fix changes the implementation,
+never the checks.
+
+### Why a trial fails
+
+| Reason | What happened | Counts toward `max_trials`? |
+|--------|---------------|-----------------------------|
+| `validation-failed` | A criterion's check failed, a check called an operation the OpenAPI document does not declare, the enabled unit tests failed, or (frontend) the browser called the API outside the contract | Yes |
+| `needs-input` | The call raised a question, and the run reviews questions (`ask`) or the question has no suggested answer. The run stops at once, whatever trials remain | Yes, and the run stops (exit 20) |
+| `boundary-violation` | Something was written outside the target. A write tool is blocked by a hook; a write through Bash is caught by the before/after audit | Yes |
+| `claude-error` | Claude Code exited with an error. Exit code 143 means the call was killed (SIGTERM), most often by a `pkill` or `killall` it ran itself (see [Processes Claude starts](#processes-claude-starts)) | Yes |
+| `timeout` | The call ran longer than `invocation_timeout_seconds` | Yes |
+| `invalid-output` | The call's structured result did not match its schema, or `author-checks` returned unusable checks | Yes |
+| `runtime-start-failed` | The application did not start, or `ready_url` did not answer within `runtime.ready_timeout_seconds` | Yes |
+| `interrupted` | The driver itself was stopped mid-trial (`Ctrl C`, a crash); found on the next start | Yes |
+| a service error | Rate limit, outage, or expired login (`rate-limited`, `service-unavailable`, `auth-failed`). The trial is **void** and the run stops with exit 50 | **No**: the same trial number runs again on the next start |
+
+When the last trial fails, the run stops with `trials-exhausted` (exit 20). `retry` grants more
+trials and continues.
+
+### What passes a backend milestone
+
+All of these, from the driver's own run of the application:
+
+- every acceptance criterion is covered by checks that all passed, with evidence;
+- **the contract**: no check calls an operation the target's OpenAPI document does not declare
+  (a check expecting 404 or 405 on an undocumented path is fine: it shows the path is absent);
+- the unit tests pass, when `unit_tests.enabled`;
+- nothing was written outside the target.
+
+An operation the document declares but **no check verifies** does not fail the milestone. A
+check verifies an operation when it expects a success status on a path the operation matches,
+using the path it really called (with captured values filled in); a check expecting 404 or 405
+does not, since it never reaches the operation's success path. Each passing trial records what
+its checks verified (`contract.covered_operations`), and later milestones and publishing use that
+record. An operation nothing verifies is *unverified*: `validation.json` lists it under `contract.unverified_operations`, and it is left
+out of the published `outputs/openapi.json`, which only ever names operations an achieved
+milestone's checks have called. Each achieved milestone republishes the document from every
+achieved milestone's checks, so a later milestone whose checks call the operation adds it. The
+operations left out are listed in `run.json` (`openapi_artifact.omitted_operations`), in
+`final-report.md`, and in the published document itself, under
+`x-devloops-unverified-operations`: `frontend-dev` is told they exist but must not be called, and
+to raise a question if a requirement needs one. A path item that is only a `$ref` is published as
+it is. Claude is told never to delete an implemented endpoint from the document to get past
+validation.
+
+### Questions raised during a trial
+
+An `implement` or `fix` call that needs a decision the requirements do not make returns it as a
+question with a suggested answer, and builds the rest of the milestone on that suggestion.
+
+- **`accept-suggested` (default)**: the suggestion is accepted (marked in `open-questions.md`,
+  recorded in `run.json` `auto_answers` and an `answers-accepted` event), and the trial goes on to
+  validation as built. If it passes, the milestone is achieved; if not, it is an ordinary
+  `validation-failed` trial and the next `fix` gets the answer. Asking costs nothing by itself.
+  When such a milestone runs out of trials, the stop message names the questions answered
+  automatically, since its trials were built on them: check them before a `retry`. You can
+  rewrite an answer first; the `retry` records the file as it is then.
+- **`ask`, or a question with no suggestion**: the trial fails with `needs-input` and the run stops
+  at once. Answer in `open-questions.md` (an empty answer accepts the suggestion), then
+  `devloops retry <loop> --milestone <id>`.
+
+### Processes Claude starts
+
+Claude often starts the application to try it during a trial. Each call runs with the target
+path, the prompt, and the inputs on its own command line, and so does the driver, so stopping
+processes by pattern can kill the call itself: `pkill -f "<target>/backend"` matches Claude's own
+process, the call dies with exit 143, its result is lost, and the trial fails with
+`claude-error`. So:
+
+- the prompts tell Claude to stop only processes it started, by PID (`cmd & echo $! > app.pid`,
+  then `kill $(cat app.pid)`), and to stop them before returning;
+- a Bash hook reads every command in every call (each simple command, including `$(...)`,
+  backticks, and `sh -c '...'`, and past launchers such as `sudo -u me` or `timeout 5`) and
+  blocks:
+  - `pkill`, `killall`, and `killall5`;
+  - `kill 0`, `kill -1`, and `kill -- -<group>`, which kill the process group or every process
+    of the user;
+  - any `kill` (or `xargs kill`) in a command that also looks processes up with `pgrep`, `pidof`,
+    or `ps`, even split across lines (`P=$(pgrep -f app); kill $P`).
+
+  Killing by PID (`kill $(cat app.pid)`), checking it (`kill -0 $(cat app.pid)`,
+  `ps -p $(cat app.pid)`), freeing a port (`fuser -k 8000/tcp`, `kill $(lsof -t -i:8000)`), and a
+  mere mention (`grep -rn pkill .`) are allowed. The block message says how to do it instead;
+- the driver starts the application itself for validation, from the plan's runtime, and stops it
+  afterwards, whatever Claude left running.
+
+### Example: one milestone, three trials
+
+A run reported milestone M07 as `trials-exhausted` although its code worked:
+
+1. Trial 1 passed every endpoint check, but `openapi.json` declared `GET
+   /learning-cards/{id}/notes`, which no check called. That failed the contract.
+2. Trial 2 deleted the operation from the document to pass, and raised a question about adding it
+   back. The question failed the trial before it was validated.
+3. Trial 3 checked every criterion by hand, then ran `pkill -f "quickflow/backend"` to stop its
+   test server. That killed its own Claude process (exit 143), so the trial failed with
+   `claude-error`.
+
+Now trial 1 passes, with the notes operation left out of the published document and listed as
+omitted. If the target's document stops loading right after a milestone passes, the milestone is
+failed again and the run stops (`retry` publishes it), so an older artifact is never left in
+place. Trial 2 would have been validated and passed with its question's suggestion accepted.
+Trial 3's `pkill` is blocked, and Claude is told to stop its server by PID.
+
+### When a milestone runs out of trials
+
+1. Read why: `devloops status <loop>` shows the last failure. `progress.md`, the dashboard, and
+   `state/milestones/<id>/trials/<n>/` have each trial's `trial.json` (reason and detail),
+   `validation.json` (per criterion, the checks, and the contract), and `evidence/`.
+2. Grant more trials and continue: `devloops retry <loop> --milestone <id> --reason "<what to
+   change>"`. The reason reaches the next `fix` call as guidance; leave it out if the evidence
+   says enough. `--trials n` grants `n` trials (default `max_trials`).
+3. If the plan itself is wrong, start a new workspace with clearer requirements: a finished
+   milestone cannot be replanned.
+
 ## Recovery
 
 | Situation | What to do |
 |-----------|------------|
 | The driver was killed or the machine stopped mid-trial | Run the same command again. The unfinished trial is recorded as failed (`interrupted`) and counts toward the limit |
-| A milestone used all its trials (exit 20, `trials-exhausted`) | Read the last trial's `validation.json` and `evidence/`, then `retry <loop> --milestone <id> --reason "<guidance>" [--trials n]`; it continues the run |
+| A milestone used all its trials (exit 20, `trials-exhausted`) | Read the last trial's `validation.json` and `evidence/`, then `retry <loop> --milestone <id> --reason "<guidance>" [--trials n]`; it continues the run (see [Trials and failures](#when-a-milestone-runs-out-of-trials)) |
 | A question stopped the run (exit 20, `needs-input`) | Answer it in `open-questions.md`, or leave the answer empty to accept Claude's suggestion, then `retry <loop> --milestone <id>`; it continues the run. `retry` is refused while a question has neither an answer nor a suggestion |
 | A tool is missing (exit 30, `missing-tool`) from `orchestrate` | Nothing was recorded: install it (`devloops check` shows how), then `orchestrate` again |
 | Planning failed `max_trials` times (`planning-trials-exhausted`) | Final: start a new workspace, perhaps with clearer requirements |

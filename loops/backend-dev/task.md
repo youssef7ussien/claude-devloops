@@ -19,8 +19,8 @@ rules; this file only records the current run's inputs and outputs.
 
 - `outputs/milestone-<NN>-<slug>.md`: one per milestone, with its tasks and acceptance criteria.
 - `outputs/plan-summary.md`: the chosen stack and the milestone list.
-- `outputs/openapi.json`: the OpenAPI 3 document, published once a milestone that changes it is
-  achieved (never with an endpoint no check has verified).
+- `outputs/openapi.json`: the OpenAPI 3 document, published each time a milestone is achieved,
+  with only the operations a check has verified (the rest are listed as omitted).
 - `outputs/open-questions.md`: anything you could not resolve from the requirements.
 - `progress.md` and `outputs/final-report.md`: run status and outcome, rendered by the driver.
 

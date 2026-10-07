@@ -195,12 +195,15 @@ class ClaudeRunner:
         return {k: v for k, v in self.step_schema(step).items() if k not in ("$schema", "$id")}
 
     def settings(self):
-        guard = self.kit.path("shared", "hooks", "guard_writes.py")
-        return {"hooks": {"PreToolUse": [{
-            "matcher": "|".join(WRITE_TOOLS),
-            "hooks": [{"type": "command",
-                       "command": f"{shlex.quote(sys.executable)} {shlex.quote(guard)}"}],
-        }]}}
+        def hook(name):
+            path = self.kit.path("shared", "hooks", name)
+            return [{"type": "command",
+                     "command": f"{shlex.quote(sys.executable)} {shlex.quote(path)}"}]
+        return {"hooks": {"PreToolUse": [
+            {"matcher": "|".join(WRITE_TOOLS), "hooks": hook("guard_writes.py")},
+            # No killing by name or pattern: it can end this very call (exit 143).
+            {"matcher": "Bash", "hooks": hook("guard_processes.py")},
+        ]}}
 
     def build_argv(self, step, prompt, session_id, settings_path, mcp_config_path=None,
                    add_dirs=()):

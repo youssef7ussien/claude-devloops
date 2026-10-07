@@ -34,6 +34,10 @@ call an undocumented endpoint, and never invent one to fill a gap: if a requirem
 operation the document does not have, raise it as a question. Take the backend's address from
 configuration at run time (the context gives it when one is known); do not hard-code a guess.
 
+When the document lists operations under `x-devloops-unverified-operations`, the backend has them
+but no check ever verified them, so they are not part of the contract: do not call them. If a
+requirement needs one, raise it as a question, saying that the backend has it unverified.
+
 ## Implementing a milestone
 
 Change only what the milestone's tasks need. Do not refactor unrelated code, and keep the

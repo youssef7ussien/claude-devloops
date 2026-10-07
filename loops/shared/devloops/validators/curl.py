@@ -3,11 +3,12 @@
 Research R-8. Evidence comes from real `curl` runs the driver performs itself, never from the
 model's account of them (FR-032, SC-002). The checks are authored once by a separate, read-only
 Claude call (`author-checks`) and then frozen to `state/milestones/<id>/checks.json`, so a `fix`
-trial cannot weaken its own tests (FR-069). The contract check (FR-019) also requires, at every
-publication, that every operation the target's OpenAPI document declares is exercised by a check
-of this milestone or of an earlier achieved one -- so the published document never names an
-endpoint nothing ever verified.
+trial cannot weaken its own tests (FR-069). The contract check (FR-019) fails a trial whose checks
+call an operation the target's OpenAPI document does not declare. The published
+`outputs/openapi.json` names only the operations an achieved milestone's checks verified (a
+success status, on the path really called); the others are left out and listed (D-14).
 """
+import copy
 import hashlib
 import json
 import os
@@ -260,15 +261,37 @@ def _criteria(acceptance_criteria, checks, results_by_id):
     return entries
 
 
-def _earlier_achieved_checks(loop_dir, run_state, exclude_milestone_id):
-    pairs = []
+def _achieved_coverage(loop_dir, run_state, exclude_milestone_id=None):
+    """`(operations, requests)` verified by the achieved milestones other than the excluded one.
+
+    `operations` are the `(METHOD, template)` pairs each one's passing trial recorded in its
+    `validation.json` (`contract.covered_operations`, matched from the paths its checks really
+    called). A milestone achieved before that was recorded gives its checks' raw
+    `(method, path)` in `requests` instead, matched against the document by the caller.
+    """
+    operations, requests = set(), []
     for mid, ms in (run_state.get("milestones") or {}).items():
         if mid == exclude_milestone_id or ms.get("status") != "achieved":
             continue
-        doc = state.read_json(_checks_path(loop_dir, mid))
-        for check in (doc or {}).get("checks", []):
-            pairs.append((check["request"]["method"], check["request"]["path"]))
-    return pairs
+        passed = [t["n"] for t in ms.get("trials") or [] if t.get("status") == "passed"]
+        doc = state.read_json(os.path.join(loop_dir, "state", "milestones", mid, "trials",
+                                           str(passed[-1]), "validation.json")) if passed else None
+        recorded = ((doc or {}).get("contract") or {}).get("covered_operations")
+        if recorded is not None:
+            operations |= {tuple(op.split(" ", 1)) for op in recorded}
+            continue
+        checks = state.read_json(_checks_path(loop_dir, mid))
+        requests += [(c["request"]["method"], c["request"]["path"])
+                     for c in (checks or {}).get("checks", [])]
+    return operations, requests
+
+
+def _covered(spec, base_url, operations, requests):
+    """The declared operations among `operations`, plus those `requests` call."""
+    declared = openapi.operations(spec)
+    found = {op for op in operations if op in declared}
+    return found | {m for m in (openapi.match(spec, method, path, base_url)
+                                for method, path in requests) if m is not None}
 
 
 # A check expecting one of these statuses on an undocumented (method, path) shows the endpoint is
@@ -276,32 +299,64 @@ def _earlier_achieved_checks(loop_dir, run_state, exclude_milestone_id):
 ABSENCE_STATUSES = (404, 405)
 
 
-def _contract(spec, base_url, checks_used, other_checks):
-    """`checks_used` is `[(method, path, expected_status)]` for this milestone's checks."""
+def _contract(spec, base_url, checks_used, earlier):
+    """`checks_used` is `[(method, path, expected_status)]` for this milestone's checks, with
+    the paths they really called; `earlier` is `_achieved_coverage` of the other milestones.
+
+    The contract fails when a check calls an operation the document does not declare
+    (`unmatched_operations`), or when there is no document. A check expecting 404 or 405 neither
+    fails it on an undocumented path (it shows the path is absent) nor verifies a documented
+    operation (its success path was never called). A declared operation no achieved check has
+    verified is in `unverified_operations`: it does not fail the trial, and it is left out of the
+    published `outputs/openapi.json` (see `_publish`). `covered_operations` records what this
+    milestone's checks verified, for later milestones and for publishing.
+    """
     if spec is None:
         return {"passed": False,
-               "unmatched_operations": ["no OpenAPI document at runtime.openapi_path"]}
-    unmatched = []
-    covered = set()
+                "unmatched_operations": ["no OpenAPI document at runtime.openapi_path"],
+                "unverified_operations": [], "covered_operations": []}
+    unmatched, mine = [], set()
     for method, path, expected_status in checks_used:
         matched = openapi.match(spec, method, path, base_url)
-        if matched is not None:
-            covered.add(matched)
+        if matched is None:
+            if expected_status not in ABSENCE_STATUSES:
+                unmatched.append(f"{method} {path}")
         elif expected_status not in ABSENCE_STATUSES:
-            unmatched.append(f"{method} {path}")
-    for method, path in other_checks:
-        matched = openapi.match(spec, method, path, base_url)
-        if matched is not None:
-            covered.add(matched)
-    for op in openapi.operations(spec):
-        if op not in covered:
-            unmatched.append(f"{op[0]} {op[1]}")
-    seen, uniq = set(), []
-    for u in unmatched:
-        if u not in seen:
-            seen.add(u)
-            uniq.append(u)
-    return {"passed": not uniq, "unmatched_operations": uniq}
+            mine.add(matched)
+    covered = mine | _covered(spec, base_url, *earlier)
+    return {"passed": not unmatched, "unmatched_operations": list(dict.fromkeys(unmatched)),
+            "unverified_operations": _names(openapi.operations(spec) - covered),
+            "covered_operations": _names(mine)}
+
+
+def _names(operations):
+    return sorted(f"{m} {p}" for m, p in operations)
+
+
+UNVERIFIED_KEY = "x-devloops-unverified-operations"
+
+
+def verified_document(spec, covered):
+    """`(document, omitted)`: `spec` without the declared operations not in `covered`, and those
+    operations as `"METHOD /path"`. A path whose operations were all removed goes too; a path
+    item that is only a `$ref` (no inline operation) is kept as it is. The document names the
+    omitted operations under `x-devloops-unverified-operations`, so the frontend knows they exist
+    but must not be relied on."""
+    omitted = _names(openapi.operations(spec) - covered)
+    doc = copy.deepcopy(spec)
+    for template, item in list((doc.get("paths") or {}).items()):
+        if not isinstance(item, dict):
+            continue
+        ops = [m for m in openapi.HTTP_METHODS if m in item]
+        for method in ops:
+            if (method.upper(), template) not in covered:
+                del item[method]
+        if ops and not any(m in item for m in openapi.HTTP_METHODS):
+            del doc["paths"][template]
+    doc.pop(UNVERIFIED_KEY, None)
+    if omitted:
+        doc[UNVERIFIED_KEY] = omitted
+    return doc, omitted
 
 
 # --- the adapter interface ------------------------------------------------------------------------
@@ -334,21 +389,39 @@ def validate(ctx):
     results_by_id = {r["check_id"]: r for r in check_results}
     criteria = _criteria(ctx.milestone["acceptance_criteria"], checks_doc["checks"], results_by_id)
     spec = _load_spec(ctx.target_dir, runtime)
-    other_checks = _earlier_achieved_checks(ctx.loop_dir, ctx.run_state, ctx.milestone["id"])
-    contract = _contract(spec, runtime["base_url"], checks_used, other_checks)
+    earlier = _achieved_coverage(ctx.loop_dir, ctx.run_state, ctx.milestone["id"])
+    contract = _contract(spec, runtime["base_url"], checks_used, earlier)
 
     return {"kind": "curl", "checks": check_results, "criteria": criteria, "contract": contract,
            "unit_tests": unit_tests}
 
 
-def on_achieved(ctx):
-    """Publish the target's OpenAPI document as this workspace's verified artifact (FR-019)."""
+def _publish(ctx):
+    """Publish the target's OpenAPI document as this workspace's verified artifact (FR-019):
+    only the operations a check of an achieved milestone has called. The others are listed in
+    `openapi_artifact.omitted_operations`; a later milestone whose checks call one publishes it.
+
+    Each achieved milestone publishes from every achieved milestone's verified operations, so the
+    last one leaves the final document. It runs right after the milestone was validated against
+    the same document, so the document loads. If it no longer does, the milestone is failed
+    again and the run stops, rather than leave an older artifact in place (`retry` validates and
+    publishes it again).
+    """
     runtime = ctx.runtime
-    spec_path = os.path.join(ctx.target_dir, runtime.get("openapi_path") or "")
-    if not os.path.isfile(spec_path):
-        return
-    with open(spec_path, "rb") as f:
-        content = f.read()
+    spec = _load_spec(ctx.target_dir, runtime)
+    if spec is None:
+        mid = ctx.milestone["id"]
+        ms = ctx.run_state["milestones"][mid]
+        ms["status"] = "failed"
+        ms["tasks"] = {tid: "failed" for tid in ms.get("tasks", {})}
+        raise state.StopRun("stopped-on-failure", "validation-failed",
+                            f"the OpenAPI document at {runtime.get('openapi_path')} no longer "
+                            f"loads after {mid} passed, so nothing was published; fix it, then "
+                            f"`devloops retry` {mid}", milestone_id=mid)
+    covered = _covered(spec, runtime.get("base_url"), *_achieved_coverage(ctx.loop_dir,
+                                                                          ctx.run_state))
+    doc, omitted = verified_document(spec, covered)
+    content = (json.dumps(doc, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     dest = os.path.join(ctx.loop_dir, "outputs", "openapi.json")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "wb") as f:
@@ -356,34 +429,8 @@ def on_achieved(ctx):
     ctx.run_state["openapi_artifact"] = {
         "path": os.path.relpath(dest, ctx.loop_dir),
         "sha256": hashlib.sha256(content).hexdigest(),
+        "omitted_operations": omitted,
     }
 
 
-def on_complete(ctx):
-    """A last safeguard (FR-019): the completed document must still name only verified operations.
-
-    A failure here demotes the last milestone back to `failed` and stops the run instead of
-    completing it; `Engine._complete` has no try/except around this call, so the `StopRun` we
-    raise propagates all the way out to `Engine.run`, which records the stop the same way any
-    other stop is recorded.
-    """
-    runtime = ctx.runtime
-    spec = _load_spec(ctx.target_dir, runtime)
-    if spec is None:
-        return
-    other_checks = _earlier_achieved_checks(ctx.loop_dir, ctx.run_state, exclude_milestone_id=None)
-    covered = {m for m in (openapi.match(spec, method, path, runtime.get("base_url"))
-                          for method, path in other_checks) if m is not None}
-    unmatched = [f"{op[0]} {op[1]}" for op in openapi.operations(spec) if op not in covered]
-    if not unmatched:
-        return
-    last_id = ctx.plan["milestones"][-1]["id"]
-    ms = (ctx.run_state.get("milestones") or {}).get(last_id)
-    if ms is not None:
-        ms["status"] = "failed"
-        for tid, tstatus in ms.get("tasks", {}).items():
-            if tstatus == "achieved":
-                ms["tasks"][tid] = "failed"
-    raise state.StopRun("stopped-on-failure", "validation-failed",
-                        "the completed OpenAPI document names operation(s) that no check ever "
-                        "exercised (last safeguard): " + ", ".join(unmatched), milestone_id=last_id)
+on_achieved = _publish

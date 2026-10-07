@@ -19,9 +19,12 @@ Implement the milestone given in the Context block, in the target directory.
   task or criterion IDs. Each one is shown to the developer for review.
 - `needs_input`: questions you cannot resolve without adding, removing, or contradicting a
   requirement, as `{question, requirement_refs, suggested_answer, suggestion_reason}`. Anything
-  that would change the requirements goes here, never into `assumptions`. A non-empty list stops
-  the milestone until the developer answers. `suggested_answer` is the answer you would choose,
-  concrete enough to use as written (the developer may accept it unchanged), and
-  `suggestion_reason` says why; leave `suggested_answer` empty only when no answer can reasonably
-  be recommended.
+  that would change the requirements goes here, never into `assumptions`. `suggested_answer` is
+  the answer you would choose, concrete enough to use as written (the developer may accept it
+  unchanged), and `suggestion_reason` says why; leave `suggested_answer` empty only when no
+  answer can reasonably be recommended.
+- When you raise a question with a suggested answer, still finish the milestone, building on your
+  suggested answer. Usually the driver accepts the suggestions and validates this trial as you
+  built it, so it can pass. When the developer reviews questions, or a question has no
+  suggestion, the milestone stops until they answer.
 - `files_changed`: the paths you created or modified, relative to the target directory.

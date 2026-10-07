@@ -429,6 +429,9 @@ def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validati
     if run.get("openapi_artifact"):
         art = run["openapi_artifact"]
         lines.append(f"- **OpenAPI artifact**: {art.get('path')} (sha256 {art.get('sha256')})")
+        if art.get("omitted_operations"):
+            lines.append("- **Left out of the OpenAPI artifact** (in the target's document, but no "
+                         "check ever called them): " + ", ".join(art["omitted_operations"]))
     # The decisions the requirements left open come first: review them before the results.
     accepted = [(qid, q) for qid, q in (questions or {}).items()
                 if effective_answer(q)[1] == "accepted"]

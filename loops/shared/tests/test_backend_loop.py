@@ -114,7 +114,7 @@ class BackendLoopTest(unittest.TestCase):
 
     # --- publication is gated on achievement, and never outruns the checks -------------------
 
-    def test_openapi_published_after_m01_and_never_updated_with_an_unverified_operation(self):
+    def test_openapi_published_after_each_milestone_with_only_verified_operations(self):
         self.scenario({"plan": {"structured_output": self.plan()},
                       "author-checks": [{"structured_output": self.m01_checks()},
                                         {"structured_output": self.m02_checks()}]})
@@ -126,31 +126,33 @@ class BackendLoopTest(unittest.TestCase):
                                      implemented("M02-T01", M02_OPENAPI_WITH_UNVERIFIED_OP)],
                       "author-checks": [{"structured_output": self.m01_checks()},
                                         {"structured_output": self.m02_checks()}]})
-        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "1"), 20, self.last_output)
+        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "1"), 0, self.last_output)
 
         # Each milestone's checks are frozen before its implementation starts (FR-069).
         steps = [c["step"] for c in self.t.fake_calls() if c["step"] != "plan"]
         self.assertEqual(steps, ["author-checks", "implement", "author-checks", "implement"])
 
+        # An implemented operation no check calls (DELETE /items/{id}) does not fail M02...
         rs = self.run_state()
-        self.assertEqual(rs["milestones"]["M01"]["status"], "achieved")
-        self.assertEqual(rs["milestones"]["M02"]["status"], "failed")
-        failure = rs["status_reason"]
-        self.assertEqual(failure["code"], "trials-exhausted")
-        self.assertEqual(failure["milestone_id"], "M02")
-
-        # M01's document was published as soon as it was achieved...
-        self.assertEqual(self.published_openapi(), M01_OPENAPI)
+        self.assertEqual([rs["milestones"][m]["status"] for m in ("M01", "M02")],
+                         ["achieved", "achieved"])
+        m02_trial = state.read_json(os.path.join(self.loop_dir, "state", "milestones", "M02",
+                                                  "trials", "1", "validation.json"))
+        self.assertTrue(m02_trial["contract"]["passed"])
+        self.assertEqual(m02_trial["contract"]["unverified_operations"], ["DELETE /items/{id}"])
+        # ...but it is left out of the published contract, so nothing unverified reaches the
+        # frontend (FR-019), and the omission is recorded.
+        published = self.published_openapi()
+        self.assertEqual(sorted(published["paths"]), ["/items"])
+        self.assertEqual(sorted(published["paths"]["/items"]), ["get", "post"])
+        self.assertEqual(published["x-devloops-unverified-operations"], ["DELETE /items/{id}"])
         artifact = rs["openapi_artifact"]
         self.assertTrue(artifact["path"].endswith("openapi.json"), artifact)
         self.assertEqual(len(artifact["sha256"]), 64)
-        # ...and never overwritten by M02's document, which names an operation
-        # (DELETE /items/{id}) that no check -- from M02 or from the achieved M01 -- exercises.
-        m02_trial = state.read_json(os.path.join(self.loop_dir, "state", "milestones", "M02",
-                                                  "trials", "1", "validation.json"))
-        self.assertFalse(m02_trial["passed"])
-        self.assertFalse(m02_trial["contract"]["passed"])
-        self.assertIn("DELETE /items/{id}", " ".join(m02_trial["contract"]["unmatched_operations"]))
+        self.assertEqual(artifact["omitted_operations"], ["DELETE /items/{id}"])
+        with open(os.path.join(self.loop_dir, "outputs", "final-report.md"),
+                  encoding="utf-8") as f:
+            self.assertIn("Left out of the OpenAPI artifact", f.read())
 
     # --- input and tool errors, independent of the validator ----------------------------------
 

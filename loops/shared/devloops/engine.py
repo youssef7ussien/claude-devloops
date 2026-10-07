@@ -746,7 +746,15 @@ class Engine:
         return (f"milestone {mid} failed after {len(selector.counted_trials(ms))} of "
                 f"{selector.trial_limit(self.rs, mid)} trial(s); read the last trial's "
                 f"validation.json and evidence/, then run `devloops retry {self.loop} --milestone "
-                f"{mid}`, with --reason to guide the fix")
+                f"{mid}`, with --reason to guide the fix" + self._auto_answered_note(mid))
+
+    def _auto_answered_note(self, mid):
+        """The questions of `mid` answered automatically: the failed trials were built on them,
+        so they are worth checking before a retry (rewrite an answer, then `retry`)."""
+        ids = [qid for a in self.rs.get("auto_answers") or [] if a["milestone_id"] == mid
+               for qid in a["question_ids"]]
+        return (f"; its trials were built on suggested answers accepted automatically for "
+                f"{', '.join(ids)}: check them in outputs/open-questions.md first" if ids else "")
 
     def _trial(self, mid, n):
         milestone = self._milestone(mid)
@@ -796,8 +804,7 @@ class Engine:
                 self._void(milestone, trial, out.failure_reason, out.failure_detail)
             if not out.ok:
                 return self._finish(milestone, trial, out.failure_reason, out.failure_detail)
-            if self._on_needs_input(milestone, trial):
-                return
+            self._on_needs_input(milestone, trial)  # stops the run unless the trial goes on
             phase = "validation-failed"
             self._validate(milestone, trial, trial_dir)
         except StopRun:
@@ -829,20 +836,21 @@ class Engine:
         self._save()
 
     def _on_needs_input(self, milestone, trial):
-        """A non-empty `needs_input` fails the milestone at once, whatever trials remain.
+        """Handle a non-empty `needs_input`; return so the trial goes on to validation.
 
-        A question is not something a fix can answer (FR-055a, R-20): the questions are appended
-        to `outputs/open-questions.md` for the developer, and `retry` resumes the milestone.
+        Under `questions: accept-suggested`, when every question has a suggested answer, the
+        suggestions are accepted and the trial is validated as it is: the call was told to build
+        on its own suggestion (FR-055c). It passes or fails on validation like any trial, and a
+        later fix trial sees the accepted answers.
 
-        Under `questions: accept-suggested`, when every question has a suggested answer and the
-        milestone has a trial left to use them, the suggestions are accepted instead: only this
-        trial fails, and the next trial sees the answers. Returns True then; False when there were
-        no questions. On the last trial it stops as under `ask`, so the accepted answers are never
-        left unused and `retry` (which accepts the suggestions) resumes the milestone.
+        Otherwise (`ask`, or a question without a suggestion) the milestone fails at once,
+        whatever trials remain, by raising StopRun: a question is not something a fix can answer
+        (FR-055a, R-20). The questions are appended to `outputs/open-questions.md` for the
+        developer, and `retry` resumes the milestone.
         """
         questions = trial["needs_input"]  # redacted by _record_implementation
         if not questions:
-            return False
+            return
         mid, n = milestone["id"], trial["n"]
         try:
             with open(self.answers_path, encoding="utf-8") as f:
@@ -852,10 +860,9 @@ class Engine:
         text, ids = render.append_open_questions(existing, questions,
                                                  f"needs-input from {mid} trial {n}")
         detail = "; ".join(f"{qid}: {q['question']}" for qid, q in zip(ids, questions))
-        ms = self.rs["milestones"][mid]
-        if self._accepts_suggested() and all(q.get("suggested_answer") for q in questions) \
-                and len(selector.counted_trials(ms)) < selector.trial_limit(self.rs, mid):
-            return self._auto_answer(milestone, trial, text, ids, detail)
+        if self._accepts_suggested() and all(q.get("suggested_answer") for q in questions):
+            self._auto_answer(milestone, trial, text, ids, detail)
+            return
         state.write_text_atomic(self.answers_path, text)
         self._finish(milestone, trial, "needs-input", detail)
         selector.mark_failed(self.rs["milestones"][mid])
@@ -884,14 +891,12 @@ class Engine:
             "answered_at": state.now_iso(), "answers_sha256": sha})
         self.rs["answers_sha256"] = sha
         self._save()
-        self._finish(milestone, trial, "needs-input", detail)
         self._event("needs-input", f"{mid} trial {n} asked {len(ids)} question(s): {detail}",
                     milestone=mid, trial=n)
         self._event("answers-accepted", f"suggested answer(s) accepted automatically for "
                                         f"{', '.join(accepted)} (questions: accept-suggested); "
-                                        "the next trial uses them, review them",
+                                        f"trial {n}, built on them, is validated now; review them",
                     milestone=mid, trial=n)
-        return True
 
     def _validate(self, milestone, trial, trial_dir):
         mid = milestone["id"]

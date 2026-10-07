@@ -135,6 +135,10 @@ class ClaudeRunnerTest(unittest.TestCase):
         self.assertEqual(hook["matcher"], "Edit|Write|MultiEdit|NotebookEdit")
         self.assertTrue(hook["hooks"][0]["command"].endswith(
             os.path.join("loops", "shared", "hooks", "guard_writes.py")))
+        bash = settings["hooks"]["PreToolUse"][1]
+        self.assertEqual(bash["matcher"], "Bash")
+        self.assertTrue(bash["hooks"][0]["command"].endswith(
+            os.path.join("loops", "shared", "hooks", "guard_processes.py")))
 
     def test_add_dirs_are_passed_resolved_and_deduplicated(self):
         inputs_dir = os.path.join(self.t.base, "inputs")

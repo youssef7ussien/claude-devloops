@@ -149,7 +149,8 @@ class CurlValidatorTest(unittest.TestCase):
         self.assertTrue(all(c["passed"] for c in result["checks"]), result["checks"])
         self.assertEqual({c["criterion_id"]: c["passed"] for c in result["criteria"]},
                          {"M01-AC1": True, "M01-AC2": True})
-        self.assertEqual(result["contract"], {"passed": True, "unmatched_operations": []})
+        self.assertTrue(result["contract"]["passed"])
+        self.assertEqual(result["contract"]["unverified_operations"], [])
 
         trial_dir = self.ctx(trial=1).trial_dir
         for check in result["checks"]:
@@ -248,7 +249,8 @@ class CurlValidatorTest(unittest.TestCase):
         result = curl.validate(self.ctx(trial=1))
         by_id = {c["check_id"]: c for c in result["checks"]}
         self.assertTrue(by_id["C5"]["passed"], by_id["C5"])
-        self.assertEqual(result["contract"], {"passed": True, "unmatched_operations": []})
+        self.assertTrue(result["contract"]["passed"])
+        self.assertEqual(result["contract"]["unverified_operations"], [])
 
     def test_an_undocumented_path_expected_to_succeed_still_fails_the_contract(self):
         checks = valid_checks()
@@ -262,20 +264,57 @@ class CurlValidatorTest(unittest.TestCase):
 
     def test_absence_checks_cover_no_operation(self):
         spec = {"openapi": "3.0.3", "info": {"title": "t", "version": "1"},
-                "paths": {"/items": {"get": {"responses": {"200": {"description": "ok"}}}}}}
+                "paths": {"/items": {"get": {"responses": {"200": {"description": "ok"}}}},
+                          "/items/{id}": {"delete": {}}}}
         base = "http://127.0.0.1:1"
+        none = (set(), [])
         # 405 on an undocumented method, 404 on an unknown path: both agree with the document.
         self.assertEqual(curl._contract(spec, base, [("GET", "/items", 200),
                                                      ("DELETE", "/items", 405),
-                                                     ("GET", "/nope", 404)], []),
-                         {"passed": True, "unmatched_operations": []})
-        # They never stand in for a documented operation that no check exercised.
-        self.assertEqual(curl._contract(spec, base, [("GET", "/nope", 404)], []),
-                         {"passed": False, "unmatched_operations": ["GET /items"]})
+                                                     ("GET", "/nope", 404)], none),
+                         {"passed": True, "unmatched_operations": [],
+                          "unverified_operations": ["DELETE /items/{id}"],
+                          "covered_operations": ["GET /items"]})
+        # They never stand in for a documented operation: a 404 on DELETE /items/999 shows
+        # nothing about the success path, so the operation stays unverified (not a failure).
+        self.assertEqual(curl._contract(spec, base, [("GET", "/nope", 404),
+                                                     ("DELETE", "/items/999", 404)], none),
+                         {"passed": True, "unmatched_operations": [],
+                          "unverified_operations": ["DELETE /items/{id}", "GET /items"],
+                          "covered_operations": []})
         # Any other expected status on an undocumented operation is an undocumented call.
         self.assertEqual(curl._contract(spec, base, [("GET", "/items", 200),
-                                                     ("GET", "/nope", 400)], []),
-                         {"passed": False, "unmatched_operations": ["GET /nope"]})
+                                                     ("GET", "/nope", 400)],
+                                        ({("DELETE", "/items/{id}")}, []))["unmatched_operations"],
+                         ["GET /nope"])
+
+    def test_earlier_milestones_count_with_the_operations_they_recorded(self):
+        spec = {"openapi": "3.0.3", "info": {"title": "t", "version": "1"},
+                "paths": {"/items": {"get": {}}, "/items/{id}": {"get": {}},
+                          "/old": {"get": {}}}}
+        # Recorded by an earlier passing trial (from the paths it really called), plus the raw
+        # checks of a milestone achieved before that was recorded.
+        earlier = ({("GET", "/items/{id}"), ("GET", "/gone")}, [("GET", "/old")])
+        contract = curl._contract(spec, "http://127.0.0.1:1", [("GET", "/items", 200)], earlier)
+        self.assertEqual(contract["unverified_operations"], [])
+        self.assertEqual(contract["covered_operations"], ["GET /items"])
+
+    def test_the_verified_document_leaves_out_unchecked_operations(self):
+        spec = {"openapi": "3.0.3", "info": {"title": "t", "version": "1"},
+                "paths": {"/items": {"get": {}, "post": {}, "parameters": []},
+                          "/items/{id}/notes": {"get": {}},
+                          "/users/{id}": {"$ref": "#/components/pathItems/User"}}}
+        doc, omitted = curl.verified_document(spec, {("GET", "/items")})
+        # A path item that is only a $ref has no operation to verify: it is kept as it is.
+        self.assertEqual(doc["paths"], {"/items": {"get": {}, "parameters": []},
+                                        "/users/{id}": {"$ref": "#/components/pathItems/User"}})
+        self.assertEqual(omitted, ["GET /items/{id}/notes", "POST /items"])
+        self.assertEqual(doc[curl.UNVERIFIED_KEY], omitted)  # named for the frontend
+        self.assertIn("/items/{id}/notes", spec["paths"])  # the input is not changed
+        # The contract reports the same list as the published document omits.
+        self.assertEqual(curl._contract(spec, "http://127.0.0.1:1/api",
+                                        [("GET", "/api/items", 200)], (set(), []))
+                         ["unverified_operations"], omitted)
 
     def test_missing_criterion_coverage_is_rejected_as_invalid_output(self):
         checks = valid_checks()

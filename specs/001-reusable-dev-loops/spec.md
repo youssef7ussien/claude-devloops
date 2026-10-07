@@ -340,7 +340,9 @@ changing only the inputs and configuration. No loop instructions or shared infra
 - **FR-019** [I — the Swagger is the frontend loop's contract, FR-011; scoped per R, CHK025]: The
   Swagger document handed to `frontend-dev` (the published artifact) MUST describe only endpoints
   verified in achieved milestones. The working copy in the target project may change during a
-  milestone.
+  milestone. Since D-14 the driver enforces this by publishing the working copy without the
+  operations no achieved check has called (recorded as omitted), rather than by failing the
+  trial: only a check that calls an undocumented operation fails the contract.
 
 #### frontend-dev loop
 
@@ -445,11 +447,11 @@ changing only the inputs and configuration. No loop instructions or shared infra
   *needs-input*, without using its remaining trials. That ends the run (D-1), and the developer can
   continue under FR-063.
 - **FR-055c** [D-12, D-13]: The setting `questions: accept-suggested` (the default since D-13;
-  `ask` restores the review) replaces the developer's acceptance with an automatic one. Then the planning pause approves the plan
-  with the suggested answers and implementation continues, and a *needs-input* trial fails alone
-  (it counts) while its suggestions are accepted for the next trial, instead of ending the run. A
-  question without a suggestion, or one raised on the milestone's last trial, still pauses or stops
-  the run as under FR-053 and FR-055a. Every
+  `ask` restores the review) replaces the developer's acceptance with an automatic one. Then the
+  planning pause approves the plan with the suggested answers and implementation continues, and a
+  *needs-input* trial has its suggestions accepted and is validated as built on them (D-14): it
+  passes or fails on validation like any trial, and a later fix trial sees the answers. A question
+  without a suggestion still pauses or stops the run as under FR-053 and FR-055a. Every
   automatically accepted answer MUST be marked in the answers file, recorded in state and events,
   listed for review in the final report, and flagged in the dashboards.
 - **FR-056** [I — from D-4 plus FR-040]: Under the orchestrator, each loop's planning pause MUST
@@ -692,6 +694,13 @@ below). No open questions remain.
   assumptions in the final report, which lists them first. `--review-plan` (`questions: ask`)
   restores the pause. Commands that record a decision continue the run, and `orchestrate` checks
   both loops' tools before starting. Applied in FR-053, FR-055c, FR-056a, and FR-056b.
+- **D-14 No trial lost to a working implementation** (decided 2026-10-07): A trial is failed only
+  by what its validation finds. Under `accept-suggested` a trial that asks a question is
+  validated as built on its suggested answer; an implemented operation no check calls is left out
+  of the published OpenAPI document instead of failing the trial; and implement and fix calls may
+  not stop processes by name or pattern (a Bash hook blocks `pkill`, `killall`, `killall5`, and
+  `kill` in a command that looks processes up with `pgrep`, `pidof`, or `ps`), which can end the
+  call itself. Applied in FR-019 and FR-055c.
 - **Review decisions**: Items marked **[R]** adopt the recommended fixes from
   `checklists/loops-review.md` (2026-09-27). They also settle plan decisions U-1 (FR-016), U-2
   (FR-030a), U-3 (FR-039), U-4 (FR-071), U-5 (FR-063), and U-6 (A-6).

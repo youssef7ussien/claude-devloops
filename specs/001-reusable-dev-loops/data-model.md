@@ -57,7 +57,7 @@ One loop's run within a workspace. File: `workspaces/<ws>/<loop>/state/run.json`
 | `approval` | `Approval` or null |
 | `invocation_count` | Checked against `max_invocations_per_run` |
 | `ui_url` | frontend-dev only: the URL where the built UI is served (D-2) |
-| `openapi_artifact` | backend-dev only: `{path, sha256}` of `outputs/openapi.json` |
+| `openapi_artifact` | backend-dev only: `{path, sha256, omitted_operations}` of `outputs/openapi.json`; `omitted_operations` lists the target document's operations no achieved check has called, left out of it |
 | `grants[]` | Trial-budget grants (FR-063): `{milestone_id, granted_at, reason, extra_trials, answers_sha256, accepted_suggestions?}` |
 | `answers_sha256` | The answers fingerprint later starts compare against: set by the approval, each `retry`, and each automatic answer (FR-051a, FR-055c) |
 | `auto_answers[]` | Suggested answers accepted automatically after a `needs-input` trial (FR-055c): `{milestone_id, trial, question_ids, answered_at, answers_sha256}` |
@@ -199,7 +199,7 @@ It is written once, on the milestone's first trial, and then frozen (R-8).
 | `passed` | Computed by the driver, never taken from the model |
 | `criteria[]` | `{criterion_id, passed, observed, evidence[]}` |
 | `checks[]` | curl only: `{check_id, passed, command, response: {status, headers, body_path}, failures[]}` |
-| `contract` | `{passed, unmatched_operations[]}`: OpenAPI consistency (backend FR-019) or API-usage conformance (frontend FR-024) |
+| `contract` | `{passed, unmatched_operations[], unverified_operations[], covered_operations[]}`: OpenAPI consistency (backend FR-019) or API-usage conformance (frontend FR-024). `unmatched_operations` (calls to undeclared operations) fail it; `unverified_operations` (backend: declared, verified by no achieved check) do not, and are left out of the published document; `covered_operations` (backend) are those this milestone's checks verified with a success status |
 | `unit_tests` | `{enabled, command?, exit_code?, log_path?}` |
 | `boundary` | `{passed, violations[]}` (R-11) |
 

@@ -183,42 +183,69 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
 
         rs = self.run_state()
         self.assertEqual(rs["status"], "completed")
+        # The trial that asked was built on its suggestion and validated as it was: it passed.
         self.assertEqual([(t["n"], t["status"], t["reason"]) for t in rs["milestones"]["M01"]["trials"]],
-                         [(1, "failed", "needs-input"), (2, "passed", None)])
-        self.assertEqual(self.steps_called(), ["plan", "implement", "fix", "implement"])
-        self.assertIn(f"**Answer:** {SUGGESTION}", self.context_of(self.calls("fix")[0])["answers"])
+                         [(1, "passed", None)])
+        self.assertEqual(self.steps_called(), ["plan", "implement", "implement"])
+        self.assertEqual(self.trial("M01", 1)["needs_input"][0]["question"], QUESTION)
         [auto] = rs["auto_answers"]
         self.assertEqual((auto["milestone_id"], auto["trial"], auto["question_ids"]),
                          ("M01", 1, ["OQ1"]))
         self.assertEqual(rs["answers_sha256"], self.answers_sha256())
         self.assertEqual(auto["answers_sha256"], self.answers_sha256())
-        self.assertTrue(self.events("answers-accepted"))
+        self.assertIn("is validated now", self.events("answers-accepted")[0]["message"])
         self.assertIn("after M01 trial 1", self.questions()["OQ1"]["source"])
+
+    def test_an_auto_answered_trial_that_fails_validation_hands_the_answer_to_the_fix(self):
+        config = self.config_file({"max_trials": 2, "questions": "accept-suggested"})
+        self.scenario({"plan": {"structured_output": samples.plan()},
+                       "implement": implemented("M01-T01", needs_input=[QUESTION],
+                                                suggested=SUGGESTION),
+                       "fix": implemented("M01-T01")})
+        self.assertEqual(self.first_run("--config", config, env={"DEVLOOPS_STUB": "fail"}), 20,
+                         self.last_output)
+        rs = self.run_state()
+        self.assertEqual(rs["status_reason"]["code"], "trials-exhausted")
+        self.assertIn("accepted automatically for OQ1", rs["status_reason"]["message"])
+        self.assertEqual([(t["n"], t["reason"]) for t in rs["milestones"]["M01"]["trials"]],
+                         [(1, "validation-failed"), (2, "validation-failed")])
+        self.assertIn(f"**Answer:** {SUGGESTION}", self.context_of(self.calls("fix")[0])["answers"])
 
     def test_accepted_answers_are_the_recorded_fingerprint(self):
         """Resuming after an automatic answer compares against the answered file, not the
         approval's older one."""
         self.scenario({"plan": {"structured_output": samples.plan()},
                        "implement": [implemented("M01-T01", needs_input=[QUESTION],
-                                                 suggested=SUGGESTION)],
-                       "fix": {"exit_code": 1, "api_error_status": 529, "result": "overloaded"}})
+                                                 suggested=SUGGESTION),
+                                     {"exit_code": 1, "api_error_status": 529,
+                                      "result": "overloaded"}]})
         self.assertEqual(self.first_run("--accept-suggested"), 50, self.last_output)
-        self.scenario({"fix": implemented("M01-T01"), "implement": implemented("M02-T01")})
+        self.scenario({"implement": implemented("M02-T01")})
         self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
         self.assertEqual(self.run_state()["status"], "completed")
 
-    def test_accept_suggested_on_the_last_trial_stops_for_retry(self):
-        """No trial is left to use an automatic answer, so the run stops as under `ask`."""
+    def test_accept_suggested_on_the_last_trial_still_validates_it(self):
+        """The trial is validated as built on the suggestion, so its last trial can pass."""
         config = self.config_file({"max_trials": 1, "questions": "accept-suggested"})
         self.scenario({"plan": {"structured_output": samples.plan()},
-                       "implement": implemented("M01-T01", needs_input=[QUESTION],
+                       "implement": [implemented("M01-T01", needs_input=[QUESTION],
+                                                 suggested=SUGGESTION),
+                                     implemented("M02-T01")]})
+        self.assertEqual(self.first_run("--config", config), 0, self.last_output)
+        rs = self.run_state()
+        self.assertEqual(rs["milestones"]["M01"]["status"], "achieved")
+        self.assertEqual(rs["auto_answers"][0]["question_ids"], ["OQ1"])
+        self.assertEqual(self.questions()["OQ1"]["answer"], SUGGESTION)
+
+    def test_under_ask_a_question_still_stops_at_once_for_retry(self):
+        self.approved()
+        self.scenario({"implement": implemented("M01-T01", needs_input=[QUESTION],
                                                 suggested=SUGGESTION)})
-        self.assertEqual(self.first_run("--config", config), 20, self.last_output)
+        self.assertEqual(self.cli("run", "backend-dev"), 20, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status_reason"]["code"], "needs-input")
         self.assertNotIn("auto_answers", rs)
-        self.assertEqual(self.questions()["OQ1"]["answer"], "")
-
+        self.assertIsNone(self.trial("M01", 1)["validation"])   # not validated
         self.assertEqual(self.cli("retry", "--no-continue",
                                   "backend-dev", "--milestone", "M01", "--reason", "ok"),
                          0, self.last_output)
