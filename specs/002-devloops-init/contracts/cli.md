@@ -44,12 +44,15 @@ configuration files as they are when the command ends; it is not frozen and neve
 `completed`, `stopped-on-failure`, `stopped-on-input-error`, or `stopped-on-service-error`,
 devloops writes a full dashboard (FR-039) and prints `full dashboard: <path> (<size>)`. `--json`
 adds `full_dashboard: {path, bytes}`. A write failure prints `devloops: warning: could not write
-the full dashboard: …` and leaves the exit code unchanged. Otherwise the summary ends with
-`full dashboard (files and conversations): devloops dashboard [--workspace <ws>]`.
+the full dashboard: …` and leaves the exit code unchanged. The summary page `dashboard.html` is
+written at the end, unless `dashboard.light` is `false` (FR-038), and the summary ends with where
+files and conversations are: `files and conversations: <url> (dashboard server running)` while
+`devloops dashboard --serve` runs for the project, else
+`files and conversations: devloops dashboard --serve [--workspace <ws>]`.
 
 **Progress** (FR-039a): `run`, `orchestrate`, `approve`, `replan`, and `retry` take `--quiet` or
-`--verbose`. Before running they print the paths of `dashboard.html` and `state/run.log` and the
-`devloops dashboard` command; then, on stderr, one line per event and per Claude call:
+`--verbose`. Before running they print the same `files and conversations: …` line and the path of
+each loop's `state/run.log`; then, on stderr, one line per event and per Claude call:
 
 ```
 HH:MM:SS <loop> [<milestone> #<trial>]  <message>
@@ -136,8 +139,24 @@ the exit code.
 
 | Form | Effect |
 |------|--------|
-| `devloops dashboard` | Writes a **new full dashboard** ([full-dashboard.md](./full-dashboard.md)), then refreshes the lightweight one. Prints `full dashboard: <path> (<size>)`, the five largest embedded files, and the files too large to embed. `--json`: `{"workspace", "dashboard", "full_dashboard": {"path", "bytes", "largest": [{"path", "bytes"}], "unavailable", "not_embedded": [{"path", "bytes"}]}}` |
-| `devloops dashboard --light` | 001 behavior: refreshes `<workspace>/dashboard.html` only |
+| `devloops dashboard` | Writes the summary page `<workspace>/dashboard.html` (FR-038), then prints `dashboard: <path>` and the `files and conversations: …` line. `--json`: `{"workspace", "dashboard", "serving": <url> \| null}`. `--light` is accepted and means the same |
+| `devloops dashboard --export [--out <file>]` | Writes a **new full dashboard** ([full-dashboard.md](./full-dashboard.md)) to the dashboards folder, or to `<file>` (replaced if it exists). Then refreshes the summary page (unless `dashboard.light` is `false`), which links it. Prints `full dashboard: <path> (<size>)`, the five largest embedded files, and the files too large to embed. `--json`: `{"workspace", "dashboard", "full_dashboard": {"path", "bytes", "largest": [{"path", "bytes"}], "unavailable", "not_embedded": [{"path", "bytes"}]}}`. Exit 1 when it cannot be written |
+| `devloops dashboard --serve [--host <addr>] [--port <n>] [--open] [--token <t> \| --no-token]` | Serves the live dashboard ([full-dashboard.md](./full-dashboard.md#live-dashboard)) of every workspace of the project until `Ctrl C` or SIGTERM, then exits 0. Prints `serving the dashboards of <project> (read-only; Ctrl+C to stop):` and one URL per address; `--json` prints `{"url", "urls", "host", "port", "pid", "token"}` on one line instead. Already running for the project: prints `already serving: <url> (pid <pid>); …` (`--json`: `{"already_serving": true, "url", "pid"}`) and exits 0. A port that cannot be bound: exit 2 |
+
+`--serve` options:
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--host` | `127.0.0.1` | Address to listen on; `0.0.0.0` or `::` for every interface. Beyond loopback a warning goes to stderr |
+| `--port` | `8765`, else the next free port up to `8784` | `0`: any free port. Given explicitly, only that port is tried |
+| `--open` | off | Open the first URL in the default browser |
+| `--token` | random when `--host` is not loopback | Require this token (also on loopback) |
+| `--no-token` | off | Require no token |
+
+`--host`, `--port`, `--open`, `--token`, and `--no-token` without `--serve`, `--out` without
+`--export`, `--serve` with `--export`, and `--token` with `--no-token` are usage errors (exit 2).
+Without `--workspace`, `--serve` opens on the default workspace, or on the first one when the
+default does not exist yet.
 
 ## `status`: additions
 

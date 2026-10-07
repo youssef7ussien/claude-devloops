@@ -70,13 +70,14 @@ That is the whole run. `orchestrate` goes through these phases without stopping:
 | 6 | Frontend build | For each milestone: implement, then validate in a real browser (Playwright), up to 3 trials |
 | 7 | Done | `final-report.md` per loop and the dashboards are written |
 
-Progress shows in the terminal and the [dashboard](#dashboards). If you stop it (`Ctrl C`, a
+Progress shows in the terminal and the [live dashboard](#dashboards)
+(`devloops dashboard --serve` in another terminal). If you stop it (`Ctrl C`, a
 crash, a reboot), `devloops orchestrate` again resumes where it stopped.
 
 **Review afterwards.** Read `.devloops/workspaces/main/<loop>/outputs/final-report.md`. Its first
 sections, **Suggested answers accepted** and **Assumptions for review**, are the decisions the
 requirements left open. `open-questions.md` has every question with the answer used, and
-`devloops dashboard` or `devloops status` show the rest.
+`devloops dashboard --serve` or `devloops status` show the rest.
 
 **When it stops**, it prints the one command to run next. `retry`, `approve`, and `replan` record
 your decision and then continue the run in the same command, so `orchestrate` is not needed again:
@@ -172,7 +173,7 @@ myapp/
 │   ├── manifest.json            # devloops version and fingerprints of the installed files (commit it)
 │   ├── prompts/README.md        # how to override prompts
 │   ├── workspaces/<ws>/         # run records (git-ignored by default)
-│   └── dashboards/<ws>/*.html   # full dashboards (git-ignored by default)
+│   └── dashboards/<ws>/*.html   # exported dashboards (git-ignored by default)
 ├── .claude/skills/devloops-*/   # the Claude Code skills (commit them)
 ├── .gitignore                   # one block added under a "# >>> devloops" marker
 ├── backend/                     # backend-dev's target
@@ -241,10 +242,10 @@ version is newer, install that version.
 | `approve <loop>` | Accept the stored plan and the answers in `outputs/open-questions.md`, then continue the run. Allowed only in `awaiting-approval` |
 | `replan <loop>` | Plan again with the answers (a planning trial), then continue: the new plan is approved and built, or, when plans are reviewed, pauses again. Allowed only in `awaiting-approval` |
 | `retry <loop> --milestone <id> [--reason <text>] [--trials <n>]` | Give a failed milestone more trials (default `max_trials`), then continue the run. The reason, when given, is guidance passed to later fix prompts |
-| `status [<loop>]` | Show the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the full dashboards. Read-only |
+| `status [<loop>]` | Show the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the exported dashboards. Read-only |
 | `orchestrate` | Run `backend-dev`, then `frontend-dev` ([orchestrator/README.md](orchestrator/README.md)) |
 | `export-sessions [--csv <file>]` | Write every Claude invocation as CSV (standard output by default) |
-| `dashboard [--light]` | Write a new full dashboard (files and conversations), then refresh the lightweight one; `--light` refreshes only the lightweight one (see [Dashboards](#dashboards)). Other commands do not write full dashboards unless `dashboard.full_on_stop` is set |
+| `dashboard [--serve \| --export]` | Refresh the summary page `<workspace>/dashboard.html`. `--serve` serves the live dashboard, with every file and conversation, until `Ctrl C`; `--export [--out <file>]` writes it as one self-contained file (see [Dashboards](#dashboards)) |
 
 `approve`, `replan`, `retry`, `run`, and `orchestrate` also take `--force-unlock` (see
 [Recovery](#recovery)), `--review-plan` or `--accept-suggested` (see `run` options), and
@@ -256,10 +257,11 @@ version is newer, install that version.
 stderr. First, where to look while the command works:
 
 ```
-         dashboard: /repo/.devloops/workspaces/main/dashboard.html
-         full dashboard (files and conversations): devloops dashboard
+         files and conversations: devloops dashboard --serve
          log: /repo/.devloops/workspaces/main/backend-dev/state/run.log
 ```
+
+(with the URL instead when `devloops dashboard --serve` is running).
 
 Then one line per step: each recorded event (a trial starting, passing, or failing, a plan stored,
 an approval, a question, a stop) and each Claude call, with the model it runs on, and when it
@@ -489,68 +491,141 @@ terminal), and `devloops approve <loop>` approves and continues the orchestrated
 
 ## Dashboards
 
-**The lightweight dashboard**, `<workspace>/dashboard.html`, is rewritten by every command that
-touches a workspace (`run`, `approve`, `replan`, `retry`, `orchestrate`), so after each pause,
-stop, or completion one page shows everything without opening the files one by one. Open it in a
-browser; it is a single offline file (no network). A sidebar switches between its pages, `Ctrl K`
-(or `/`) jumps to any page, call, or file (and, from three characters, searches their text), and
-the theme button switches light and dark. While a command is running a loop, the page is
-rewritten after each recorded event and reloads itself every 10 seconds, keeping your place;
-**Live** in the top bar pauses it:
+A workspace has three views. All are built from `state/` only and never read back, so they can
+never change a run's outcome; if writing one fails, the command prints a warning and keeps its
+exit code.
+
+| View | What it is | How |
+|---|---|---|
+| **Live dashboard** | Everything about every workspace, with each file and conversation, following runs as they go | `devloops dashboard --serve` |
+| **Summary page** | `<workspace>/dashboard.html`: one offline page with status, milestones, trials, failures, questions, and cost | Written when a command pauses, stops, or ends; `devloops dashboard` on demand |
+| **Exported dashboard** | One self-contained HTML file with every file and conversation embedded, to share or keep | `devloops dashboard --export` |
+
+### The live dashboard
+
+```
+devloops dashboard --serve [--port 8765] [--open]
+```
+
+serves the dashboards of the project's workspaces at `http://127.0.0.1:8765/w/<workspace>/` until
+`Ctrl C`. It starts nothing else and writes nothing: open it while a run goes on, or afterwards.
+The sidebar switches between workspaces.
 
 - **Overview**: status, milestones achieved, first-try pass rate, trials, Claude calls, cost,
   tokens, and elapsed time; **Needs attention** (stopped or paused loops and their next action,
   failing criteria, unanswered questions, failed calls, evidence over 1 MB, and milestones that
-  passed only after failed or voided trials, each linked to its detail); a card per loop with its progress and next action; the **trial
-  timeline** (every planning and milestone trial, colored and labeled by result), **cost by
-  milestone**, and **cost by step** (hover a bar for its details).
+  passed only after failed or voided trials, each linked to its detail); a card per loop with its
+  progress and next action; the **trial timeline** (every planning and milestone trial, colored
+  and labeled by result), **cost by milestone**, and **cost by step** (hover a bar for its
+  details).
 - **Orchestrator**: its steps and the handoff to frontend-dev.
-- **Per loop**: buttons for its outputs (progress, plan summary, final report, OpenAPI document),
-  the UI URL, stack and runtime, and a card per milestone with its tasks, acceptance-criteria
-  results with observations and evidence (screenshots as thumbnails), the exact curl commands or
-  the browser's network requests, the API contract result, and every trial with its failure
-  detail, duration, cost, and calls.
-- **Claude calls** (filter by text or loop), **Questions** (open questions, planning assumptions,
-  retries granted), **Events**, and links to the **full dashboards**.
-
-It links to the workspace's files, so it only works next to them: a screenshot opens in the page's
-viewer, other files in a new browser tab.
-
-**Full dashboards** are single self-contained HTML files that can be opened anywhere, offline, with
-no other file. Besides everything above, they embed every input, plan file, output, check, trial
-record, piece of evidence (images inline), prompt with the source of each of its parts, and the
-full Claude Code **conversation** of every call: the prompt, Claude's messages, its thinking, every
-tool call, and every tool result.
-
+- **Per loop**: its outputs (progress, plan summary, final report, OpenAPI document), the UI URL,
+  stack and runtime, and a card per milestone with its tasks, acceptance-criteria results with
+  observations and evidence (screenshots as thumbnails), the exact curl commands or the browser's
+  network requests, the API contract result, and every trial with its failure detail, duration,
+  cost, and calls.
+- **Claude calls**: selecting a call opens its conversation (Claude's replies rendered, tool calls
+  summarized on one line and opened for their input, results, thinking, and system records shown
+  or hidden), its prompt with the parts it was composed from and where each came from, and its
+  settings.
 - **Files**: a tree per loop (inputs, plan, each milestone's trials and evidence, prompts, outputs,
   run state), with a path filter and type filters. A file opens in a large viewer that can be
   maximized and closed with `Esc`, steps to the previous or next file with `[` and `]`, and offers
   copy, download, wrapping, and line numbers. Markdown is rendered (or shown as source), JSON is
   indented and highlighted (or shown as a collapsible tree), JSON lines are shown one record per
   row, code and logs are highlighted, and images fit the window or show at full size.
-- **Claude calls**: selecting a call opens its conversation (Claude's replies rendered, tool calls
-  summarized on one line and opened for their input, results, thinking, and system records shown
-  or hidden), its prompt with the parts it was composed from, and its settings.
+- **Questions** (open questions, planning assumptions, retries granted) and **Events**.
 
-- **When**: a new one is written by `devloops dashboard`, when you want one. Other commands end
-  their summary with that command instead of writing one. To have `run`, `approve`, `replan`,
-  `retry`, and `orchestrate` write one each time they end in `completed` or a `stopped-*` status,
-  as earlier versions did, set `dashboard.full_on_stop` to `true`. Unlike the other settings, it is
-  not frozen: it is read from the configuration files (`.devloops/devloops.json`,
-  `devloops.local.json`, and the workspace's config file) as they are when the command ends, so
-  it also applies to runs already started, and changing it is not reported as drift. The command prints its path and
-  size; `dashboard` also lists the five largest embedded items. A file over 5 MB is listed but
-  not embedded (the command names it); open it on disk.
-- **Where**: `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>.html` (UTC), `.devloops/dashboards/`
-  by default. A file is never replaced, so they **accumulate**: delete old ones when you no longer
-  need them. `status` reports how many there are and their total size.
-- **Review before sharing.** A full dashboard contains whole conversations, including file contents
-  Claude read. Values listed under `secrets` are redacted, as everywhere, but nothing else is.
-- Conversations are copied, redacted, into `state/conversations/` after each call. A call whose
-  transcript could not be found is shown as unavailable, with its session ID.
+`Ctrl K` (or `/`) jumps to any page, call, or file, and from three characters also searches the
+text of every file and conversation. The theme button switches light and dark.
 
-Both pages are views: they are built from `state/` only and never read back. Writing them can
-never change a run's outcome; if it fails, the command prints a warning and keeps its exit code.
+Files and conversations are loaded when you open them, so the page opens fast and there is no
+size limit (for a file over 20 MB the viewer asks first, and offers a download). While a run goes on, the page checks for changes every 3 seconds and updates only the
+parts that changed: the page you are on, open folders, filters, and the file open in the viewer
+stay where they are, and an open log that grows shows the new lines (following its end when you
+were at the end). **Live** in the top bar pauses this, and shows **Offline** when the server
+stopped.
+
+While it runs, the other commands print its URL instead of the command
+(`files and conversations: http://127.0.0.1:8765/w/main/ (dashboard server running)`), and a second
+`--serve` prints `already serving` with that URL. It records itself in
+`$XDG_RUNTIME_DIR/devloops/` (or `~/.cache/devloops/`), outside the project.
+
+**It is safe by default.** It listens on `127.0.0.1` only, and there it answers only requests
+addressed to `localhost` or `127.0.0.1` (so a web page cannot reach it through another host
+name). It is read-only. It sends only the files the page lists, which lie inside the workspace (or
+are the recorded inputs), never a path from the request. Values listed under `secrets` are
+replaced with `***` in every file and conversation it sends, as in the exported dashboard.
+
+**Sharing on a private network.** `--host 0.0.0.0` (or one of this machine's addresses) listens
+beyond this machine:
+
+```
+devloops dashboard --serve --host 0.0.0.0
+devloops: warning: the dashboard is reachable from the network (0.0.0.0:8765). ...
+serving the dashboards of /repo (read-only; Ctrl+C to stop):
+  http://192.168.1.20:8765/w/main/?token=3f9aQx...
+  http://127.0.0.1:8765/w/main/?token=3f9aQx...
+```
+
+It then requires a random token, given in the printed URLs: open one once and the browser keeps
+the token in a cookie, so links work as usual; a request without it gets `403`. `--token <value>`
+sets your own, and `--no-token` turns it off for a network you fully trust. Anyone with the token
+sees code, prompts, and conversations (only `secrets` are hidden), and the connection is plain
+HTTP: use it on a private network only. To reach it from elsewhere, use an SSH tunnel
+(`ssh -L 8765:127.0.0.1:8765 host`) or a reverse proxy with TLS instead.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--port <n>` | `8765`, or the next free port up to `8784` | The port; `0` picks any free one |
+| `--host <address>` | `127.0.0.1` | Where to listen: `0.0.0.0` (or `::`) for every network, or one address |
+| `--open` | off | Open it in the default browser |
+| `--token <value>` | a random one beyond this machine | Require this token |
+| `--no-token` | off | Require no token, even beyond this machine |
+| `--json` | off | Print `{url, urls, host, port, pid, token}` on one line when it starts |
+
+### The summary page
+
+`<workspace>/dashboard.html` is written when `run`, `approve`, `replan`, `retry`, or `orchestrate`
+pauses, stops, or ends, and by `devloops dashboard`. It is one offline file with the Overview, each
+loop's milestones and trials, Claude calls, Questions, Events, and links to the exported
+dashboards, so after a pause or a stop the state is one click away. It shows no file contents and
+no conversations: where they would be, it says `Files and conversations: devloops dashboard
+--serve`. It does not change while a command runs; use the live dashboard for that. Set
+`dashboard.light` to `false` to stop commands writing it.
+
+### Exported dashboards
+
+```
+devloops dashboard --export [--out <file.html>]
+```
+
+writes the live dashboard of one workspace as a single self-contained HTML file that opens
+anywhere, offline, with no other file: every input, plan file, output, check, trial record, piece
+of evidence (images inline), prompt with the source of each of its parts, and the full Claude Code
+conversation of every call are embedded in it.
+
+- **Where**: `--out` names the file (replaced if it exists). The summary page is refreshed too, and
+  links it. Without `--out`,
+  `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>.html` (UTC), `.devloops/dashboards/` by default;
+  those are never replaced, so they **accumulate**: delete old ones when you no longer need them.
+  `status` reports how many there are and their total size.
+- **Size**: the command prints the file's path and size and lists the five largest embedded items.
+  A file over 5 MB is listed but not embedded (the command names it); open it on disk, or in the
+  live dashboard, which has no limit.
+- **At every stop**: to have `run`, `approve`, `replan`, `retry`, and `orchestrate` export one each
+  time they end in `completed` or a `stopped-*` status, as earlier versions did, set
+  `dashboard.full_on_stop` to `true`.
+- **Review before sharing.** It contains whole conversations, including file contents Claude
+  read. Values listed under `secrets` are redacted, as everywhere, but nothing else is.
+
+Conversations are copied, redacted, into `state/conversations/` after each call. A call whose
+transcript could not be found is shown as unavailable, with its session ID.
+
+`dashboard.light` and `dashboard.full_on_stop` are not frozen like the other settings: they are
+read from the configuration files (`.devloops/devloops.json`, `devloops.local.json`, and the
+workspace's config file) as they are when the command ends, so they also apply to runs already
+started, and changing them is not reported as drift.
 
 ## Approval, replan, and open questions
 
@@ -796,7 +871,8 @@ to that run: `status` lists the keys that would now differ (`config_drift`). CLI
 | `playwright.headless` | true | false shows the browser while frontend-dev validates (see below) |
 | `playwright.executable_path` | null | The browser the Playwright MCP server starts; `~` is expanded |
 | `playwright.mcp_command` | null | The full command that starts the Playwright MCP server, used exactly as written. When null, it is `npx @playwright/mcp@latest`, plus `--headless` and `--executable-path` from the two keys above |
-| `dashboard.full_on_stop` | false | Also write a full dashboard each time a command ends in `completed` or a `stopped-*` status. Off: write one with `devloops dashboard` when you want it (see [Dashboards](#dashboards)). Not frozen: read from the configuration files when the command ends, and never drift |
+| `dashboard.light` | true | Write the summary page `<workspace>/dashboard.html` when a command pauses, stops, or ends (see [Dashboards](#dashboards)). Not frozen: read from the configuration files when the command ends, and never drift |
+| `dashboard.full_on_stop` | false | Also export a full dashboard each time a command ends in `completed` or a `stopped-*` status. Off: export one with `devloops dashboard --export` when you want it. Not frozen, like `dashboard.light` |
 | `git.commit_per_milestone` | false | After each achieved milestone, commit the target's changes (only paths under the target) as `feat(<loop>): complete <id> <title>`. The outcome is a `git-commit` event; a failed commit does not fail the milestone |
 | `secrets.env` / `secrets.literals` | [] / [] | Values to redact (see below) |
 | `boundary.allowed_extra` | [] | Paths inside an audited git repository that tools may write to, such as a cache directory |
@@ -854,7 +930,7 @@ yourself; like every setting it is frozen at a run's first start, so it applies 
 To see whether a split pays off, compare runs: each call records the model it was started with
 (`model` in `invocations.jsonl`), `export-sessions` has a `model` column next to `cost_usd`, and
 the dashboards' **Claude calls** view shows the cost by model when calls ran on more than one
-(the full dashboard also shows each call's model, and groups by the model ID its transcript names).
+(the live and exported dashboards group by the model ID each call's transcript names).
 Calls made without `--model` count as `(Claude Code default)`, and calls recorded before devloops
 kept the model as `(not recorded)`. If the cheaper model needs many more fix trials on your project, those trials
 eat into the saving: move `fix` (or `implement`) back to the stronger model.
@@ -875,7 +951,7 @@ Start from a copy of the packaged file (under `loops/` in a checkout, in the `de
 package when installed), then edit it.
 
 - Every call records the source of each part (`packaged` or `override`), its path, and its sha256
-  in its invocation record (`prompt_sources`). The full dashboard shows them with the prompt.
+  in its invocation record (`prompt_sources`). The live and exported dashboards show them with the prompt.
 - Overrides are not frozen: a change applies from the next start. That start records a
   `prompt-sources-changed` event, and `status` reports the changed parts (`prompt_drift`) until
   the run ends. Milestones already achieved are never re-run, so their prompts never change.
@@ -925,7 +1001,7 @@ the likeliest place for a secret to hide.
 .devloops/workspaces/<name>/
 ├── workspace.json            # requirements fingerprint, mode, story ID, targets, config path
 ├── config.json               # optional workspace config
-├── dashboard.html            # the lightweight dashboard, rewritten after every command
+├── dashboard.html            # the summary page, written when a command pauses, stops, or ends
 ├── backend-dev/
 │   ├── task.md               # the rendered assignment
 │   ├── progress.md           # action items; per-milestone start, end, tokens, cost, sessions
@@ -994,8 +1070,8 @@ to upgrade a project set up by a newer one (`downgrade-refused`, exit 30, nothin
   `@playwright/mcp` release, the server can miss Claude Code's start-up time and the run stops
   with exit 50 (`the Playwright MCP server did not start`); no trial is used, so run the command
   again. Running `npx @playwright/mcp@latest --help` once beforehand avoids it.
-- **Redaction covers only listed values.** Review workspaces and full dashboards before sharing
-  them.
+- **Redaction covers only listed values.** Review workspaces and exported dashboards before sharing
+  them, or serving them beyond this machine.
 
 ## Migrating this repository
 

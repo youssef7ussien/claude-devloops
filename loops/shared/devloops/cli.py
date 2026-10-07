@@ -3,12 +3,13 @@ import argparse
 import csv
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
 
 from . import (__version__, checkcmd, dashboard, engine, fulldash, initcmd, orchestrator, prompts,
-               render, state, workspace)
+               render, serve, state, workspace)
 from . import config as config_mod
 from . import progress as progress_mod
 from . import project as project_mod
@@ -31,6 +32,16 @@ def _positive_int(text):
         raise argparse.ArgumentTypeError(f"{text!r} is not an integer")
     if value < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def _port(text):
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a port number")
+    if not 0 <= value <= 65535:
+        raise argparse.ArgumentTypeError("must be from 0 to 65535 (0: any free port)")
     return value
 
 
@@ -141,9 +152,28 @@ def build_parser():
     export.add_argument("--csv", metavar="FILE", help="output file (default: standard output)")
 
     dash = sub.add_parser("dashboard", parents=[common],
-                          help="write a new full dashboard, then refresh <workspace>/dashboard.html")
-    dash.add_argument("--light", action="store_true",
-                      help="only refresh <workspace>/dashboard.html (no full dashboard)")
+                          help="refresh <workspace>/dashboard.html; --serve shows files and "
+                               "conversations live, --export writes one shareable file")
+    how = dash.add_mutually_exclusive_group()
+    how.add_argument("--serve", action="store_true",
+                     help="serve the dashboards of every workspace, with each file and "
+                          "conversation, live, until Ctrl+C (read-only)")
+    how.add_argument("--export", action="store_true",
+                     help="write a self-contained full dashboard (every file and conversation "
+                          "embedded) to share or keep")
+    how.add_argument("--light", action="store_true", help=argparse.SUPPRESS)  # the default now
+    dash.add_argument("--host", help="with --serve: the address to listen on (default: "
+                                     "127.0.0.1; 0.0.0.0 for every network, with a token)")
+    dash.add_argument("--port", type=_port, help=f"with --serve: the port (default: "
+                                                  f"{serve.DEFAULT_PORT}, or the next free one)")
+    dash.add_argument("--open", action="store_true", help="with --serve: open it in a browser")
+    dash.add_argument("--token", help="with --serve: the token to require (default: a random one "
+                                      "when listening beyond this machine)")
+    dash.add_argument("--no-token", action="store_true",
+                      help="with --serve: require no token, even beyond this machine")
+    dash.add_argument("--out", metavar="FILE",
+                      help="with --export: the file to write (default: a new file in the "
+                           "dashboards folder)")
 
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
@@ -310,7 +340,27 @@ def _print_status(obj, message=None):
 
 def _dashboard_path(ws):
     path = os.path.join(ws.path, dashboard.FILENAME)
-    return path if os.path.exists(path) else None
+    return path if os.path.exists(path) and _light_on(ws) else None
+
+
+def _light_on(ws):
+    """Whether commands write `dashboard.html` (`dashboard.light`, on by default). A view
+    preference, so it is read from the configuration files as they are now (config.LIVE_KEYS)."""
+    try:
+        value = config_mod.live_value(ws.project, ws.config_path(), "dashboard.light",
+                                      ws.kit.path("shared", "config", "defaults.json"))
+    except (AttributeError, DevloopsError):
+        return True
+    return value is not False
+
+
+def _files_hint(args, ws):
+    """Where to see files and conversations: the running server's URL, or the command to start
+    one (the same command the summary page names)."""
+    rec = serve.running(ws.project, getattr(args, "env", None))
+    if rec:
+        return f"files and conversations: {serve.url_for(rec, ws.name)} (dashboard server running)"
+    return f"files and conversations: {dashboard.serve_command(ws)}"
 
 
 def _emit(args, ws, loop, message, code, full=None):
@@ -325,25 +375,23 @@ def _emit(args, ws, loop, message, code, full=None):
         _dump(args, obj)
     else:
         _print_status(obj, message)
-        _print_dashboards(args, obj["dashboard"], full)
+        _print_dashboards(args, ws, obj["dashboard"], full)
 
 
-def _print_dashboards(args, path, full):
-    """Where to look next: the light dashboard, and the full one (written, or how to write it)."""
+def _print_dashboards(args, ws, path, full):
+    """Where to look next: the summary page, a full dashboard written at the stop, and where
+    files and conversations are."""
     if path:
         print(f"dashboard: {path}")
     if full:
         _print_full(full)
-    else:
-        print(f"full dashboard (files and conversations): devloops dashboard"
-              f"{getattr(args, 'workspace_flag', '')}")
+    print(_files_hint(args, ws))
 
 
 def _start_hint(progress, args, ws, loops):
-    """Before a command runs loops: where to look while it works."""
-    progress.note(f"dashboard: {os.path.join(ws.path, dashboard.FILENAME)}")
-    progress.note(f"full dashboard (files and conversations): devloops dashboard"
-                  f"{getattr(args, 'workspace_flag', '')}")
+    """Before a command runs loops: where to look while it works (the summary page is written
+    when it pauses, stops, or ends)."""
+    progress.note(_files_hint(args, ws))
     for loop in loops:
         progress.note(f"log{f' ({loop})' if len(loops) > 1 else ''}: "
                       f"{progress_mod.log_path(ws.loop_dir(loop))}")
@@ -396,10 +444,10 @@ def _event_marks(ws, loops):
     return [size(loop) for loop in loops]
 
 
-def _write_full_dashboard(ws, trigger, env):
+def _write_full_dashboard(ws, trigger, env, out=None):
     """Write a new full dashboard; a failure only warns, like the lightweight one (FR-039)."""
     try:
-        return fulldash.write(ws, trigger=trigger, env=env)
+        return fulldash.write(ws, trigger=trigger, env=env, out=out)
     except Exception as e:  # noqa: BLE001 - a view; the command's result stands
         print(f"devloops: warning: could not write the full dashboard: {e}", file=sys.stderr)
         return None
@@ -468,7 +516,6 @@ def _orchestrate(args, kit, project, env, action=None):
         backend_target=targets["backend"], frontend_target=targets["frontend"],
         config_path=args.config, force_unlock=args.force_unlock,
         questions=_questions_override(args)), kit=kit, env=env)
-    orch.on_progress = _follow(ws)
     orch.progress = progress_mod.from_args(args, env)
     _start_hint(orch.progress, args, ws, orchestrator.LOOP_ORDER)
     error = full = None
@@ -486,7 +533,7 @@ def _orchestrate(args, kit, project, env, action=None):
                 and _event_marks(ws, orchestrator.LOOP_ORDER) != before \
                 and _full_on_stop(ws, project, kit):
             full = _write_full_dashboard(ws, "orchestrate", env)
-        _write_dashboard(ws, announce=False)
+        _write_dashboard(ws, announce=False, light=True)
     loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
     if args.json:
         obj = {"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
@@ -502,7 +549,7 @@ def _orchestrate(args, kit, project, env, action=None):
         print(f"orchestrator: {orch.state['status']}")
         for obj in loops.values():
             _print_status(obj)
-        _print_dashboards(args, _dashboard_path(ws), full)
+        _print_dashboards(args, ws, _dashboard_path(ws), full)
     if code == state.EXIT_CODES["awaiting-approval"] and orch.last_run and _interactive(args):
         return _review(args, kit, project, env, ws, orch.last_run)
     return code
@@ -635,7 +682,6 @@ def _loop_command(args, kit, project, env):
     if continuing and _orchestrated(ws):
         return _orchestrate(args, kit, project, env, action=(args.loop, decide))
     eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
-    eng.on_progress = _follow(ws)
     eng.progress = progress_mod.from_args(args, env)
     _start_hint(eng.progress, args, ws, [args.loop])
     if _orchestrated(ws):
@@ -652,7 +698,7 @@ def _loop_command(args, kit, project, env):
                 and _event_marks(ws, [args.loop]) != before \
                 and _full_on_stop(ws, project, kit):
             full = _write_full_dashboard(ws, f"{args.command} {args.loop}", env)
-        _write_dashboard(ws, announce=False)
+        _write_dashboard(ws, announce=False, light=True)
     if args.command != "run" and _orchestrated(ws):
         orchestrator.Orchestrator(ws, kit=kit, env=env).sync_step(args.loop)
     _emit(args, ws, args.loop, eng.message, code, full)
@@ -662,19 +708,12 @@ def _loop_command(args, kit, project, env):
     return code
 
 
-def _follow(ws):
-    """An `on_progress` callback that refreshes the dashboard during a run, quietly: a failure
-    is reported once, by the write at the end of the command."""
-    def progress():
-        try:
-            dashboard.write(ws)
-        except Exception:  # noqa: BLE001 - the dashboard is a view; the run's result stands
-            pass
-    return progress
-
-
-def _write_dashboard(ws, announce):
-    """Refresh the workspace dashboard. A failure only warns: it never changes a run's outcome."""
+def _write_dashboard(ws, announce, light=False):
+    """Refresh the workspace's summary page, when a command pauses, stops, or ends (`light`: only
+    if `dashboard.light` is on) or on demand. A failure only warns: it never changes a run's
+    outcome."""
+    if light and not _light_on(ws):
+        return None
     try:
         path = dashboard.write(ws)
     except Exception as e:  # noqa: BLE001 - the dashboard is a view; the run's result stands
@@ -683,6 +722,51 @@ def _write_dashboard(ws, announce):
     if announce:
         print(f"dashboard: {path}")
     return path
+
+
+def _dashboard(args, kit, project, env):
+    """`devloops dashboard [--serve | --export]` (contracts/cli.md)."""
+    for flag, given in (("--host", args.host), ("--port", args.port is not None),
+                        ("--open", args.open), ("--token", args.token),
+                        ("--no-token", args.no_token)):
+        if given and not args.serve:
+            raise state.UsageError(f"{flag} goes with --serve")
+    if args.out and not args.export:
+        raise state.UsageError("--out goes with --export")
+    if args.token is not None and args.no_token:
+        raise state.UsageError("--token and --no-token cannot go together")
+    if args.token is not None and not re.fullmatch(r"[A-Za-z0-9._~-]{8,}", args.token):
+        raise state.UsageError("--token must be at least 8 characters from A-Z a-z 0-9 . _ ~ -")
+    try:
+        ws = workspace.open_workspace(args.workspace, project, kit, create=False)
+    except state.UsageError:
+        # A server covers every workspace: without --workspace it opens on any of them.
+        names = serve.Site(project, kit, env).workspaces() if args.serve else {}
+        if not names or args.workspace_given:
+            raise
+        ws = workspace.open_workspace(next(iter(names)), project, kit, create=False)
+    if args.serve:
+        return serve.serve(project, kit, ws, host=args.host or "127.0.0.1", port=args.port,
+                           token=args.token, use_token=False if args.no_token else None,
+                           open_browser=args.open, as_json=args.json, env=env)
+    if args.export:
+        full = _write_full_dashboard(ws, "dashboard command", env, out=args.out)
+        # The summary page links the exported dashboards (FR-036a): refresh it to list this one.
+        path = _write_dashboard(ws, announce=False, light=True)
+        if args.json:
+            _dump(args, {"workspace": ws.name, "dashboard": path, "full_dashboard": full and {
+                k: full[k] for k in ("path", "bytes", "largest", "unavailable", "not_embedded")}})
+        else:
+            _print_full(full, largest=True)
+        return 0 if full else 1
+    path = _write_dashboard(ws, announce=not args.json)
+    rec = serve.running(project, env)
+    if args.json:
+        _dump(args, {"workspace": ws.name, "dashboard": path,
+                     "serving": serve.url_for(rec, ws.name) if rec else None})
+    else:
+        print(_files_hint(args, ws))
+    return 0 if path else 1
 
 
 def _init(args, kit):
@@ -790,6 +874,8 @@ def main(argv=None, kit=None, project=None, env=None):
             args.warnings += prompts.ignored_warnings(project.root)
         for warning in args.warnings if not args.json else ():
             print(f"devloops: warning: {warning}", file=sys.stderr)
+        args.env = env  # where a dashboard server records itself (serve.record_path)
+        args.workspace_given = args.workspace is not None
         args.workspace = args.workspace or project.default_workspace
         # What the hints add so a printed command reaches this workspace too.
         args.workspace_flag = ("" if args.workspace == project.default_workspace
@@ -821,19 +907,7 @@ def main(argv=None, kit=None, project=None, env=None):
             return 0
 
         if args.command == "dashboard":
-            ws = workspace.open_workspace(args.workspace, project, kit, create=False)
-            full = None if args.light else _write_full_dashboard(ws, "dashboard command", env)
-            path = _write_dashboard(ws, announce=not args.json)
-            if args.json:
-                obj = {"workspace": ws.name, "dashboard": path}
-                if not args.light:
-                    obj["full_dashboard"] = full and {k: full[k] for k in
-                                                      ("path", "bytes", "largest", "unavailable",
-                                                       "not_embedded")}
-                _dump(args, obj)
-            else:
-                _print_full(full, largest=True)
-            return 0 if path and (args.light or full) else 1
+            return _dashboard(args, kit, project, env)
         if args.command == "export-sessions":
             return _export_sessions(args, workspace.open_workspace(args.workspace, project, kit,
                                                                    create=False))

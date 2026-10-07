@@ -13,7 +13,11 @@ page loads nothing from outside itself: links point to anchors in the page (the 
 the project's GitHub link, which only navigates), and the only script is the shared one (ui.py).
 
 Files are written to `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>[-n].html`, created
-exclusively, so a generation never replaces an earlier one.
+exclusively, so a generation never replaces an earlier one (or to the file `--export --out`
+names).
+
+`devloops dashboard --serve` (serve.py) renders the same page with a `LazyEmbedder`: files and
+conversations are listed with the URL the page loads them from, not embedded.
 """
 import base64
 import json
@@ -215,9 +219,51 @@ def embed(path, redactor, max_bytes=MAX_EMBED_BYTES):
         uri = f"data:application/octet-stream;base64,{base64.b64encode(data).decode('ascii')}"
         return (kind, lang, ic, f'<div class="inline"><a download="{e(name)}" href="{uri}">download '
                 f'{e(name)} ({e(human_bytes(len(data)))})</a></div>', len(data))
+    return kind, lang, ic, f'<pre class="src">{e(viewer_text(kind, text, redactor))}</pre>', len(data)
+
+
+def viewer_text(kind, text, redactor):
+    """A text file as the viewer shows it: JSON indented, and every secret replaced."""
     if kind in ("json", "jsonl"):
         text = _json_text(text, redactor) or text
-    return kind, lang, ic, f'<pre class="src">{e(redactor.redact(text)[0])}</pre>', len(data)
+    return redactor.redact(text)[0]
+
+
+SNIFF_BYTES = 64 * 1024
+WHOLE_BYTES = 1024 * 1024  # a file this small is read whole to tell its kind
+
+
+_SNIFFED = {}  # (path, size, mtime_ns) -> (kind, lang, icon): a served page lists files often
+_SNIFFED_MAX = 50000
+
+
+def sniff(path, size, mtime_ns=None):
+    """`(kind, lang, icon)` of a file from its first bytes (the whole file when small), so a large
+    file is not read just to be listed. With `mtime_ns`, remembered until the file changes."""
+    key = (path, size, mtime_ns)
+    if mtime_ns is not None and key in _SNIFFED:
+        return _SNIFFED[key]
+    found = _sniff(path, size)
+    if mtime_ns is not None:
+        if len(_SNIFFED) >= _SNIFFED_MAX:
+            _SNIFFED.clear()
+        _SNIFFED[key] = found
+    return found
+
+
+def _sniff(path, size):
+    with open(path, "rb") as f:
+        data = f.read(size if size <= WHOLE_BYTES else SNIFF_BYTES)
+    text = None
+    if os.path.splitext(path)[1].lower() not in IMAGE_TYPES:
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as err:
+            if len(data) < size and err.start >= len(data) - 3:  # cut inside a character
+                text = data[:err.start].decode("utf-8", errors="replace")
+        if text is not None and "\x00" in text:
+            text = None
+    return ui.kind_of(path, text)
 
 
 class Embedder:
@@ -253,15 +299,54 @@ class Embedder:
             return ui.missing_node(anchor, shown)
         kind, lang, ic, content, size = embedded
         (self.skipped if kind == "large" else self.sizes).append({"path": rel, "bytes": size})
-        meta = []
-        if item.get("milestone"):
-            meta.append(f"milestone {item['milestone']}")
-        if item.get("trial") is not None:
-            meta.append(f"trial {item['trial']}")
-        if item.get("step"):
-            meta.append(f"call {item['seq']} · {item['step']}")
-        return ui.file_node(anchor, shown, kind, lang, ic, human_bytes(size), " · ".join(meta),
-                            content)
+        return ui.file_node(anchor, shown, kind, lang, ic, human_bytes(size), _meta(item), content)
+
+
+class LazyEmbedder(Embedder):
+    """For a served page (serve.py): each file is listed with its size, and its content is loaded
+    from `file/<anchor>` when it is opened; only a file's first bytes are read here, to know its
+    kind. `files` maps each listed anchor to its path: the only files the server sends."""
+
+    def __init__(self, ws, redactor):
+        super().__init__(ws, redactor, max_bytes=None)
+        self.files = {}
+        self.inputs = set()  # anchors of recorded inputs, which may lie outside the workspace
+
+    def item(self, item):
+        rel = item["rel"]
+        shown = self.redactor.redact(rel)[0].replace(os.sep, "/")
+        anchor = self.anchor(rel)
+        try:
+            st = os.stat(item["abs"])
+            kind, lang, ic = sniff(item["abs"], st.st_size, st.st_mtime_ns)
+        except OSError:
+            return ui.missing_node(anchor, shown)
+        self.files[anchor] = item["abs"]
+        if item.get("section") == "inputs" and item.get("input"):
+            self.inputs.add(anchor)
+        name, url = e(os.path.basename(shown)), f"file/{e(anchor)}"
+        if kind == "image":
+            content = f'<div class="inline"><img loading="lazy" src="{url}" alt="{name}"></div>'
+        elif kind == "binary":
+            content = (f'<div class="inline"><a download="{name}" href="{url}">download {name} '
+                       f'({e(human_bytes(st.st_size))})</a></div>')
+        else:
+            content = (f'<div class="inline lazy" data-src="{url}"><a href="{url}" target="_blank" '
+                       f'rel="noopener">Open {name}</a></div>')
+        return ui.file_node(anchor, shown, kind, lang, ic, human_bytes(st.st_size),
+                            _meta(item), content, version=f"{st.st_size}-{st.st_mtime_ns}",
+                            size_bytes=st.st_size)
+
+
+def _meta(item):
+    meta = []
+    if item.get("milestone"):
+        meta.append(f"milestone {item['milestone']}")
+    if item.get("trial") is not None:
+        meta.append(f"trial {item['trial']}")
+    if item.get("step"):
+        meta.append(f"call {item['seq']} · {item['step']}")
+    return " · ".join(meta)
 
 
 class EmbeddedLinks(dashboard.FileLinks):
@@ -517,15 +602,46 @@ def _prompt_sources(sources):
     return f'<div class="prompt-sources"><h4>Prompt parts</h4><ul class="small">{items}</ul></div>'
 
 
-def call_sources(ws, data, embedder, env):
+def conversation_body(ws, loop, record, target_dir, redactor, anchor=None, env=None):
+    """`(html, text, rel)`: one call's conversation as the viewer shows it (a note on where it
+    was read from, then the transcript), or why it is unavailable (`text` None). `anchor(rel)`
+    names the copied file's id."""
+    text, source, reason = read_conversation(ws, loop, record, target_dir, env)
+    if text is None:
+        return (f'<p class="unavailable missing">Conversation unavailable ({e(reason)}); '
+                f'session <code>{e(record.get("session_id"))}</code></p>', None, None)
+    rel = os.path.join(loop, record["conversation_path"]) if source == "copied" else None
+    note = (f'copied: <code>{e(rel)}</code>' if rel else
+            "read from Claude Code's history (recorded before conversations were copied)")
+    return (f'<p class="muted small">{note}</p>'
+            + render_conversation(text, redactor, anchor(rel) if rel and anchor else None),
+            text, rel)
+
+
+def call_sources(ws, data, embedder, env, lazy=False):
     """One hidden source per call (the viewer opens it): its header, prompt parts, and
-    conversation (FR-040). Returns `(html, models, unavailable)`."""
+    conversation (FR-040). Returns `(html, models, unavailable)`.
+
+    `lazy` (a served page): the conversation is not read here; a placeholder names the URL the
+    page loads it from when the call is opened, and the model is the one recorded."""
     redactor, parts, models, unavailable = embedder.redactor, [], {}, 0
     for loop, d in data["loops"].items():
         for r in sorted(d["invocations"], key=lambda r: r.get("seq") or 0):
             seq = r.get("seq")
-            text, source, reason = read_conversation(ws, loop, r, d.get("target_dir"), env)
-            model = _model(text)
+            if lazy:
+                text = None
+                body = (f'<div class="conv-lazy" data-src="call/{e(loop)}/{e(seq)}"><a '
+                        f'href="call/{e(loop)}/{e(seq)}">Open the conversation</a></div>')
+                model = r.get("model")
+            else:
+                body, text, rel = conversation_body(ws, loop, r, d.get("target_dir"), redactor,
+                                                    embedder.anchor, env)
+                model = _model(text)
+                if text is None:
+                    unavailable += 1
+                else:
+                    embedder.sizes.append({"path": rel or f"{loop} call {seq} conversation",
+                                           "bytes": len(text.encode("utf-8"))})
             models[(loop, seq)] = model
             prompt = r.get("prompt_path")
             prompt_id = embedder.anchors.get(os.path.normpath(os.path.join(loop, prompt))) \
@@ -541,18 +657,6 @@ def call_sources(ws, data, embedder, env):
             failure = r.get("failure_class")
             flag = (f' <span class="pill tone-critical">{e(failure)} failure</span>'
                     if failure not in (None, "none") else "")
-            if text is None:
-                unavailable += 1
-                body = (f'<p class="unavailable missing">Conversation unavailable ({e(reason)}); '
-                        f'session <code>{e(r.get("session_id"))}</code></p>')
-            else:
-                rel = os.path.join(loop, r["conversation_path"]) if source == "copied" else None
-                note = (f'copied: <code>{e(rel)}</code>' if rel else
-                        "read from Claude Code's history (recorded before conversations were copied)")
-                body = (f'<p class="muted small">{note}</p>'
-                        + render_conversation(text, redactor, embedder.anchor(rel) if rel else None))
-                embedder.sizes.append({"path": rel or f"{loop} call {seq} conversation",
-                                       "bytes": len(text.encode("utf-8"))})
             parts.append(
                 f'<section class="call-src" id="{e(call_id(loop, seq))}" data-title="{e(title)}" '
                 f'data-meta="{e(head)}" data-prompt="{e(prompt_id or "")}" '
@@ -564,8 +668,12 @@ def call_sources(ws, data, embedder, env):
 
 # --- the page ---------------------------------------------------------------------------------------
 
-def render_full(data, ws, embedder, env=None, trigger=None):
-    """The full page and the number of conversations shown as unavailable."""
+def render_full(data, ws, embedder, env=None, trigger=None, serve=None):
+    """The full page and the number of conversations shown as unavailable.
+
+    `serve` (serve.py): the page is served live instead of written. `embedder` is then a
+    `LazyEmbedder`, conversations load when opened, the page follows the run, and `serve` holds
+    `workspaces` (the names to switch to) and `attrs` (the root's `data-*` attributes)."""
     redactor = embedder.redactor
     data = redactor.redact_obj(data)[0]
     artifacts = {loop: collect_artifacts(ws, loop) for loop in data["loops"]}
@@ -579,17 +687,23 @@ def render_full(data, ws, embedder, env=None, trigger=None):
     trees = [loop_tree(loop, d, artifacts[loop], embedder) for loop, d in data["loops"].items()]
     trees += other_trees(ws, embedder)
     files = sum(t.count() for t in trees)
-    sources, models, unavailable = call_sources(ws, data, embedder, env)
+    sources, models, unavailable = call_sources(ws, data, embedder, env, lazy=bool(serve))
 
     def call_ref(loop):
         sessions = {r.get("session_id"): call_id(loop, r.get("seq"))
                     for r in data["loops"][loop]["invocations"]}
         return sessions.get
 
-    notice = (f'<p class="notice">{ui.icon("alert")}<span><strong>{e(NOTICE)}.</strong> Configured '
-              f'secrets are replaced with <code>***</code>; other sensitive text may remain. '
-              f'Generated {e(data["generated_at"])} by devloops {e(__version__)}'
-              + (f" · {e(trigger)}" if trigger else "") + "</span></p>")
+    if serve:
+        notice = (f'<p class="notice">{ui.icon("alert")}<span><strong>Served live by '
+                  f'<code>devloops dashboard --serve</code>, read-only.</strong> Configured secrets '
+                  f'are replaced with <code>***</code>; other sensitive text may remain. devloops '
+                  f'{e(__version__)}</span></p>')
+    else:
+        notice = (f'<p class="notice">{ui.icon("alert")}<span><strong>{e(NOTICE)}.</strong> '
+                  f'Configured secrets are replaced with <code>***</code>; other sensitive text may '
+                  f'remain. Generated {e(data["generated_at"])} by devloops {e(__version__)}'
+                  + (f" · {e(trigger)}" if trigger else "") + "</span></p>")
     views = [dashboard.overview_view(data, links, notice,
                                      lambda loop, r: call_id(loop, r.get("seq"))),
              dashboard.orchestrator_view(data)]
@@ -598,14 +712,17 @@ def render_full(data, ws, embedder, env=None, trigger=None):
     views += [dashboard.calls_view(data, links, lambda loop, r: call_id(loop, r.get("seq")),
                                    models, sources),
               ui.view("files", "Files", ui.explorer(trees, files),
+                      "Every artifact in the workspace, opened when selected" if serve else
                       "Every artifact in the workspace, embedded in this page"),
               dashboard.questions_view(data), dashboard.events_view(data)]
-    title = f"devloops · {data['workspace']} · full dashboard"
-    page = ui.page(title, dashboard.sidebar(data, "full dashboard",
-                                            dashboard.detail_links(data, files)),
+    kind = "live" if serve else "full dashboard"
+    title = f"devloops · {data['workspace']} · {kind}"
+    page = ui.page(title, dashboard.sidebar(data, kind, dashboard.detail_links(data, files),
+                                            (serve or {}).get("workspaces")),
                    ui.topbar(data["workspace"],
-                             dashboard.pill(dashboard._overall_status(data), dashboard.RUN_STATUS)),
-                   [v for v in views if v])
+                             dashboard.pill(dashboard._overall_status(data), dashboard.RUN_STATUS),
+                             live=bool(serve)),
+                   [v for v in views if v], (serve or {}).get("attrs"))
     return redactor.redact(page)[0], unavailable
 
 
@@ -623,19 +740,25 @@ def _create(directory, now):
             n += 1
 
 
-def write(ws, trigger=None, env=None, now=None, max_bytes=MAX_EMBED_BYTES):
+def write(ws, trigger=None, env=None, now=None, max_bytes=MAX_EMBED_BYTES, out=None):
     """Write a new full dashboard for `ws`; return `{path, bytes, largest, unavailable,
     not_embedded}`.
 
     `largest` is the five largest embedded items and `not_embedded` the files over `max_bytes`
-    (both `[{path, bytes}]`). It never replaces an earlier file (FR-036).
+    (both `[{path, bytes}]`). It never replaces an earlier file (FR-036), except `out`: the file
+    `devloops dashboard --export --out` names, written whatever is there.
     """
     embedder = Embedder(ws, workspace_redactor(ws, env), max_bytes)
     page, unavailable = render_full(dashboard.collect(ws), ws, embedder, env, trigger)
     data = page.encode("utf-8")
-    directory = dashboard.full_dashboards_dir(ws)
-    os.makedirs(directory, exist_ok=True)
-    fd, path = _create(directory, now or datetime.now(timezone.utc))
+    if out:
+        path = os.path.abspath(out)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    else:
+        directory = dashboard.full_dashboards_dir(ws)
+        os.makedirs(directory, exist_ok=True)
+        fd, path = _create(directory, now or datetime.now(timezone.utc))
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)

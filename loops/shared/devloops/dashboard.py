@@ -1,15 +1,18 @@
-"""`workspaces/<ws>/dashboard.html`: one self-contained page summarizing a workspace.
+"""`workspaces/<ws>/dashboard.html`: one self-contained summary page of a workspace.
 
 Everything is read from the workspace's state (`workspace.json`, each loop's `state/` and
 `outputs/open-questions.md`, `orchestrator/state.json`); nothing is read back from the page. The
-views here (overview, loops, calls, questions, events) are shared with the full dashboard
-(fulldash.py); the shell, styles, and script come from ui.py, so the page opens offline from disk.
-State is already redacted (FR-070); every value is HTML-escaped here.
+views here (overview, loops, calls, questions, events) are shared with the full dashboard and the
+served one (fulldash.py, serve.py); the shell, styles, and script come from ui.py, so the page
+opens offline from disk. The summary links no workspace file: files and conversations are what
+`devloops dashboard --serve` shows. State is already redacted (FR-070); every value is
+HTML-escaped here.
 """
 import html
 import json
 import os
 import re
+import shlex
 import socket
 from datetime import datetime
 
@@ -17,7 +20,6 @@ from . import __version__, render, state, ui
 
 LOOPS = ("backend-dev", "frontend-dev")
 FILENAME = "dashboard.html"
-REFRESH_SECONDS = 10  # how often the page reloads itself while a loop is running
 
 # Status presentation: (label, icon, tone). Tones map to the fixed status palette; the icon and the
 # label always travel with the color, so state is never read from color alone.
@@ -340,6 +342,36 @@ class FileLinks:
 
 
 FILE_LINKS = FileLinks()
+
+
+class SummaryLinks(FileLinks):
+    """The summary page's: a file is named, not linked (`devloops dashboard --serve` opens it)."""
+
+    def path(self, relpath, text=None):
+        return f'<code title="{e(relpath)}">{e(text or relpath)}</code>'
+
+    def image(self, relpath, alt):
+        return self.path(relpath, alt)
+
+    def button(self, relpath, label, ic="file"):
+        return ""
+
+
+SUMMARY_LINKS = SummaryLinks()
+
+
+def serve_command(ws):
+    """`devloops dashboard --serve`, with `--workspace` when `ws` is not the default."""
+    project = getattr(ws, "project", None)
+    if project is None or ws.name == project.default_workspace:
+        return "devloops dashboard --serve"
+    elsewhere = os.path.dirname(os.path.realpath(ws.path)) != os.path.realpath(project.workspaces_dir)
+    return f"devloops dashboard --serve --workspace {shlex.quote(ws.path if elsewhere else ws.name)}"
+
+
+def serve_hint(command):
+    return (f'<p class="callout serve-hint">{ui.icon("folder")}<span>Files and conversations: '
+            f'<code>{e(command)}</code></span></p>')
 
 
 # --- charts -----------------------------------------------------------------------------------------
@@ -759,7 +791,7 @@ def milestone_card(loop, m, links=FILE_LINKS, call_ref=None):
     return "".join(parts) + "</div></details>"
 
 
-def loop_view(loop, d, ws_path, links=FILE_LINKS, call_ref=None, files_view=False):
+def loop_view(loop, d, ws_path, links=FILE_LINKS, call_ref=None, files_view=False, hint=""):
     s = d["stats"]
     reason = d["status_reason"] or {}
     parts = []
@@ -789,7 +821,8 @@ def loop_view(loop, d, ws_path, links=FILE_LINKS, call_ref=None, files_view=Fals
     more = f'<a class="btn ghost" href="#calls">{ui.icon("chat")}{s["calls"]} calls</a>'
     if files_view:
         more += f'<a class="btn ghost" href="#files">{ui.icon("folder")}Files</a>'
-    parts.append(f'<div class="toolbar outputs gap-top">{buttons}<span class="spacer"></span>{more}</div>')
+    parts.append(f'<div class="toolbar outputs gap-top">{buttons}<span class="spacer"></span>{more}</div>'
+                 + hint)
 
     plan = d["plan"]
     if plan:
@@ -867,9 +900,9 @@ def questions_view(data):
     return ui.view("questions", "Questions and assumptions", "".join(body))
 
 
-def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources=""):
-    """Every Claude call. With `call_ids` (the full dashboard) a row opens the call's conversation;
-    otherwise it links its prompt file."""
+def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources="", hint=None):
+    """Every Claude call. With `call_ids` (the full and served dashboards) a row opens the call's
+    conversation, prompt, and settings; `hint` replaces the line saying so."""
     rows = []
     for loop, d in data["loops"].items():
         for r in sorted(d["invocations"], key=lambda r: r.get("seq") or 0):
@@ -878,11 +911,8 @@ def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources=""):
                       f'{e(failure)}</span>' if failure not in (None, "none")
                       else '<span class="muted small">ok</span>')
             cid = call_ids(loop, r) if call_ids else None
-            prompt = r.get("prompt_path")
             model = (models or {}).get((loop, r.get("seq"))) or r.get("model") or ""
-            last = (f'<td class="muted small">{e(model)}</td>'
-                    if call_ids else
-                    f"<td>{links.path(f'{loop}/{prompt}', 'prompt') if prompt else ''}</td>")
+            last = f'<td class="muted small">{e(model)}</td>'
             attrs = f' class="row-link" data-open="{e(cid)}"' if cid else ""
             rows.append(
                 f'<tr{attrs} data-loop="{e(loop)}"><td>{e(loop)}</td><td class="num">'
@@ -898,7 +928,7 @@ def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources=""):
                     f'data-table="calls-table" aria-pressed="false">{e(loop)}</button>'
                     for loop in data["loops"])
     head = [("Loop", 0), ("#", 1), ("Step", 0), ("Milestone", 0), ("Trial", 1), ("Session", 0),
-            ("Model" if call_ids else "Prompt", 0), ("Tokens", 1), ("Cost", 1), ("Duration", 1),
+            ("Model", 0), ("Tokens", 1), ("Cost", 1), ("Duration", 1),
             ("Result", 0)]
     by_model = {}
     for loop, d in data["loops"].items():
@@ -916,13 +946,13 @@ def calls_view(data, links=FILE_LINKS, call_ids=None, models=None, sources=""):
                  f"{e(name)} {e(money(cost))} ({count} call(s))"
                  for name, (count, cost) in sorted(by_model.items(), key=lambda x: -x[1][1]))
              + "</p>")
-    hint = ("Select a call to read its conversation, prompt, and settings." if call_ids else
-            "The full dashboard shows each call's conversation.")
+    if hint is None:
+        hint = '<p class="muted small">Select a call to read its conversation, prompt, and settings.</p>'
     body = (f'<div class="toolbar"><input class="input" type="search" placeholder="Filter calls…" '
             f'aria-label="Filter calls" data-filter-for="calls-table"><div class="chips" role="group" '
             f'aria-label="Loops">{chips}</div></div>'
             + table(head, rows, ' id="calls-table"', empty="No Claude call recorded.")
-            + f'{split}<p class="muted small">{hint}</p>{sources}')
+            + f'{split}{hint}{sources}')
     total = sum(len(d["invocations"]) for d in data["loops"].values())
     return ui.view("calls", "Claude calls", body, f"{total} headless Claude Code call(s)")
 
@@ -954,8 +984,9 @@ def full_dashboards_view(data):
     return ui.view("full-dashboards", "Full dashboards", body)
 
 
-def sidebar(data, kind, details):
-    """The navigation: the run, each loop (its status as a dot), and `details` links."""
+def sidebar(data, kind, details, workspaces=None):
+    """The navigation: the run, each loop (its status as a dot), and `details` links; and, served,
+    the `workspaces` to switch to."""
     run = [ui.nav_link("overview", "Overview", "grid")]
     if data["orchestrator"]:
         run.append(ui.nav_link("orchestrator", "Orchestrator", "flow"))
@@ -964,7 +995,7 @@ def sidebar(data, kind, details):
              for loop, d in data["loops"].items()]
     groups = [("Run", run)] + ([("Loops", loops)] if loops else []) + [("Details", details)]
     generated = (data["generated_at"] or "")[:19].replace("T", " ") + " UTC"
-    return ui.sidebar(data["workspace"], kind, groups, generated, __version__)
+    return ui.sidebar(data["workspace"], kind, groups, generated, __version__, workspaces)
 
 
 def detail_links(data, files=None):
@@ -978,26 +1009,28 @@ def detail_links(data, files=None):
     return links
 
 
-def render_page(data, ws_path):
-    views = [overview_view(data), orchestrator_view(data)]
-    views += [loop_view(loop, d, ws_path) for loop, d in data["loops"].items()]
-    views += [calls_view(data), questions_view(data), events_view(data),
+def render_page(data, ws_path, command="devloops dashboard --serve"):
+    """The summary page: status, milestones, trials, failures, questions, and cost. Each place
+    that would link a file or a conversation says how to see them instead (`command`)."""
+    hint = serve_hint(command)
+    links = SUMMARY_LINKS
+    views = [overview_view(data, links, hint), orchestrator_view(data)]
+    views += [loop_view(loop, d, ws_path, links, hint=hint) for loop, d in data["loops"].items()]
+    views += [calls_view(data, links, hint=hint), questions_view(data), events_view(data),
               full_dashboards_view(data)]
     details = detail_links(data)
     if data.get("full_dashboards"):
         details.append(ui.nav_link("full-dashboards", "Full dashboards", "history",
                                    ui.nav_count(len(data["full_dashboards"]))))
-    refresh = REFRESH_SECONDS if data.get("running") else 0
-    return ui.page(f"devloops · {data['workspace']}", sidebar(data, "dashboard", details),
-                   ui.topbar(data["workspace"], pill(_overall_status(data), RUN_STATUS),
-                             live=bool(refresh)),
-                   [v for v in views if v], refresh=refresh)
+    return ui.page(f"devloops · {data['workspace']}", sidebar(data, "summary", details),
+                   ui.topbar(data["workspace"], pill(_overall_status(data), RUN_STATUS)),
+                   [v for v in views if v])
 
 
 def write(ws):
     """Render `workspaces/<ws>/dashboard.html` from state and return its path."""
     path = os.path.join(ws.path, FILENAME)
-    state.write_text_atomic(path, render_page(collect(ws), ws.path))
+    state.write_text_atomic(path, render_page(collect(ws), ws.path, serve_command(ws)))
     return path
 
 

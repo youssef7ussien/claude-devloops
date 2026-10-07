@@ -3,8 +3,9 @@
 > **Changed by 002** ([specs/002-devloops-init/contracts/cli.md](../../002-devloops-init/contracts/cli.md)):
 > - `--workspace` is optional: the default is the project configuration's `workspace`, and a bare
 >   name resolves under its `workspaces_dir`. Commands find the project from the current folder.
-> - `dashboard` writes a new **full** dashboard, then refreshes the lightweight one;
->   `dashboard --light` keeps the behavior described here.
+> - `dashboard.html` is a summary page, written when a command pauses, stops, or ends, with no
+>   file links and no self-reload; `dashboard --serve` serves the live dashboard with every file
+>   and conversation, and `dashboard --export` writes a self-contained full dashboard.
 > - New commands `init` and `check`; new `run`/`orchestrate` option `--speckit-feature`; targets
 >   and requirements default to the project configuration.
 

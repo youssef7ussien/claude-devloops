@@ -62,6 +62,7 @@ class TempEnv:
       frontend-target/ second target, for tests that run both loops (`self.frontend_target_dir`)
       fake/            fake-Claude scenario and call log
       claude-config/   `CLAUDE_CONFIG_DIR`, where the fake Claude writes transcripts
+      runtime/         `XDG_RUNTIME_DIR`, where a dashboard server records itself
 
 `repo/` is also a devloops project: `.devloops/devloops.json` keeps workspaces at
 `repo/workspaces/`, as in this repository (002 research P-17), and sets `questions: ask`.
@@ -103,6 +104,8 @@ class TempEnv:
         self.env.pop("DEVLOOPS_ALLOWED_ROOTS", None)
         self.env.pop("DEVLOOPS_PROJECT", None)
         self.env["CLAUDE_CONFIG_DIR"] = os.path.join(self.base, "claude-config")
+        # Where a dashboard server records itself (serve.record_path): this test's own.
+        self.env["XDG_RUNTIME_DIR"] = os.path.join(self.base, "runtime")
         return self
 
     def __exit__(self, *exc):

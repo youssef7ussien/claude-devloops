@@ -1,4 +1,5 @@
-"""`workspaces/<ws>/dashboard.html`: written after every command, from state only."""
+"""`workspaces/<ws>/dashboard.html`: the summary page, written when a command pauses, stops, or
+ends, from state only (002 FR-038)."""
 import json
 import os
 import re
@@ -7,7 +8,7 @@ import unittest
 import helpers  # noqa: F401
 import samples
 from devloops import dashboard, ui, workspace
-from stub_loop import StubLoopMixin, WS, implemented, service_error, wait_for
+from stub_loop import StubLoopMixin, WS, implemented, service_error
 
 
 class DashboardTest(StubLoopMixin, unittest.TestCase):
@@ -39,12 +40,16 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertIn("2 / 2", page)                              # milestones achieved
         self.assertIn("M01-AC1", page)
         self.assertIn("M02-AC1", page)
-        # Evidence links are relative to the workspace, so they open from disk.
-        self.assertIn('href="backend-dev/state/milestones/M01/trials/1/evidence/stub.txt"', page)
+        # Files are named, not linked: the live dashboard opens them, and the page says how.
+        self.assertIn('<code title="backend-dev/state/milestones/M01/trials/1/evidence/stub.txt">'
+                      'stub.txt</code>', page)
+        self.assertNotRegex(page, r'href="backend-dev/')
+        self.assertIn("Files and conversations: <code>devloops dashboard --serve --workspace us3"
+                      "</code>", page)
         for view in ("overview", "backend-dev", "calls", "questions", "events"):
             self.assertIn(f'<section class="view" id="{view}"', page)
-        self.assertNotIn('id="files"', page)  # files are on disk; the full dashboard embeds them
-        self.assertIn('href="backend-dev/state/prompts/0001-plan.md" target="_blank"', page)
+        self.assertNotIn('id="files"', page)
+        self.assertNotIn('class="call-src"', page)  # no conversations
         self.assertIn("Trial timeline", page)
         self.assertIn("Cost by milestone", page)
 
@@ -134,7 +139,7 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(notes, ['<a href="#ms-backend-dev-M01">backend-dev M01</a> passed after '
                                  '1 voided trial(s) (rate-limited)'])
 
-    def test_rewritten_during_a_run_and_live_until_it_ends(self):
+    def test_written_when_the_command_ends_not_during_it(self):
         self.approved()
         self.scenario({"implement": [dict(implemented("M01-T01"), sleep_seconds=3),
                                      implemented("M02-T01")]})
@@ -142,24 +147,36 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         os.remove(page_path)
         proc = self.start_cli("run", "backend-dev")
         self.wait_for_call("implement")
-        wait_for(lambda: os.path.exists(page_path), what="the dashboard written during the run")
-        live = self.page()
-        self.assertIn(f"data-refresh='{dashboard.REFRESH_SECONDS}'", live)
-        self.assertIn('class="btn live"', live)
-        self.assertIn("Implementing", live)
+        self.assertFalse(os.path.exists(page_path))
         self.assertEqual(proc.wait(timeout=60), 0)
         done = self.page()
+        self.assertIn("Completed", done)
         self.assertNotIn("data-refresh", done)
-        self.assertNotIn('class="btn live"', done)
+        self.assertNotIn('class="btn live"', done)  # it never reloads itself
         self.assertEqual(self.data()["running"], [])
+
+    def test_dashboard_light_off_stops_the_automatic_writes(self):
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces",
+                                          "config": {"dashboard": {"light": False}}})
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        page_path = os.path.join(self.t.workspace_dir, "dashboard.html")
+        self.assertFalse(os.path.exists(page_path))
+        self.assertNotIn("dashboard: ", self.last_output)
+        self.assertIn("files and conversations: devloops dashboard --serve", self.last_output)
+        self.assertEqual(self.cli("dashboard"), 0, self.last_output)  # on demand, still
+        self.assertTrue(os.path.exists(page_path))
 
     def test_the_dashboard_command(self):
         self.assertEqual(self.first_run(), 10, self.last_output)
         os.remove(os.path.join(self.t.workspace_dir, "dashboard.html"))
         self.assertEqual(self.cli("dashboard", "--json"), 0, self.last_output)
-        self.assertEqual(json.loads(self.last_output)["dashboard"],
-                         os.path.join(self.t.workspace_dir, "dashboard.html"))
+        self.assertEqual(json.loads(self.last_output), {
+            "workspace": WS, "dashboard": os.path.join(self.t.workspace_dir, "dashboard.html"),
+            "serving": None})
         self.assertIn("Awaiting approval", self.page())
+        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
+        self.assertIn("files and conversations: devloops dashboard --serve --workspace us3",
+                      self.last_output)
         code, out, err = self.t.run_cli(["dashboard", "--workspace", "no-such-ws"])
         self.assertEqual(code, 2, out + err)
 

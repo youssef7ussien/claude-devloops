@@ -145,11 +145,10 @@ class ProgressCommandTest(StubLoopMixin, unittest.TestCase):
             self.assertIn(expected, messages, err)
         self.assertNotIn("  Edit app.py", messages)  # tools only with --verbose
         # The hints: where to look while it runs, then the summary on stdout.
-        self.assertIn(f"dashboard: {os.path.join(self.t.workspace_dir, 'dashboard.html')}", err)
-        self.assertIn(f"full dashboard (files and conversations): devloops dashboard "
-                      f"--workspace {WS}", err)
+        self.assertIn(f"files and conversations: devloops dashboard --serve --workspace {WS}", err)
         self.assertIn(f"log: {self.path(os.path.join('state', 'run.log'))}", err)
-        self.assertIn("full dashboard (files and conversations): devloops dashboard", out)
+        self.assertIn(f"dashboard: {os.path.join(self.t.workspace_dir, 'dashboard.html')}", out)
+        self.assertIn("files and conversations: devloops dashboard --serve", out)
         # Everything printed is in the log too, tools included; the log has no colors.
         logged = self.run_logged()
         for expected in ("first run", "implementing", "  Edit app.py", "all 2 milestone(s)"):

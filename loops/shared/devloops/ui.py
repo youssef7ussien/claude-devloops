@@ -5,6 +5,7 @@ palette. The styles and the one script are real files in `assets/`, inlined when
 so every page stays a single file that works offline. Every component works without the script:
 the views are then shown one after another, and file contents open in place.
 """
+import hashlib
 import html
 import os
 
@@ -150,12 +151,16 @@ class Dir:
                 f'</span></summary><ul>{kids}</ul></details></li>')
 
 
-def file_node(anchor, path, kind, lang, ic, size, meta, content):
+def file_node(anchor, path, kind, lang, ic, size, meta, content, version=None, size_bytes=None):
     """One file of the explorer. Without the script it opens in place, labelled with its full path;
-    with it, it opens in the viewer."""
+    with it, it opens in the viewer. `version` (a served page) changes when the file does, and
+    `size_bytes` lets the viewer ask before loading a very large file."""
     label = f'<code>{e(path)}</code> <span class="muted small">{e(" · ".join(x for x in (size, meta) if x))}</span>'
+    ver = (f' data-version="{e(version)}"' if version else "") + \
+        (f' data-bytes="{int(size_bytes)}"' if size_bytes is not None else "")
     return (f'<details class="file" id="{e(anchor)}" data-kind="{e(kind)}" data-lang="{e(lang)}" '
-            f'data-icon="{e(ic)}" data-path="{e(path)}" data-size="{e(size)}" data-meta="{e(meta)}">'
+            f'data-icon="{e(ic)}" data-path="{e(path)}" data-size="{e(size)}" data-meta="{e(meta)}"'
+            f'{ver}>'
             f'<summary><span class="node">{icon(ic, "k " + kind)}<span class="nm">'
             f'{e(path.rsplit("/", 1)[-1])}</span><span class="meta">{e(size)}</span></span></summary>'
             f'<div class="fpath">{label}</div>{content}</details>')
@@ -181,10 +186,13 @@ def explorer(trees, count):
 # --- the shell -------------------------------------------------------------------------------------
 
 def view(vid, title, body, sub="", badge=""):
-    """One page of the dashboard; the sidebar shows one at a time."""
-    return (f'<section class="view" id="{e(vid)}" data-title="{e(title)}" aria-labelledby="h-{e(vid)}">'
-            f'<div class="view-head"><div class="title"><h2 id="h-{e(vid)}">{e(title)} {badge}</h2>'
-            + (f'<div class="sub">{sub}</div>' if sub else "") + f'</div></div>{body}</section>')
+    """One page of the dashboard; the sidebar shows one at a time. `data-hash` is a digest of the
+    view's content: a served page replaces only the views whose digest changed."""
+    inner = (f'<div class="view-head"><div class="title"><h2 id="h-{e(vid)}">{e(title)} {badge}</h2>'
+             + (f'<div class="sub">{sub}</div>' if sub else "") + f'</div></div>{body}')
+    digest = hashlib.sha1(inner.encode("utf-8")).hexdigest()[:16]
+    return (f'<section class="view" id="{e(vid)}" data-title="{e(title)}" data-hash="{digest}" '
+            f'aria-labelledby="h-{e(vid)}">{inner}</section>')
 
 
 def nav_link(vid, label, ic, extra=""):
@@ -199,29 +207,37 @@ def nav_dot(tone, title):
     return f'<span class="dot tone-{e(tone)}" title="{e(title)}"></span>'
 
 
-def sidebar(workspace, kind, groups, generated, version):
-    """`groups` are `(title, [nav_link html])`."""
+def sidebar(workspace, kind, groups, generated, version, workspaces=None):
+    """`groups` are `(title, [nav_link html])`. `workspaces`: the names a served page can switch
+    to (the current one among them)."""
     nav = "".join(f'<div class="group">{e(title)}</div>{"".join(links)}' for title, links in groups)
+    switch = ""
+    if workspaces and len(workspaces) > 1:
+        options = "".join(f'<option value="{e(name)}"{" selected" if name == workspace else ""}>'
+                          f'{e(name)}</option>' for name in workspaces)
+        switch = (f'<label class="ws-switch"><span class="sr-only">Workspace</span><select '
+                  f'class="input" data-action="workspace">{options}</select></label>')
     return (f'<aside class="sidebar" aria-label="Dashboard"><div class="brand"><span class="name">'
             f'<span class="logo" aria-hidden="true">d</span>devloops</span><span class="ws">workspace '
-            f'<strong>{e(workspace)}</strong> · {e(kind)}</span></div>'
+            f'<strong>{e(workspace)}</strong> · {e(kind)}</span>{switch}</div>'
             f'<button class="search" type="button" data-action="palette">{icon("search")}Go to…'
             f'<kbd>Ctrl K</kbd></button><nav class="nav" aria-label="Sections">{nav}</nav>'
-            f'<div class="foot"><span>Generated {e(generated)}</span>'
+            f'<div class="foot"><span data-generated>Generated {e(generated)}</span>'
             f'<a class="gh" href="{e(PROJECT_URL)}" target="_blank" rel="noopener noreferrer">'
             f'{icon("github")}<span>devloops {e(version)} · by {e(OWNER)}</span></a></div></aside>')
 
 
 def topbar(workspace, status, live=False):
-    """`live`: the page reloads itself while a run goes on; a button pauses it."""
+    """`live`: a served page that follows the run as it goes; a button pauses it."""
     live_btn = ('<button class="btn live" type="button" data-action="live" aria-pressed="true" '
-                'title="This page reloads while the run goes on. Select to pause.">'
+                'title="This page follows the run as it goes. Select to pause.">'
                 '<span class="pulse" aria-hidden="true"></span><span data-live-label>Live</span>'
                 '</button>' if live else "")
     return (f'<header class="topbar"><button class="btn icon ghost menu-btn" type="button" '
             f'data-action="menu" aria-label="Menu">{icon("menu")}</button><div class="crumbs">'
             f'{e(workspace)} <span aria-hidden="true">/</span><strong data-crumb>Overview</strong></div>'
-            f'<span class="spacer"></span>{live_btn}{status}<button class="btn icon" type="button" '
+            f'<span class="spacer"></span>{live_btn}<span data-status>{status}</span>'
+            f'<button class="btn icon" type="button" '
             f'data-action="palette" aria-label="Go to (Ctrl K)" title="Go to (Ctrl K)">{icon("search")}'
             f'</button><button class="btn icon" type="button" data-action="theme" aria-label="Toggle theme"'
             f' title="Toggle theme">{icon("sun")}</button></header>')
@@ -244,10 +260,10 @@ DIALOGS = (
     '<ul role="listbox" aria-label="Results"></ul></dialog>')
 
 
-def page(title, side, top, views, refresh=0):
+def page(title, side, top, views, attrs=None):
     """A complete page: the inline styles, the shell, `views`, the dialogs, and the one script.
-    `refresh`: seconds between reloads while a run goes on (0: never)."""
-    attr = f" data-refresh='{int(refresh)}'" if refresh else ""
+    `attrs`: `data-*` attributes of the root element (a served page's, see serve.py)."""
+    attr = "".join(f" data-{k}='{e(v)}'" for k, v in (attrs or {}).items())
     return (f"<!doctype html><html lang='en' class='no-js'{attr}><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"<title>{e(title)}</title><style>{asset('dashboard.css')}</style></head><body>"

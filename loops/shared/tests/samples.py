@@ -116,7 +116,7 @@ _CONFIG = {
     "runtime": {"ready_timeout_seconds": 120},
     "backend": {},
     "playwright": {"mcp_command": ["npx", "@playwright/mcp@latest", "--headless"]},
-    "dashboard": {"full_on_stop": False},
+    "dashboard": {"full_on_stop": False, "light": True},
     "git": {"commit_per_milestone": False},
     "secrets": {"env": [], "literals": []},
     "boundary": {"allowed_extra": []},

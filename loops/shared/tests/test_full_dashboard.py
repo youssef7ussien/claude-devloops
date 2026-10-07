@@ -79,10 +79,12 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
                          self.last_output)
         self.assertEqual(self.dashboards(), [])
-        # The summary says how to get one instead.
-        self.assertIn("full dashboard (files and conversations): devloops dashboard --workspace "
-                      f"{WS}", self.last_output)
+        # The summary says where files and conversations are instead.
+        self.assertIn(f"files and conversations: devloops dashboard --serve --workspace {WS}",
+                      self.last_output)
         self.assertEqual(self.cli("dashboard"), 0, self.last_output)
+        self.assertEqual(self.dashboards(), [])  # the summary page only
+        self.assertEqual(self.cli("dashboard", "--export"), 0, self.last_output)
         self.assertEqual(len(self.dashboards()), 1)
 
     def test_full_on_stop_follows_the_project_files_as_they_are_now(self):
@@ -195,7 +197,7 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertIn(f"<code>{rel}</code>", page)
         self.assertIn('data-kind="large"', page)
         self.assertIn("Not embedded: 5.0 MB, over the 5.0 MB limit", page)
-        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
+        self.assertEqual(self.cli("dashboard", "--export"), 0, self.last_output)
         self.assertIn(f"not embedded (over 5.0 MB):\n    {rel} (5.0 MB)", self.last_output)
 
     def test_a_missing_evidence_file_is_shown_as_missing(self):
@@ -262,7 +264,7 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
     # --- the dashboard command ---
 
     def cli_dashboard(self, *args):
-        self.assertEqual(self.cli("dashboard", "--json", *args), 0, self.last_output)
+        self.assertEqual(self.cli("dashboard", "--export", "--json", *args), 0, self.last_output)
         out = json.loads(self.last_output)
         return out.get("full_dashboard")
 
@@ -274,14 +276,27 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertTrue(1 <= len(full["largest"]) <= 5)
         sizes = [i["bytes"] for i in full["largest"]]
         self.assertEqual(sizes, sorted(sizes, reverse=True))
-        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
+        self.assertEqual(self.cli("dashboard", "--export"), 0, self.last_output)
         self.assertIn("largest embedded items:", self.last_output)
 
-    def test_dashboard_light_writes_no_full_dashboard(self):
+    def test_export_to_a_named_file(self):
         self.completed()
         before = self.dashboards()
-        self.assertEqual(self.cli("dashboard", "--light", "--json"), 0, self.last_output)
-        self.assertNotIn("full_dashboard", json.loads(self.last_output))
+        out = os.path.join(self.t.base, "share", "run.html")
+        full = self.cli_dashboard("--out", out)
+        self.assertEqual(full["path"], out)
+        self.assertEqual(self.dashboards(), before)  # not in the dashboards folder
+        with open(out, encoding="utf-8") as f:
+            self.assertIn(fulldash.NOTICE, f.read())
+        self.cli_dashboard("--out", out)  # replaced, not refused
+        self.assertEqual(os.listdir(os.path.dirname(out)), ["run.html"])
+
+    def test_dashboard_without_export_writes_no_full_dashboard(self):
+        self.completed()
+        before = self.dashboards()
+        for args in ([], ["--light"]):  # --light: what earlier versions needed for this
+            self.assertEqual(self.cli("dashboard", "--json", *args), 0, self.last_output)
+            self.assertNotIn("full_dashboard", json.loads(self.last_output))
         self.assertEqual(self.dashboards(), before)
 
     # --- failures (FR-039) ---

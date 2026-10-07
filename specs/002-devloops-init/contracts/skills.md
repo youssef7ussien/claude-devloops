@@ -16,7 +16,7 @@ The installed skills and this repository's skills are rendered from the same tem
 | `devloops-replan` | `{{DEVLOOPS}} replan $ARGUMENTS --json` | `<loop> [--workspace …]` |
 | `devloops-retry` | `{{DEVLOOPS}} retry $ARGUMENTS --json` | `<loop> --milestone M01 --reason "…" [--trials n]` |
 | `devloops-status` | `{{DEVLOOPS}} status $ARGUMENTS --json` | `[<loop>] [--workspace …]` |
-| `devloops-dashboard` | `{{DEVLOOPS}} dashboard $ARGUMENTS --json` | `[--workspace …] [--light]` |
+| `devloops-dashboard` | `{{DEVLOOPS}} dashboard $ARGUMENTS --json` (never `--serve`, which runs until stopped: the skill tells the user to run it in a terminal) | `[--workspace …] [--export [--out …]]` |
 
 ## Template shape
 

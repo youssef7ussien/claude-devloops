@@ -4,14 +4,14 @@
   "kit_mode": "source",
   "command": "bin/devloops",
   "installed_at": "2026-10-05T21:54:19.915Z",
-  "upgraded_at": "2026-10-07T09:38:34.908Z",
+  "upgraded_at": "2026-10-07T18:14:40.878Z",
   "ignore_rules": [
     ".devloops/dashboards/",
     ".devloops/devloops.local.json"
   ],
   "files": {
     ".claude/skills/devloops-approve/SKILL.md": "79278ebb2e3c1d77da14ef586926cee5db66608d37435db59dae23e1d85b893e",
-    ".claude/skills/devloops-dashboard/SKILL.md": "d8d6191c2fa1eb02770a8d3bdf8fe88a60af819a5c6c85de7491ccf08a7e6a05",
+    ".claude/skills/devloops-dashboard/SKILL.md": "d74d5eeadd4e4419b0a5d1b5ca07ed9aa2af5a51608e77fa941df94284275e29",
     ".claude/skills/devloops-orchestrate/SKILL.md": "18f9cea2d6510d5c6926f49f35a42c6cd641c18b71bd14fc185b61aaa5022a8d",
     ".claude/skills/devloops-replan/SKILL.md": "4c19ace7b49b47d6e0bb3e6347fa0f5c0ad6790c8defc55d1a6803bf7f0d1b2a",
     ".claude/skills/devloops-retry/SKILL.md": "bc15832b1a88018b8a325618b35f899489c3d01460abc3748bf8d04a41cc07c0",
