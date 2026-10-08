@@ -53,6 +53,43 @@ def write_scenario(scenario, env=None, directory=None):
     return path
 
 
+_FRONTEND_ENGINE = """
+import json, os, sys
+sys.path.insert(0, os.path.join(os.getcwd(), "loops", "shared"))
+from devloops import engine, project, workspace
+from devloops.state import DevloopsError
+a = json.loads(sys.argv[1])
+proj = project.find(os.getcwd(), os.environ)
+try:
+    ws = workspace.open_workspace(a["workspace"], proj)
+    eng = engine.Engine("frontend-dev", ws, engine.Options(
+        requirements=a["requirements"], target=a["target"], api_spec=a["api_spec"],
+        config_path=a["config"]), project=proj, env=os.environ)
+    code = getattr(eng, a["action"])() if a["action"] != "run" else eng.run()
+    if eng.message:
+        print(eng.message)
+except DevloopsError as e:
+    print(f"devloops: {e.message}", file=sys.stderr)
+    code = e.exit_code
+sys.exit(code)
+"""
+
+
+def run_frontend_engine(t, *, workspace, requirements=None, target=None, api_spec=None,
+                        config=None, extra_env=None, action="run", timeout=120):
+    """Run frontend-dev alone through `engine.Engine`, in a subprocess of the TempEnv `t`
+    (003 research R-11): the CLI runs it only after backend-dev, but the loop stays runnable
+    alone once its inputs exist (Principle VI). `action` is `run`, `approve`, or `replan`.
+    Return `(exit_code, stdout, stderr)` like `run_cli`; stdout has the engine's message."""
+    payload = json.dumps({"workspace": workspace, "requirements": requirements,
+                          "target": target, "api_spec": api_spec, "config": config,
+                          "action": action})
+    proc = subprocess.run([sys.executable, "-c", _FRONTEND_ENGINE, payload],
+                          env=dict(t.env, **(extra_env or {})), cwd=t.root,
+                          capture_output=True, text=True, timeout=timeout)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
 class TempEnv:
     """A throwaway repository root for one test.
 

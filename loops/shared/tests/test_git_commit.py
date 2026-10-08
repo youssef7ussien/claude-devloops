@@ -31,12 +31,11 @@ class GitCommitTest(StubLoopMixin, unittest.TestCase):
 
     def run_to_completion(self, *config_args, target=None):
         env = self.git_env
-        self.assertEqual(self.cli("run", "backend-dev", "--requirements", self.prd, "--target",
+        self.assertEqual(self.cli("run", "--requirements", self.prd, "--backend-target",
                                   target or self.target, *config_args, env=env), 10,
                          self.last_output)
-        self.assertEqual(self.cli("approve", "--no-continue",
-                                  "backend-dev", env=env), 0, self.last_output)
-        self.assertEqual(self.cli("run", "backend-dev", env=env), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue", env=env), 0, self.last_output)
+        self.assertEqual(self.cli("run", env=env), 0, self.last_output)
 
     def commits(self):
         out = subprocess.run(["git", "-C", self.repo, "log", "--format=%s", "--reverse"],

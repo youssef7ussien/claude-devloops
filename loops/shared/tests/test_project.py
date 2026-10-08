@@ -181,8 +181,8 @@ class ProjectCliTest(unittest.TestCase):
 
     def test_invalid_project_config_stops_before_any_workspace_is_written(self):
         self.t.make_project(self.t.root, {"workspaces_dir": "workspaces", "bogus": 1})
-        code, out, err = self.t.run_cli(["run", "backend-dev", "--workspace", "w1",
-                                         "--requirements", "x.md", "--target",
+        code, out, err = self.t.run_cli(["run", "--workspace", "w1",
+                                         "--requirements", "x.md", "--backend-target",
                                          self.t.target_dir])
         self.assertEqual(code, 30, out + err)
         self.assertIn("devloops.json", err)
@@ -191,7 +191,7 @@ class ProjectCliTest(unittest.TestCase):
 
     def test_workspace_defaults_to_the_project_setting(self):
         self.t.make_project(self.t.root, {"workspaces_dir": "workspaces", "workspace": "dflt"})
-        self.t.run_cli(["run", "backend-dev"])
+        self.t.run_cli(["run", "--backend-target", self.t.target_dir])
         self.assertTrue(os.path.isfile(os.path.join(self.t.root, "workspaces", "dflt",
                                                     "workspace.json")))
 

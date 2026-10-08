@@ -79,7 +79,7 @@ def _questions_override(args):
 def _add_decision_options(cmd):
     cmd.add_argument("--no-continue", action="store_true",
                      help="only record the decision; run nothing (the run continues on the next "
-                          "`run` or `orchestrate`)")
+                          "`devloops run`)")
     _add_questions_option(cmd)
 
 
@@ -104,40 +104,33 @@ def build_parser():
     parser.add_argument("--version", action="version", version=f"devloops {__version__}")
     sub = parser.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
-    run = sub.add_parser("run", parents=[common], help="start or resume one loop")
-    run.add_argument("loop", choices=LOOPS)
-    _add_requirements_options(run, "PRD or story Markdown file (required on the first run)")
+    # No abbreviations: the removed `--target` must not pass for `--target-root` (003 FR-008).
+    run = sub.add_parser("run", parents=[common], allow_abbrev=False,
+                         help="start or resume the run: backend-dev, then frontend-dev, as the "
+                              "project configures")
+    _add_requirements_options(run, "PRD or story Markdown file, passed to every loop (default: "
+                                   "the recorded one, then the project's)")
     _add_story_options(run)
-    run.add_argument("--target", help="directory for this loop's application code (first run)")
-    run.add_argument("--api-spec", help="OpenAPI JSON document (required for frontend-dev)")
-    run.add_argument("--max-trials", type=_positive_int, help="override max_trials")
+    run.add_argument("--target-root",
+                     help="place the project's loops at <dir>/backend and <dir>/frontend (first "
+                          "run)")
+    run.add_argument("--backend-target", help="backend-dev's target (overrides --target-root)")
+    run.add_argument("--frontend-target", help="frontend-dev's target (overrides --target-root)")
+    run.add_argument("--max-trials", type=_positive_int,
+                     help="override max_trials for every loop this command runs")
     _add_questions_option(run)
     _add_progress_options(run)
     run.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
-    orch = sub.add_parser("orchestrate", parents=[common],
-                          help="run backend-dev, then frontend-dev, in one workspace")
-    _add_requirements_options(orch, "PRD or story Markdown file, passed to both loops")
-    _add_story_options(orch)
-    orch.add_argument("--target-root",
-                      help="default targets: <dir>/backend and <dir>/frontend (first run)")
-    orch.add_argument("--backend-target", help="backend-dev's target (overrides --target-root)")
-    orch.add_argument("--frontend-target", help="frontend-dev's target (overrides --target-root)")
-    _add_questions_option(orch)
-    _add_progress_options(orch)
-    orch.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
-
     for name, text in (("approve", "accept the stored plan and the answers, then continue"),
                        ("replan", "plan again with the answers, then continue")):
         cmd = sub.add_parser(name, parents=[common], help=text)
-        cmd.add_argument("loop", choices=LOOPS)
         _add_decision_options(cmd)
         _add_progress_options(cmd)
         cmd.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
 
     retry = sub.add_parser("retry", parents=[common],
                            help="grant a failed milestone more trials, then continue (FR-063)")
-    retry.add_argument("loop", choices=LOOPS)
     retry.add_argument("--milestone", required=True, help="the failed milestone, e.g. M01")
     retry.add_argument("--reason",
                        help="guidance for the next fix trial; recorded with the grant")
@@ -458,21 +451,20 @@ def _speckit_flag(value):
     return value if value in (None, "active") else os.path.abspath(value)
 
 
-def _project_defaults(project, ws, loop, requirements, speckit_feature, story_id, story_file):
-    """Fill `loop`'s target and requirements the command line left out (FR-011).
+def _project_defaults(project, ws, requirements, speckit_feature, story_id, story_file):
+    """Fill the requirements the command line left out (FR-011).
 
-    What the workspace recorded comes first (a first start that stopped early still recorded
-    it), then the project configuration. So a later edit of the configuration is drift, not a
-    mismatch (FR-015). The requirements are a file or a spec-kit feature (002 FR-023). Returns
-    `(target, requirements, speckit_feature, story_id, story_file)`.
+    What the workspace `ws` recorded comes first (a first start that stopped early still recorded
+    it; `ws` is None before the first run), then the project configuration. So a later edit of the
+    configuration is drift, not a mismatch (FR-015). The requirements are a file or a spec-kit
+    feature (002 FR-023). Returns `(requirements, speckit_feature, story_id, story_file)`.
     """
     if speckit_feature and story_file:
         raise state.UsageError("--speckit-feature and --story-file are mutually exclusive "
                                "(select a spec-kit story with --story-id US<n>)")
-    target = ws.target(loop) or project.targets.get(loop)
     if requirements or speckit_feature:
-        return target, requirements, speckit_feature, story_id, story_file
-    recorded = ws.data.get("requirements") or {}
+        return requirements, speckit_feature, story_id, story_file
+    recorded = (ws.data.get("requirements") if ws else None) or {}
     configured = project.requirements or {}
     no_story_flags = story_id is None and not story_file
     if recorded:
@@ -487,56 +479,66 @@ def _project_defaults(project, ws, loop, requirements, speckit_feature, story_id
     elif configured.get("speckit_feature"):
         value = configured["speckit_feature"]
         speckit_feature = value if value == "active" else project.resolve(value)
-    return target, requirements, speckit_feature, story_id, story_file
+    return requirements, speckit_feature, story_id, story_file
 
 
-def _orchestrate(args, kit, project, env, action=None):
-    """`orchestrate`, or `approve`/`retry`/`replan` continuing an orchestrated workspace
-    (`action`, see `Orchestrator.run`; their args lack the orchestrate flags)."""
+def _existing_workspace(args, project, kit):
+    """The command's workspace, or None before its first run (nothing is created)."""
+    path, _ = workspace.resolve_path(args.workspace, project)
+    if not os.path.exists(os.path.join(path, "workspace.json")):
+        return None
+    return workspace.open_workspace(args.workspace, project, kit, create=False)
+
+
+def _run(args, kit, project, env, action=None, selected=None):
+    """`devloops run`, or a decision continuing the run (`action`, see `Orchestrator.run`, with
+    the loops `_decide` selected; its args lack the run flags) (003 FR-001-007)."""
     for loop in orchestrator.LOOP_ORDER:
         engine.load_loop_def(kit, loop)  # before a workspace is created
-    target_root = getattr(args, "target_root", None)
-    root = os.path.abspath(target_root) if target_root else None
-    targets = {"backend": getattr(args, "backend_target", None),
-               "frontend": getattr(args, "frontend_target", None)}
-    for name, given in targets.items():
-        targets[name] = os.path.abspath(given) if given else \
-            (os.path.join(root, name) if root else None)
-    ws = workspace.open_workspace(args.workspace, project, kit, create=True)
-    requirements = getattr(args, "requirements", None)
-    story_id, story_file = getattr(args, "story_id", None), getattr(args, "story_file", False)
-    feature = _speckit_flag(getattr(args, "speckit_feature", None))
-    for name, loop in (("backend", "backend-dev"), ("frontend", "frontend-dev")):
-        target, requirements, feature, story_id, story_file = _project_defaults(
-            project, ws, loop, requirements, feature, story_id, story_file)
-        targets[name] = targets[name] or target
+    ws = _existing_workspace(args, project, kit)
+    if selected is None:
+        selected = orchestrator.select_loops(
+            project, ws, getattr(args, "backend_target", None),
+            getattr(args, "frontend_target", None), getattr(args, "target_root", None))
+    try:  # also for a decision's selection: the same loops, the same checks
+        orchestrator.check_selection(selected)  # FR-006: before anything is created
+    except state.StopRun as e:
+        if not args.json:
+            raise
+        _dump(args, {"exit_code": e.exit_code, "status_reason": e.status_reason()})
+        return e.exit_code
+    requirements, feature, story_id, story_file = _project_defaults(
+        project, ws, getattr(args, "requirements", None),
+        _speckit_flag(getattr(args, "speckit_feature", None)),
+        getattr(args, "story_id", None), getattr(args, "story_file", False))
+    ws = ws or workspace.open_workspace(args.workspace, project, kit, create=True)
     orch = orchestrator.Orchestrator(ws, orchestrator.OrchestrateOptions(
         requirements=requirements, speckit_feature=feature, story_id=story_id,
-        story_file=story_file,
-        backend_target=targets["backend"], frontend_target=targets["frontend"],
-        config_path=args.config, force_unlock=args.force_unlock,
-        questions=_questions_override(args)), kit=kit, env=env)
+        story_file=story_file, config_path=args.config, force_unlock=args.force_unlock,
+        questions=_questions_override(args), max_trials=getattr(args, "max_trials", None),
+        selected=selected), kit=kit, env=env)
     orch.progress = progress_mod.from_args(args, env)
-    _start_hint(orch.progress, args, ws, orchestrator.LOOP_ORDER)
+    loops = list(selected)
+    _start_hint(orch.progress, args, ws, loops)
     error = full = None
-    before = _event_marks(ws, orchestrator.LOOP_ORDER)
+    before = _event_marks(ws, loops)
     try:
         code = orch.run(action)
     except BaseException as e:
         error = e
         raise
     finally:
-        # Once, at the end, covering both loops, when the loop this command ran last ended in a
+        # Once, at the end, covering every loop, when the loop this command ran last ended in a
         # final status: a loop skipped because an earlier run completed it does not count (FR-039).
         last = orch.last_run
         if last and _ends_final(error, engine.status_object(ws, last)["status"]) \
-                and _event_marks(ws, orchestrator.LOOP_ORDER) != before \
+                and _event_marks(ws, loops) != before \
                 and _full_on_stop(ws, project, kit):
-            full = _write_full_dashboard(ws, "orchestrate", env)
+            full = _write_full_dashboard(ws, "run", env)
         _write_dashboard(ws, announce=False, light=True)
-    loops = {loop: engine.status_object(ws, loop) for loop in orchestrator.LOOP_ORDER}
+    statuses = {loop: engine.status_object(ws, loop) for loop in loops}
     if args.json:
-        obj = {"workspace": ws.name, "orchestrator": orch.state, "loops": loops,
+        obj = {"workspace": ws.name, "run": orch.state, "loops": statuses,
                "exit_code": code, "message": orch.message, "dashboard": _dashboard_path(ws)}
         if action:
             obj["decision"] = {"command": args.command, "loop": action[0]}
@@ -546,8 +548,8 @@ def _orchestrate(args, kit, project, env, action=None):
     else:
         if orch.message:
             print(orch.message)
-        print(f"orchestrator: {orch.state['status']}")
-        for obj in loops.values():
+        print(f"run: {orch.state['status']}")
+        for obj in statuses.values():
             _print_status(obj)
         _print_dashboards(args, ws, _dashboard_path(ws), full)
     if code == state.EXIT_CODES["awaiting-approval"] and orch.last_run and _interactive(args):
@@ -620,91 +622,77 @@ def _review(args, kit, project, env, ws, loop):
         elif choice in ("a", "r"):
             break
         elif choice == "q":
-            print(f"The plan awaits approval: `devloops approve {loop}` approves it and continues.")
+            print("The plan awaits approval: `devloops approve` approves it and continues.")
             return state.EXIT_CODES["awaiting-approval"]
-    # Only what `devloops approve|replan <loop>` would get: the run's inputs and targets are
-    # recorded, and its questions mode is already frozen (or recorded by the orchestrator).
+    # Only what `devloops approve|replan` would get: the run's inputs and targets are recorded,
+    # and its questions mode is already frozen (or recorded in run/state.json).
     decided = argparse.Namespace(
-        command="approve" if choice == "a" else "replan", loop=loop, workspace=args.workspace,
+        command="approve" if choice == "a" else "replan", workspace=args.workspace,
         config=args.config, json=args.json, force_unlock=args.force_unlock, no_continue=False,
         review_plan=False, accept_suggested=False, warnings=getattr(args, "warnings", []),
         quiet=getattr(args, "quiet", False), verbose=getattr(args, "verbose", False),
-        workspace_flag=getattr(args, "workspace_flag", ""))
-    return _loop_command(decided, kit, project, env)
+        workspace_flag=getattr(args, "workspace_flag", ""), env=getattr(args, "env", None))
+    return _decide(decided, kit, project, env)
 
 
-# --- run, approve, replan, retry ------------------------------------------------------------------
+# --- approve, replan, retry -----------------------------------------------------------------------
 
-def _orchestrated(ws):
-    return os.path.exists(os.path.join(ws.path, "orchestrator", "state.json"))
+# The status of the loop each decision applies to (003 FR-009).
+DECISION_STATUS = {"approve": "awaiting-approval", "replan": "awaiting-approval",
+                   "retry": "stopped-on-failure"}
 
 
-def _loop_command(args, kit, project, env):
-    """`run`, or a decision (`approve`, `replan`, `retry`) that then continues the run, unless
-    --no-continue: under one lock for a single loop; in an orchestrated workspace the decision is
-    recorded, then `orchestrate` continues both loops."""
-    engine.load_loop_def(kit, args.loop)  # before a workspace is created
-    ws = workspace.open_workspace(args.workspace, project, kit, create=args.command == "run")
-    requirements = getattr(args, "requirements", None)
-    feature = _speckit_flag(getattr(args, "speckit_feature", None))
-    story_id = getattr(args, "story_id", None)
-    story_file = getattr(args, "story_file", False)
-    target = getattr(args, "target", None)
-    if args.command == "run":
-        default_target, requirements, feature, story_id, story_file = _project_defaults(
-            project, ws, args.loop, requirements, feature, story_id, story_file)
-        target = target or default_target
-    options = engine.Options(
-        requirements=requirements,
-        speckit_feature=feature,
-        story_id=story_id,
-        story_file=story_file,
-        target=target,
-        api_spec=getattr(args, "api_spec", None),
-        config_path=args.config,
-        cli_overrides={"max_trials": getattr(args, "max_trials", None),
-                       "questions": _questions_override(args)},
-        force_unlock=args.force_unlock,
-    )
-    continuing = args.command != "run" and not getattr(args, "no_continue", False)
-    if not continuing and args.command != "run" and _questions_override(args):
+def _run_status(ws):
+    """The run's status from `run/state.json`, for messages; `not started` without one."""
+    return (orchestrator.read_state(ws) or {}).get("status") or "not started"
+
+
+def _decide(args, kit, project, env):
+    """`approve`, `replan`, or `retry` (003 FR-009, FR-010, research R-4): the decision goes to
+    the run's loop that waits for it, then the whole run continues, unless --no-continue (the
+    decision is only recorded; the next `devloops run` continues)."""
+    continuing = not getattr(args, "no_continue", False)
+    if not continuing and _questions_override(args):
         raise state.UsageError("--review-plan and --accept-suggested apply to the continued run; "
-                               "with --no-continue, pass them to the next `run` or "
-                               "`orchestrate`")
+                               "with --no-continue, pass them to the next `devloops run`")
+    ws = workspace.open_workspace(args.workspace, project, kit, create=False)
+    selected = orchestrator.select_loops(project, ws)
+    wanted = DECISION_STATUS[args.command]
+    loop = next((name for name in selected
+                 if engine.status_object(ws, name)["status"] == wanted), None)
+    if loop is None:
+        what = "nothing awaits approval" if wanted == "awaiting-approval" \
+            else "no loop is stopped on failure"
+        raise state.UsageError(f"{what} (run: {_run_status(ws)})")
 
     def decide(eng):
         if args.command == "retry":
             return eng.retry(args.milestone, args.reason, args.trials, continue_run=continuing)
-        if args.command == "run":
-            return eng.run()
         return getattr(eng, args.command)(continue_run=continuing)
 
-    if continuing and _orchestrated(ws):
-        return _orchestrate(args, kit, project, env, action=(args.loop, decide))
-    eng = engine.Engine(args.loop, ws, options, kit=kit, project=project, env=env)
+    if continuing:
+        return _run(args, kit, project, env, action=(loop, decide), selected=selected)
+    engine.load_loop_def(kit, loop)
+    options = engine.Options(config_path=args.config, force_unlock=args.force_unlock,
+                             cli_overrides={"questions": None})
+    eng = engine.Engine(loop, ws, options, kit=kit, project=project, env=env)
     eng.progress = progress_mod.from_args(args, env)
-    _start_hint(eng.progress, args, ws, [args.loop])
-    if _orchestrated(ws):
-        eng.resume_command = "devloops orchestrate"
+    eng.resume_command = "devloops run"
     error = full = None
-    before = _event_marks(ws, [args.loop])
+    before = _event_marks(ws, [loop])
     try:
         code = decide(eng)
     except BaseException as e:
         error = e
         raise
     finally:
-        if _ends_final(error, engine.status_object(ws, args.loop)["status"]) \
-                and _event_marks(ws, [args.loop]) != before \
+        if _ends_final(error, engine.status_object(ws, loop)["status"]) \
+                and _event_marks(ws, [loop]) != before \
                 and _full_on_stop(ws, project, kit):
-            full = _write_full_dashboard(ws, f"{args.command} {args.loop}", env)
+            full = _write_full_dashboard(ws, args.command, env)
         _write_dashboard(ws, announce=False, light=True)
-    if args.command != "run" and _orchestrated(ws):
-        orchestrator.Orchestrator(ws, kit=kit, env=env).sync_step(args.loop)
-    _emit(args, ws, args.loop, eng.message, code, full)
-    if code == state.EXIT_CODES["awaiting-approval"] and _interactive(args) \
-            and not getattr(args, "no_continue", False):
-        return _review(args, kit, project, env, ws, args.loop)
+    orchestrator.Orchestrator(ws, kit=kit, env=env).sync_step(loop)
+    _emit(args, ws, loop, eng.message, code, full)
     return code
 
 
@@ -883,16 +871,22 @@ def main(argv=None, kit=None, project=None, env=None):
 
         if args.command == "status":
             ws = workspace.open_workspace(args.workspace, project, kit, create=False)
-            loops = [args.loop] if args.loop else list(LOOPS)
+            # Without a loop: the loops the run includes (003 FR-016b), and the run's status.
+            loops = [args.loop] if args.loop else list(orchestrator.select_loops(project, ws))
+            run = None if args.loop else orchestrator.read_state(ws)
             large = large_evidence(ws, loops)
             if args.json:
                 objs = {loop: engine.status_object(ws, loop) for loop in loops}
                 obj = objs[args.loop] if args.loop else {
                     "workspace": ws.name, "loops": objs,
                     "full_dashboards": engine.full_dashboards(ws)}
+                if run:
+                    obj["run"] = run
                 obj["large_evidence"] = large
                 _dump(args, obj)
             else:
+                if run:
+                    print(f"run: {run.get('status')}")
                 for loop in loops:
                     _print_status(engine.status_object(ws, loop))
                 full = engine.full_dashboards(ws)
@@ -911,10 +905,9 @@ def main(argv=None, kit=None, project=None, env=None):
         if args.command == "export-sessions":
             return _export_sessions(args, workspace.open_workspace(args.workspace, project, kit,
                                                                    create=False))
-        if args.command == "orchestrate":
-            return _orchestrate(args, kit, project, env)
-
-        return _loop_command(args, kit, project, env)
+        if args.command == "run":
+            return _run(args, kit, project, env)
+        return _decide(args, kit, project, env)
     except DevloopsError as e:
         if args.json:
             _dump(args, {"error": e.message, "exit_code": e.exit_code})

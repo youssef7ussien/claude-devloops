@@ -33,7 +33,7 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
                                 "result": f"plan done; the key is {SECRET}"},
                        "implement": [implemented("M01-T01"), implemented("M02-T01")]})
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
 
     def ws(self, name=WS):
         return workspace.open_workspace(name, self.t.project(), self.t.kit(), create=False)
@@ -395,7 +395,7 @@ class ServeCommandTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.cli("dashboard"), 0, self.last_output)
         self.assertIn(f"files and conversations: {url} (dashboard server running)",
                       self.last_output)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
         self.assertIn(url, self.last_output)
         # A second server is not started.
         code, out, err = self.t.run_cli(["dashboard", "--serve", "--workspace", WS])

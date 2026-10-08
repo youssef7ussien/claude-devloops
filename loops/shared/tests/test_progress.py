@@ -134,8 +134,8 @@ class ProgressCommandTest(StubLoopMixin, unittest.TestCase):
                                      implemented("M02-T01")]})
         self.t.make_project(self.t.root, {"workspaces_dir": "workspaces",
                                           "config": {"questions": "accept-suggested"}})
-        code, out, err = self.stderr_of("run", "backend-dev", "--requirements", self.prd,
-                                        "--target", self.t.target_dir)
+        code, out, err = self.stderr_of("run", "--requirements", self.prd,
+                                        "--backend-target", self.t.target_dir)
         self.assertEqual(code, 0, self.last_output)
         lines = err.splitlines()
         messages = [line.split("  ", 1)[1] for line in lines if LINE.match(line)]
@@ -163,15 +163,15 @@ class ProgressCommandTest(StubLoopMixin, unittest.TestCase):
                                          {"name": "Bash", "input": {"command": "pytest -q"}}]),
                                      implemented("M02-T01")]})
         self.approved("--quiet")
-        _, _, err = self.stderr_of("run", "backend-dev", "--verbose")
+        _, _, err = self.stderr_of("run", "--verbose")
         self.assertIn("  Bash: pytest -q", err)
 
     def test_quiet_and_json_print_no_progress(self):
         for flag in ("--quiet", "--json"):
             with self.subTest(flag=flag):
                 self.t.write_scenario({"steps": {"plan": {"structured_output": samples.plan()}}})
-                code, _, err = self.stderr_of("run", "backend-dev", "--requirements", self.prd,
-                                                "--target", self.t.target_dir, flag)
+                code, _, err = self.stderr_of("run", "--requirements", self.prd,
+                                                "--backend-target", self.t.target_dir, flag)
                 self.assertEqual(code, 10, self.last_output)
                 self.assertNotRegex(err, r"(?m)^\d\d:\d\d:\d\d ")
                 self.assertIn("planning", self.run_logged())

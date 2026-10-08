@@ -33,16 +33,18 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "A folder: the project uses backend-dev and it writes there. null or missing: the project does not use backend-dev (003 FR-005)"
         },
         "frontend-dev": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "A folder: the project uses frontend-dev and it writes there. null or missing: the project does not use frontend-dev (003 FR-005)"
         }
       },
-      "description": "Default loop targets (FR-011, FR-013)"
+      "description": "Default loop targets (FR-011, FR-013); which loops `devloops run` runs (003 FR-005)"
     },
     "requirements": {
       "type": [

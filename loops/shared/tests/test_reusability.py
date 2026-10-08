@@ -168,6 +168,11 @@ class ReusabilityTest(unittest.TestCase):
         self.last_output = out + err
         return code
 
+    def frontend(self, ws, **options):
+        code, out, err = helpers.run_frontend_engine(self.t, workspace=ws, **options)
+        self.last_output = out + err
+        return code
+
     def scenario(self, steps):
         self.t.write_scenario({"steps": steps})
 
@@ -187,16 +192,15 @@ class ReusabilityTest(unittest.TestCase):
         requirements = os.path.join(self.fixtures, app["fixture"], "requirements.md")
         self.scenario({"plan": {"structured_output": one_milestone_plan(
             app["story"], "Backend", runtime)}})
-        self.assertEqual(self.cli(ws, "run", "backend-dev", "--requirements", requirements,
-                                  "--target", target), 10, self.last_output)
-        self.assertEqual(self.cli(ws, "approve", "--no-continue",
-                                  "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli(ws, "run", "--requirements", requirements,
+                                  "--backend-target", target), 10, self.last_output)
+        self.assertEqual(self.cli(ws, "approve", "--no-continue"), 0, self.last_output)
         self.scenario({
             "author-checks": {"structured_output": {"milestone_id": "M01",
                                                     "checks": app["checks"]}},
             "implement": implemented({"server.py": app["server"],
                                       "openapi.json": json.dumps(app["openapi"])})})
-        self.assertEqual(self.cli(ws, "run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli(ws, "run"), 0, self.last_output)
         return requirements, runtime
 
     def build_frontend(self, ws, app, requirements, backend_target, backend_runtime):
@@ -212,11 +216,10 @@ class ReusabilityTest(unittest.TestCase):
         self.scenario({"plan": {"structured_output": one_milestone_plan(
             app["story"], "Page", runtime)}})
         target = os.path.join(self.t.base, f"{ws}-frontend")
-        self.assertEqual(self.cli(ws, "run", "frontend-dev", "--requirements", requirements,
-                                  "--target", target, "--api-spec", api_spec, "--config", config),
-                         10, self.last_output)
-        self.assertEqual(self.cli(ws, "approve", "--no-continue",
-                                  "frontend-dev"), 0, self.last_output)
+        # frontend-dev alone, through the engine (003 research R-11), with the backend's contract.
+        self.assertEqual(self.frontend(ws, requirements=requirements, target=target,
+                                       api_spec=api_spec, config=config), 10, self.last_output)
+        self.assertEqual(self.cli(ws, "approve", "--no-continue"), 0, self.last_output)
 
         evidence = os.path.join(self.loop_dir(ws, "frontend-dev"), "state", "milestones", "M01",
                                 "trials", "1", "evidence", "page.png")
@@ -234,7 +237,7 @@ class ReusabilityTest(unittest.TestCase):
                      for m, p in app["ui_requests"]]},
                 "tool_uses": PLAYWRIGHT_TOOLS,
                 "writes": [{"path": evidence, "content": "PNG"}]}})
-        self.assertEqual(self.cli(ws, "run", "frontend-dev"), 0, self.last_output)
+        self.assertEqual(self.frontend(ws), 0, self.last_output)
         return ui_url
 
     # --- the test ------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """`workspaces/<ws>/dashboard.html`: one self-contained summary page of a workspace.
 
 Everything is read from the workspace's state (`workspace.json`, each loop's `state/` and
-`outputs/open-questions.md`, `orchestrator/state.json`); nothing is read back from the page. The
+`outputs/open-questions.md`, `run/state.json`); nothing is read back from the page. The
 views here (overview, loops, calls, questions, events) are shared with the full dashboard and the
 served one (fulldash.py, serve.py); the shell, styles, and script come from ui.py, so the page
 opens offline from disk. The summary links no workspace file: files and conversations are what
@@ -230,10 +230,12 @@ def running(ws, loop):
 
 
 def collect(ws):
-    """The page's data for a workspace: its identity, each started loop, and the orchestrator."""
-    loops = {loop: collect_loop(ws, loop) for loop in LOOPS}
+    """The page's data for a workspace: its identity, each started loop the run includes (003
+    FR-016b), and the run."""
+    from . import orchestrator  # imported here: the orchestrator imports the engine
+    loops = {loop: collect_loop(ws, loop) for loop in orchestrator.select_loops(ws.project, ws)}
     loops = {k: v for k, v in loops.items() if v}
-    orch = state.read_json(os.path.join(ws.path, "orchestrator", "state.json"))
+    run = orchestrator.read_state(ws)
     large = []
     for loop in loops:
         milestones_dir = os.path.join(ws.loop_dir(loop), "state", "milestones")
@@ -251,7 +253,7 @@ def collect(ws):
     return {
         "workspace": ws.name, "generated_at": state.now_iso(),
         "requirements": ws.data.get("requirements") or {},
-        "targets": ws.data.get("targets") or {}, "loops": loops, "orchestrator": orch,
+        "targets": ws.data.get("targets") or {}, "loops": loops, "run": run,
         "large_evidence": large,
         "full_dashboards": list_full_dashboards(ws),
         "running": [loop for loop in loops if running(ws, loop)],
@@ -516,21 +518,21 @@ def _next_action(loop, d):
     if status == "awaiting-approval":
         return (f"Review <code>{e(loop)}/outputs/</code>, answer "
                 f"<code>open-questions.md</code> (an empty answer accepts Claude's suggestion), "
-                f"then <code>devloops approve {e(loop)}</code> "
-                f"or <code>devloops replan {e(loop)}</code>.")
+                f"then <code>devloops approve</code> "
+                f"or <code>devloops replan</code>.")
     if status == "stopped-on-failure" and code == "needs-input":
         return (f"Answer the new questions in <code>open-questions.md</code> (an empty answer "
                 f"accepts Claude's suggestion), then "
-                f"<code>devloops retry {e(loop)} --milestone {e(reason.get('milestone_id'))} "
+                f"<code>devloops retry --milestone {e(reason.get('milestone_id'))} "
                 f"--reason \"…\"</code>.")
     if status == "stopped-on-failure" and code in ("trials-exhausted",):
         return (f"Read the last trial's validation and evidence below, then "
-                f"<code>devloops retry {e(loop)} --milestone {e(reason.get('milestone_id'))} "
+                f"<code>devloops retry --milestone {e(reason.get('milestone_id'))} "
                 f"--reason \"…\"</code>.")
     if status == "stopped-on-service-error":
-        return f"Fix the cause (log in, wait out a rate limit), then <code>devloops run {e(loop)}</code>."
+        return "Fix the cause (log in, wait out a rate limit), then <code>devloops run</code>."
     if status in ("planning", "implementing"):
-        return f"Run <code>devloops run {e(loop)}</code> to continue."
+        return "Run <code>devloops run</code> to continue."
     return None
 
 
@@ -671,8 +673,8 @@ def overview_view(data, links=FILE_LINKS, notice="", call_href=None):
     return ui.view("overview", "Overview", "".join(body), sub)
 
 
-def orchestrator_view(data):
-    orch = data["orchestrator"]
+def run_view(data):
+    orch = data["run"]
     if not orch:
         return ""
     rows = [f"<tr><td><a href='#{e(s['loop'])}'>{e(s['loop'])}</a></td>"
@@ -691,8 +693,7 @@ def orchestrator_view(data):
                  f"sha256 {e(spec.get('sha256'))}</div></dd>"
                  + "".join(f"<dt>Backend {e(k)}</dt><dd><code>{e(v)}</code></dd>"
                            for k, v in runtime.items()) + "</dl></div>")
-    return ui.view("orchestrator", "Orchestrator", body,
-                   badge=pill(orch.get("status"), ORCHESTRATOR_STATUS))
+    return ui.view("run", "Run", body, badge=pill(orch.get("status"), ORCHESTRATOR_STATUS))
 
 
 def _calls_link(call_ref, sessions):
@@ -988,8 +989,8 @@ def sidebar(data, kind, details, workspaces=None):
     """The navigation: the run, each loop (its status as a dot), and `details` links; and, served,
     the `workspaces` to switch to."""
     run = [ui.nav_link("overview", "Overview", "grid")]
-    if data["orchestrator"]:
-        run.append(ui.nav_link("orchestrator", "Orchestrator", "flow"))
+    if data["run"]:
+        run.append(ui.nav_link("run", "Run", "flow"))
     loops = [ui.nav_link(loop, loop, "loop", ui.nav_dot(tone(d["status"], RUN_STATUS),
                                                         RUN_STATUS.get(d["status"], (d["status"],))[0]))
              for loop, d in data["loops"].items()]
@@ -1014,7 +1015,7 @@ def render_page(data, ws_path, command="devloops dashboard --serve"):
     that would link a file or a conversation says how to see them instead (`command`)."""
     hint = serve_hint(command)
     links = SUMMARY_LINKS
-    views = [overview_view(data, links, hint), orchestrator_view(data)]
+    views = [overview_view(data, links, hint), run_view(data)]
     views += [loop_view(loop, d, ws_path, links, hint=hint) for loop, d in data["loops"].items()]
     views += [calls_view(data, links, hint=hint), questions_view(data), events_view(data),
               full_dashboards_view(data)]

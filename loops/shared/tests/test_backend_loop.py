@@ -99,7 +99,7 @@ class BackendLoopTest(unittest.TestCase):
         return code
 
     def first_run(self, *extra, env=None):
-        return self.cli("run", "backend-dev", "--requirements", self.prd, "--target",
+        return self.cli("run", "--requirements", self.prd, "--backend-target",
                         self.t.target_dir, *extra, env=env)
 
     def run_state(self):
@@ -120,13 +120,13 @@ class BackendLoopTest(unittest.TestCase):
                                         {"structured_output": self.m02_checks()}]})
         self.assertEqual(self.first_run(), 10, self.last_output)
         self.assertIsNone(self.published_openapi())  # nothing published while awaiting approval
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
 
         self.scenario({"implement": [implemented("M01-T01", M01_OPENAPI),
                                      implemented("M02-T01", M02_OPENAPI_WITH_UNVERIFIED_OP)],
                       "author-checks": [{"structured_output": self.m01_checks()},
                                         {"structured_output": self.m02_checks()}]})
-        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "1"), 0, self.last_output)
+        self.assertEqual(self.cli("run", "--max-trials", "1"), 0, self.last_output)
 
         # Each milestone's checks are frozen before its implementation starts (FR-069).
         steps = [c["step"] for c in self.t.fake_calls() if c["step"] != "plan"]

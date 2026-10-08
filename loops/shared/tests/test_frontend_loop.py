@@ -1,4 +1,8 @@
-"""A full `frontend-dev` flow through `bin/devloops`, with fake Claude (T039).
+"""A full `frontend-dev` flow, run alone through `engine.Engine`, with fake Claude (T039).
+
+The CLI runs frontend-dev only after backend-dev (003 FR-006); the loop itself stays runnable
+alone once its inputs exist, so these tests drive the engine directly (003 research R-11,
+`helpers.run_frontend_engine`) and give it the API spec the backend's handoff would.
 
 This drives the real `frontend-dev` loop end to end: `loops/frontend-dev/{loop.json,
 Loop-instructions.md,task.md}` (T040-T042), `loops/shared/prompts/steps/validate-ui.md` (T043),
@@ -80,12 +84,17 @@ class FrontendLoopTest(unittest.TestCase):
         self.last_output = out + err
         return code
 
-    def first_run(self, *extra, api_spec=True):
-        args = ["run", "frontend-dev", "--requirements", self.prd, "--target",
-                self.t.frontend_target_dir, "--config", self.config]
-        if api_spec:
-            args += ["--api-spec", api_spec if isinstance(api_spec, str) else self.api_spec]
-        return self.cli(*args, *extra)
+    def engine(self, action="run", **options):
+        code, out, err = helpers.run_frontend_engine(self.t, workspace=WS, action=action,
+                                                     **options)
+        self.last_output = out + err
+        return code
+
+    def first_run(self, api_spec=True):
+        return self.engine(requirements=self.prd, target=self.t.frontend_target_dir,
+                           config=self.config,
+                           api_spec=(api_spec if isinstance(api_spec, str) else self.api_spec)
+                           if api_spec else None)
 
     def run_state(self):
         return state.read_json(os.path.join(self.loop_dir, "state", "run.json"))
@@ -95,7 +104,7 @@ class FrontendLoopTest(unittest.TestCase):
     def test_missing_api_spec_is_a_missing_input(self):
         self.scenario({"plan": {"structured_output": self.plan()}})
         self.assertEqual(self.first_run(api_spec=False), 30, self.last_output)
-        self.assertIn("--api-spec", self.last_output)
+        self.assertIn("requires an API spec", self.last_output)
         self.assertEqual([c for c in self.t.fake_calls() if c["step"]], [])  # nothing planned
 
     def test_a_json_file_that_is_not_openapi_is_an_invalid_api_spec(self):
@@ -115,8 +124,8 @@ class FrontendLoopTest(unittest.TestCase):
 
         edited = dict(API_SPEC, info={"title": "items", "version": "1.0.1"})
         self.t.write_file(os.path.join("contract", "openapi.json"), json.dumps(edited))
-        self.assertEqual(self.cli("approve", "--no-continue", "frontend-dev"), 0, self.last_output)
-        self.assertEqual(self.cli("run", "frontend-dev"), 30, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
+        self.assertEqual(self.engine(), 30, self.last_output)
         reason = self.run_state()["status_reason"]
         self.assertEqual(reason["code"], "input-changed")
         self.assertEqual(reason["input"], "api-spec")
@@ -126,7 +135,7 @@ class FrontendLoopTest(unittest.TestCase):
     def test_ui_url_is_recorded_and_the_milestone_is_achieved(self):
         self.scenario({"plan": {"structured_output": self.plan()}})
         self.assertEqual(self.first_run(), 10, self.last_output)
-        self.assertEqual(self.cli("approve", "--no-continue", "frontend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
 
         self.scenario({
             "implement": {"structured_output": {
@@ -146,7 +155,7 @@ class FrontendLoopTest(unittest.TestCase):
                 "writes": [{"path": os.path.join(self.evidence_dir(), "home.png"),
                             "content": "PNG"}]},
         })
-        self.assertEqual(self.cli("run", "frontend-dev"), 0, self.last_output)
+        self.assertEqual(self.engine(), 0, self.last_output)
 
         rs = self.run_state()
         self.assertEqual(rs["status"], "completed")

@@ -25,7 +25,7 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertIn("dashboard: ", self.last_output)
         page = self.page()
         self.assertIn("Awaiting approval", page)
-        self.assertIn("devloops approve backend-dev", page)  # the next action
+        self.assertIn("devloops approve", page)  # the next action
         [(tone, text)] = [i for i in dashboard.attention(self.data()) if "is <span" in i[1]]
         self.assertEqual(tone, "warning")
         self.assertIn('<a href="#backend-dev"><strong>backend-dev</strong></a>', text)
@@ -34,7 +34,7 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
 
     def test_a_completed_run_shows_results_evidence_and_statistics(self):
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         page = self.page()
         self.assertIn("Completed", page)
         self.assertIn("2 / 2", page)                              # milestones achieved
@@ -60,7 +60,7 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
 
     def test_cost_by_model_when_calls_ran_on_more_than_one(self):
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         self.assertNotIn("Cost by model", self.page())  # one model: nothing to split
 
         records = [{"seq": 1, "step": "plan", "model": "opus", "cost_usd": 0.5},
@@ -80,18 +80,17 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
 
     def test_failed_trials_and_retries_are_counted(self):
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
+        self.assertEqual(self.cli("run", env={"DEVLOOPS_STUB": "fail"}), 20,
                          self.last_output)
         page = self.page()
         self.assertIn("Stopped on failure", page)
-        self.assertIn("devloops retry backend-dev --milestone M01", page)
+        self.assertIn("devloops retry --milestone M01", page)
         tones = [tone for tone, _ in dashboard.attention(self.data())]
         self.assertEqual(tones[0], "critical")
         self.assertIn('Needs attention <span class="count">', page)
-        self.assertEqual(self.cli("retry", "--no-continue",
-                                  "backend-dev", "--milestone", "M01", "--reason",
+        self.assertEqual(self.cli("retry", "--no-continue", "--milestone", "M01", "--reason",
                                   "try again"), 0, self.last_output)
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         page = self.page()
         self.assertIn("try again", page)                          # the retry's reason
         loop = self.data()["loops"]["backend-dev"]
@@ -121,8 +120,8 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         self.approved()
         self.scenario({"implement": [service_error(429), implemented("M01-T01"),
                                      implemented("M02-T01")]})
-        self.assertEqual(self.cli("run", "backend-dev"), 50, self.last_output)
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 50, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         [m1] = [m for m in self.data()["loops"]["backend-dev"]["milestones"] if m["id"] == "M01"]
         void, passed = m1["trials"]
         self.assertEqual((void["n"], void["status"], passed["n"], passed["status"]),
@@ -145,7 +144,7 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
                                      implemented("M02-T01")]})
         page_path = os.path.join(self.t.workspace_dir, "dashboard.html")
         os.remove(page_path)
-        proc = self.start_cli("run", "backend-dev")
+        proc = self.start_cli("run")
         self.wait_for_call("implement")
         self.assertFalse(os.path.exists(page_path))
         self.assertEqual(proc.wait(timeout=60), 0)

@@ -12,7 +12,7 @@ class LargeEvidenceTest(StubLoopMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         evidence = self.path(os.path.join("state", "milestones", "M01", "trials", "1",
                                           "evidence"))
         self.big = self.sized(os.path.join(evidence, "trace.har"), 2 * MB)

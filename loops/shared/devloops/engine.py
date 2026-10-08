@@ -126,9 +126,8 @@ class Engine:
         # `replan --no-continue` pauses at its new plan, even under questions: accept-suggested:
         # the developer asked to see it.
         self.review_plan = False
-        # The command that resumes this run, for the messages: `devloops orchestrate` when the
-        # workspace is orchestrated (the CLI sets it).
-        self.resume_command = f"devloops run {loop_name}"
+        # The command that resumes this run, for the messages (003 FR-011).
+        self.resume_command = "devloops run"
         # Set once `approve`, `replan`, or `retry` has saved its decision: an error after that is
         # not a refusal (the orchestrator keeps its record of the run).
         self.decided = False
@@ -217,7 +216,7 @@ class Engine:
                 if used >= self.config["max_trials"]:
                     raise state.UsageError(
                         f"no planning trials left ({used} of {self.config['max_trials']} used); "
-                        f"approve the current plan with `devloops approve {self.loop}` or start "
+                        f"approve the current plan with `devloops approve` or start "
                         "a new workspace")
                 self._check_tools(self.config)
                 self._check_fingerprints()
@@ -330,8 +329,8 @@ class Engine:
 
     def check_tools(self):
         """Raise `missing-tool` now for a loop that still has work: with its frozen configuration,
-        or the one its first start would freeze. Nothing is written (`orchestrate` checks both
-        loops before the backend spends anything). True if it checked (a stopped or completed run
+        or the one its first start would freeze. Nothing is written (`devloops run` checks every
+        loop before the backend spends anything). True if it checked (a stopped or completed run
         is not)."""
         rs = state.read_json(self.run_path)
         if rs and rs["status"] in TERMINAL_STATUSES:
@@ -368,7 +367,8 @@ class Engine:
         self.ws.attach_requirements(requirements)
         if not self.opts.target:
             raise input_error("target-unwritable",
-                              f"no target directory given; pass --target for {self.loop}")
+                              f"no target directory given; set targets.{self.loop} in "
+                              ".devloops/devloops.json")
         target = self.ws.set_target(self.loop, os.path.abspath(self.opts.target))
         self.rs = {
             "loop": self.loop, "status": "planning", "status_reason": None,
@@ -523,7 +523,7 @@ class Engine:
         if self.opts.api_spec and recorded.get("api_spec"):
             path = os.path.abspath(self.opts.api_spec)
             if inputs._hash_or_none(path) != recorded["api_spec"]["sha256"]:
-                raise input_error("input-changed", f"--api-spec {path} differs from the recorded "
+                raise input_error("input-changed", f"the API spec {path} differs from the recorded "
                                   "API spec", input="api-spec")
         if self.opts.target:
             self.ws.set_target(self.loop, os.path.abspath(self.opts.target))
@@ -574,8 +574,8 @@ class Engine:
                 if self._auto_approve():
                     continue
                 self.message = (f"plan stored; review outputs/plan-summary.md, answer "
-                                f"outputs/open-questions.md, then run `devloops approve "
-                                f"{self.loop}` or `devloops replan {self.loop}`"
+                                f"outputs/open-questions.md, then run `devloops approve` "
+                                "or `devloops replan`"
                                 + self._unsuggested_note())
                 return EXIT_CODES["awaiting-approval"]
             if status == "implementing":
@@ -632,8 +632,7 @@ class Engine:
                                       "approval")
                 self._render()
                 self.message = ("replan found no valid plan within the planning trials; the "
-                                f"previous plan still awaits approval (`devloops approve "
-                                f"{self.loop}`)")
+                                f"previous plan still awaits approval (`devloops approve`)")
                 return EXIT_CODES["awaiting-approval"]
             if n > limit:
                 planning["status"] = "failed"
@@ -749,8 +748,8 @@ class Engine:
         ms = self.rs["milestones"][mid]
         return (f"milestone {mid} failed after {len(selector.counted_trials(ms))} of "
                 f"{selector.trial_limit(self.rs, mid)} trial(s); read the last trial's "
-                f"validation.json and evidence/, then run `devloops retry {self.loop} --milestone "
-                f"{mid}`, with --reason to guide the fix" + self._auto_answered_note(mid))
+                f"validation.json and evidence/, then run `devloops retry --milestone {mid}`, "
+                f"with --reason to guide the fix" + self._auto_answered_note(mid))
 
     def _auto_answered_note(self, mid):
         """The questions of `mid` answered automatically: the failed trials were built on them,
@@ -878,7 +877,7 @@ class Engine:
         raise StopRun("stopped-on-failure", "needs-input",
                       f"milestone {mid} needs input: answer {', '.join(ids)} in "
                       f"outputs/open-questions.md (an empty answer accepts Claude's suggested "
-                      f"answer), then run `devloops retry {self.loop} --milestone {mid}`",
+                      f"answer), then run `devloops retry --milestone {mid}`",
                       milestone_id=mid)
 
     def _auto_answer(self, milestone, trial, text, ids, detail):

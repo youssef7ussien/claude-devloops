@@ -95,13 +95,13 @@ class StubLoopMixin:
         return code
 
     def first_run(self, *extra, env=None):
-        return self.cli("run", "backend-dev", "--requirements", self.prd, "--target",
+        return self.cli("run", "--requirements", self.prd, "--backend-target",
                         self.t.target_dir, *extra, env=env)
 
     def approved(self, *extra):
         """Plan and approve; the run is then `implementing`."""
         self.assertEqual(self.first_run(*extra), 10, self.last_output)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
 
     def config_file(self, overrides):
         return self.t.write_file("config.json", json.dumps(overrides))

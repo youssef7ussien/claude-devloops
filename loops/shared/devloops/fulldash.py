@@ -417,14 +417,14 @@ def loop_tree(loop, d, items, embedder):
 
 
 def other_trees(ws, embedder):
-    """The orchestrator's files and the workspace's own files (outside the loop folders)."""
-    orch, own = ui.Dir("orchestrator"), ui.Dir("workspace")
+    """The run's files (`run/`) and the workspace's own files (outside the loop folders)."""
+    orch, own = ui.Dir("run"), ui.Dir("workspace")
     for path in _walk(ws.path):
         rel = os.path.relpath(path, ws.path)
         top = rel.split(os.sep)[0]
         if top in LOOPS or rel in SKIPPED:
             continue
-        (orch if top == "orchestrator" else own).files.append(
+        (orch if top == "run" else own).files.append(
             embedder.item({"rel": rel, "abs": path}))
     return [t for t in (orch, own) if t.count()]
 
@@ -706,7 +706,7 @@ def render_full(data, ws, embedder, env=None, trigger=None, serve=None):
                   + (f" · {e(trigger)}" if trigger else "") + "</span></p>")
     views = [dashboard.overview_view(data, links, notice,
                                      lambda loop, r: call_id(loop, r.get("seq"))),
-             dashboard.orchestrator_view(data)]
+             dashboard.run_view(data)]
     views += [dashboard.loop_view(loop, d, ws.path, links, call_ref(loop), files_view=True)
               for loop, d in data["loops"].items()]
     views += [dashboard.calls_view(data, links, lambda loop, r: call_id(loop, r.get("seq")),

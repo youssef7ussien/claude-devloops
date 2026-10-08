@@ -15,7 +15,7 @@ FAIL = {"DEVLOOPS_STUB": "fail"}
 class LimitsTest(StubLoopMixin, unittest.TestCase):
     def test_always_failing_validation_stops_after_exactly_the_default_limit(self):
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev", env=FAIL), 20, self.last_output)
+        self.assertEqual(self.cli("run", env=FAIL), 20, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "stopped-on-failure")
         self.assertEqual(rs["status_reason"]["code"], "trials-exhausted")
@@ -30,7 +30,7 @@ class LimitsTest(StubLoopMixin, unittest.TestCase):
 
     def test_max_trials_override_sets_the_limit(self):
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "2", env=FAIL), 20,
+        self.assertEqual(self.cli("run", "--max-trials", "2", env=FAIL), 20,
                          self.last_output)
         m1 = self.run_state()["milestones"]["M01"]
         self.assertEqual([t["n"] for t in m1["trials"]], [1, 2])
@@ -42,10 +42,10 @@ class LimitsTest(StubLoopMixin, unittest.TestCase):
         config = self.config_file({"model": "sonnet", "models": {
             "plan": "opus", "fix_last_trial": "opus"}})
         self.approved("--config", config)
-        self.assertEqual(self.cli("run", "backend-dev", env=FAIL), 20, self.last_output)
-        self.assertEqual(self.cli("retry", "--no-continue", "backend-dev", "--milestone", "M01",
+        self.assertEqual(self.cli("run", env=FAIL), 20, self.last_output)
+        self.assertEqual(self.cli("retry", "--no-continue", "--milestone", "M01",
                                   "--trials", "2"), 0, self.last_output)
-        self.assertEqual(self.cli("run", "backend-dev", env=FAIL), 20, self.last_output)
+        self.assertEqual(self.cli("run", env=FAIL), 20, self.last_output)
 
         def model(call):
             argv = call["argv"]
@@ -59,7 +59,7 @@ class LimitsTest(StubLoopMixin, unittest.TestCase):
         config = self.config_file({"invocation_timeout_seconds": 30})
         self.approved("--config", config)
         self.scenario({"implement": dict(implemented("M01-T01"), sleep_seconds=120)})
-        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "1"), 20, self.last_output)
+        self.assertEqual(self.cli("run", "--max-trials", "1"), 20, self.last_output)
         failure = self.trial("M01", 1)["failure"]
         self.assertEqual(failure["reason"], "timeout")  # counted (FR-062)
         self.assertIn("invocation_timeout_seconds=30", failure["detail"])
@@ -70,7 +70,7 @@ class LimitsTest(StubLoopMixin, unittest.TestCase):
         # plan + implement use both calls; the fix trial the failure asks for would be the third.
         config = self.config_file({"max_invocations_per_run": 2})
         self.approved("--config", config)
-        self.assertEqual(self.cli("run", "backend-dev", env=FAIL), 20, self.last_output)
+        self.assertEqual(self.cli("run", env=FAIL), 20, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "stopped-on-failure")
         self.assertEqual(rs["status_reason"]["code"], "invocation-cap")
@@ -81,11 +81,11 @@ class LimitsTest(StubLoopMixin, unittest.TestCase):
     def test_a_second_concurrent_run_exits_40_naming_the_active_pid(self):
         self.approved()
         self.scenario({"implement": dict(implemented("M01-T01"), sleep_seconds=60)})
-        first = self.start_cli("run", "backend-dev")
+        first = self.start_cli("run")
         call = self.wait_for_call("implement")
         self.addCleanup(self.kill_fake, call)
 
-        self.assertEqual(self.cli("run", "backend-dev"), 40, self.last_output)
+        self.assertEqual(self.cli("run"), 40, self.last_output)
         self.assertIn(f"pid {first.pid}", self.last_output)
         self.assertEqual(len(self.calls("implement")), 1)  # the second driver made no call
 

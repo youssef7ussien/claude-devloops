@@ -29,7 +29,8 @@ class ProjectRunsTest(unittest.TestCase):
                                                        implemented("M02-T01")]}})
 
     def configure(self, **extra):
-        config = {"targets": {"backend-dev": "backend", "frontend-dev": "frontend"},
+        # Backend only: these tests stub backend-dev alone (003 FR-005: null is not used).
+        config = {"targets": {"backend-dev": "backend", "frontend-dev": None},
                   "requirements": {"path": "docs/prd.md"}}
         config.update(extra)
         self.t.make_project(self.t.root, config)
@@ -52,24 +53,25 @@ class ProjectRunsTest(unittest.TestCase):
 
     # --- defaults from the configuration (SC-002, FR-013) ---
 
-    def test_orchestrate_from_a_subfolder_needs_no_flags(self):
+    def test_run_from_a_subfolder_needs_no_flags(self):
+        self.configure(targets={"backend-dev": "backend", "frontend-dev": "frontend"})
         sub = os.path.join(self.t.root, "sub", "dir")
         os.makedirs(sub)
-        self.assertEqual(self.cli("orchestrate", "--json", cwd=sub), 10, self.output)
+        self.assertEqual(self.cli("run", "--json", cwd=sub), 10, self.output)
         data = state.read_json(os.path.join(self.ws_dir(), "workspace.json"))
         self.assertEqual(data["targets"], {"backend-dev": "backend", "frontend-dev": "frontend"})
         self.assertEqual(data["requirements"]["path"], os.path.join("docs", "prd.md"))
         self.assertEqual(self.run_state()["target_dir"], os.path.join(self.t.root, "backend"))
 
     def test_run_writes_code_only_into_the_configured_target(self):
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.output)
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.output)
+        self.assertEqual(self.cli("run"), 10, self.output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.output)
+        self.assertEqual(self.cli("run"), 0, self.output)
         self.assertTrue(os.path.isfile(os.path.join(self.t.root, "backend", "app.py")))
         self.assertFalse(os.path.exists(os.path.join(self.t.root, "app.py")))
 
     def test_flags_win_over_the_configuration(self):
-        code = self.cli("run", "backend-dev", "--workspace", "other", "--target",
+        code = self.cli("run", "--workspace", "other", "--backend-target",
                         self.t.target_dir)
         self.assertEqual(code, 10, self.output)
         self.assertEqual(self.run_state("other")["target_dir"], self.t.target_dir)
@@ -80,17 +82,17 @@ class ProjectRunsTest(unittest.TestCase):
         self.configure(config={"max_trials": 5})
         self.write_local({"config": {"max_trials": 4}})
         ws_config = self.t.write_file("ws-config.json", json.dumps({"max_trials": 3}))
-        self.cli("run", "backend-dev", "--workspace", "layers")
+        self.cli("run", "--workspace", "layers")
         self.assertEqual(self.run_state("layers")["effective_config"]["max_trials"], 4)
-        self.cli("run", "backend-dev", "--workspace", "with-config", "--config", ws_config)
+        self.cli("run", "--workspace", "with-config", "--config", ws_config)
         self.assertEqual(self.run_state("with-config")["effective_config"]["max_trials"], 3)
-        self.cli("run", "backend-dev", "--workspace", "with-flag", "--config", ws_config,
+        self.cli("run", "--workspace", "with-flag", "--config", ws_config,
                  "--max-trials", "2")
         rs = self.run_state("with-flag")
         self.assertEqual(rs["effective_config"]["max_trials"], 2)
         self.assertEqual(rs["config_cli_keys"], ["max_trials"])
         os.remove(os.path.join(self.t.root, ".devloops", "devloops.local.json"))
-        self.cli("run", "backend-dev", "--workspace", "shared-only")
+        self.cli("run", "--workspace", "shared-only")
         self.assertEqual(self.run_state("shared-only")["effective_config"]["max_trials"], 5)
 
     # --- drift (FR-015) ---
@@ -101,7 +103,7 @@ class ProjectRunsTest(unittest.TestCase):
 
     def test_drift_is_reported_and_not_applied(self):
         self.configure(config={"max_trials": 3})
-        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "2"), 10, self.output)
+        self.assertEqual(self.cli("run", "--max-trials", "2"), 10, self.output)
         self.assertEqual(self.status_json()["config_drift"], [])
         self.configure(config={"max_trials": 3, "max_invocations_per_run": 70})  # whitespace
         self.configure(config={"max_trials": 7, "max_invocations_per_run": 70})
@@ -110,33 +112,32 @@ class ProjectRunsTest(unittest.TestCase):
         self.cli("status", "backend-dev")
         self.assertIn("configuration changed since the first run (not applied): "
                       "max_invocations_per_run", self.output)
-        self.cli("run", "backend-dev")
+        self.cli("run")
         cfg = self.run_state()["effective_config"]
         self.assertEqual((cfg["max_trials"], cfg["max_invocations_per_run"]), (2, 60))
 
     def test_a_view_setting_is_applied_live_and_is_not_drift(self):
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
+        self.assertEqual(self.cli("run"), 10, self.output)
         self.configure(config={"dashboard": {"full_on_stop": True}})
         self.assertEqual(self.status_json()["config_drift"], [])
 
     def test_a_target_edit_after_the_first_run_is_drift_not_a_mismatch(self):
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
+        self.assertEqual(self.cli("run"), 10, self.output)
         self.configure(targets={"backend-dev": "api", "frontend-dev": "frontend"})
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
+        self.assertEqual(self.cli("run"), 10, self.output)
         self.assertEqual(self.run_state()["target_dir"], os.path.join(self.t.root, "backend"))
 
     # --- a moved project (FR-013) ---
 
     def test_a_moved_project_resumes_with_targets_under_the_new_root(self):
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
+        self.assertEqual(self.cli("run"), 10, self.output)
         moved = os.path.join(self.t.base, "moved")
         shutil.copytree(self.t.root, moved, symlinks=True)
         shutil.rmtree(self.t.root)
         self.t.env["DEVLOOPS_CLAUDE_BIN"] = os.path.join(moved, "loops", "shared", "tests",
                                                          "fake_claude.py")
-        self.assertEqual(self.cli("approve", "--no-continue",
-                                  "backend-dev", root=moved), 0, self.output)
-        self.assertEqual(self.cli("run", "backend-dev", root=moved), 0, self.output)
+        self.assertEqual(self.cli("approve", "--no-continue", root=moved), 0, self.output)
+        self.assertEqual(self.cli("run", root=moved), 0, self.output)
         rs = self.run_state(root=moved)
         self.assertEqual(rs["status"], "completed")
         self.assertEqual(rs["project_root"], moved)
@@ -151,11 +152,10 @@ class ProjectRunsTest(unittest.TestCase):
         return clone
 
     def test_replan_in_a_clone_uses_the_clone_and_leaves_the_original_alone(self):
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
+        self.assertEqual(self.cli("run"), 10, self.output)
         original = self.run_state()
         clone = self.clone()
-        self.assertEqual(self.cli("replan", "--no-continue",
-                                  "backend-dev", root=clone), 10, self.output)
+        self.assertEqual(self.cli("replan", "--no-continue", root=clone), 10, self.output)
         rs = self.run_state(root=clone)
         self.assertEqual(rs["project_root"], clone)
         self.assertEqual(rs["target_dir"], os.path.join(clone, "backend"))
@@ -166,7 +166,7 @@ class ProjectRunsTest(unittest.TestCase):
     def test_the_workspace_config_file_follows_a_moved_project(self):
         ws_config = self.t.write_file("ws-config.json", json.dumps({"max_trials": 3}),
                                       base=self.t.root)
-        self.assertEqual(self.cli("run", "backend-dev", "--config", ws_config), 10, self.output)
+        self.assertEqual(self.cli("run", "--config", ws_config), 10, self.output)
         data = state.read_json(os.path.join(self.ws_dir(), "workspace.json"))
         self.assertEqual(data["config_path"], "ws-config.json")
         clone = self.clone()
@@ -185,16 +185,16 @@ class ProjectRunsTest(unittest.TestCase):
 
     def test_a_first_start_that_stopped_early_reuses_the_recorded_inputs(self):
         self.configure(targets={"backend-dev": "loops"})
-        self.assertEqual(self.cli("run", "backend-dev"), 30, self.output)  # recorded requirements
+        self.assertEqual(self.cli("run"), 30, self.output)  # recorded requirements
         self.configure()
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.output)
+        self.assertEqual(self.cli("run"), 10, self.output)
 
     def test_targets_that_overlap_devloops_or_the_kit_are_refused(self):
         for bad in (".devloops/x", "loops"):
             with self.subTest(target=bad):
                 self.configure(targets={"backend-dev": bad})
                 ws = "bad-" + bad.replace("/", "").replace(".", "")
-                self.assertEqual(self.cli("run", "backend-dev", "--workspace", ws), 30,
+                self.assertEqual(self.cli("run", "--workspace", ws), 30,
                                  self.output)
                 self.assertIn("overlaps", self.output)
 

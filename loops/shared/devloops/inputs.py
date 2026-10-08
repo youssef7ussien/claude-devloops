@@ -124,8 +124,8 @@ def check_api_spec(path, loop):
     OpenAPI 3 JSON document is `invalid-api-spec` (both from `openapi.load_spec`).
     """
     if not path:
-        raise input_error("missing-input", f"{loop} requires --api-spec (the backend's OpenAPI "
-                          "document)", input="api-spec")
+        raise input_error("missing-input", f"{loop} requires an API spec (the backend's OpenAPI "
+                          "document, handed over by backend-dev)", input="api-spec")
     path = os.path.abspath(path)
     if not os.path.isfile(path):
         raise input_error("missing-input", f"API spec {path} does not exist", input="api-spec")

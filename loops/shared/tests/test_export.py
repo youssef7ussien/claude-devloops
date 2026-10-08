@@ -16,7 +16,7 @@ COLUMNS = ["workspace", "loop", "step", "model", "milestone", "trial", "session_
 class ExportSessionsTest(StubLoopMixin, unittest.TestCase):
     def completed(self):
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
 
     def rows(self, text):
         reader = csv.DictReader(io.StringIO(text))

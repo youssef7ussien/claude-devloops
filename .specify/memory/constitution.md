@@ -1,6 +1,24 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 1.0.1 → 2.0.0
+Bump rationale: MAJOR. Principle VI's MUST "orchestration MUST be optional, not a prerequisite for
+  running either loop" is redefined: devloops has one run command, a project chooses which loops
+  run, and each loop MUST be runnable without the other once its own inputs exist.
+Motivation: a frontend-dev run started on its own skipped the backend handoff and spent its trials
+  with no backend to test against. One run command (specs/003-single-run-command) makes the
+  handoff impossible to skip.
+Affected sections: Principle VI (second bullet).
+Migration impact: specs/001-reusable-dev-loops FR-039 and FR-040 (each loop runnable directly
+  through the CLI) and the commands in specs/002-devloops-init are revised in place by spec 003.
+  `devloops orchestrate` and `devloops run <loop>` are removed; `devloops run` runs the loops the
+  project configures.
+Temporary deviation: until feature 004 (frontend-only runs), frontend-dev can be started from the
+  CLI only after backend-dev in the same run. The engine still runs frontend-dev on its own once
+  given an API contract, and tests keep covering that (spec 003 research R-11, plan Complexity
+  Tracking).
+
+Previous entry (1.0.1):
 Version change: 1.0.0 → 1.0.1
 Bump rationale: PATCH. Project renamed from "Claude Loops" (claude-loops) to "Devloops" (devloops);
   title wording only, no principle or governance change.
@@ -93,8 +111,10 @@ recorded reason is a useful outcome; an endless retry is not.
 
 - Requirements, planning, implementation, validation, state management, and orchestration
   SHOULD remain clearly separated.
-- Backend and frontend loops SHOULD remain independently executable; orchestration MUST be
-  optional, not a prerequisite for running either loop.
+- Backend and frontend loops MUST remain separate loops, each runnable without the other once its
+  own inputs exist. devloops MAY offer one command that runs the loops a project chooses, in
+  order; running one loop MUST NOT require running another, except to produce inputs the first
+  one needs.
 - Shared functionality SHOULD be implemented once and reused rather than duplicated.
 
 **Rationale**: Separated concerns can be tested, replaced, and reasoned about in isolation.
@@ -178,4 +198,4 @@ accepted only when it pays for itself.
   with these principles. Any deviation MUST be recorded with its justification, per
   Principle X.
 
-**Version**: 1.0.1 | **Ratified**: 2026-09-27 | **Last Amended**: 2026-09-27
+**Version**: 2.0.0 | **Ratified**: 2026-09-27 | **Last Amended**: 2026-10-09

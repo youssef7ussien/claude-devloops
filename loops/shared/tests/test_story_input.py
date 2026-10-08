@@ -32,7 +32,7 @@ def story_plan(story_id, stray_ref=None):
 
 class StoryInputTest(StubLoopMixin, unittest.TestCase):
     def start(self, requirements, *story_args):
-        return self.cli("run", "backend-dev", "--requirements", requirements, "--target",
+        return self.cli("run", "--requirements", requirements, "--backend-target",
                         self.t.target_dir, *story_args)
 
     def workspace_json(self):
@@ -151,8 +151,8 @@ class StoryInputTest(StubLoopMixin, unittest.TestCase):
         self.assertIn("never implement the other story", scope["rule"])
         self.assertIn("## Single-story scope", prompt)  # the matching common.md section
 
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         implement = self.context_of(self.calls("implement")[0])
         self.assertEqual(implement["story_scope"]["story_id"], "US-2")
 

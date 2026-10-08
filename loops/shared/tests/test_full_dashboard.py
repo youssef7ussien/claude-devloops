@@ -44,7 +44,7 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
                                 "result": f"plan done; the key is {SECRET}"},
                        "implement": [implemented("M01-T01"), implemented("M02-T01")]})
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
 
     def page(self, name=None):
         name = name or self.dashboards()[-1]
@@ -59,9 +59,9 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
     def test_written_at_a_final_status_only(self):
         self.assertEqual(self.first_run(), 10, self.last_output)
         self.assertEqual(self.dashboards(), [])
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
         self.assertEqual(self.dashboards(), [])
-        self.assertEqual(self.cli("run", "backend-dev", "--json"), 0, self.last_output)
+        self.assertEqual(self.cli("run", "--json"), 0, self.last_output)
         [name] = self.dashboards()
         self.assertRegex(name, r"^\d{8}T\d{6}Z(-\d+)?\.html$")
         out = json.loads(self.last_output)
@@ -69,14 +69,14 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(out["full_dashboard"]["bytes"],
                          os.path.getsize(os.path.join(self.dash_dir, name)))
         # A command that changes nothing (the run already ended) writes no new one.
-        self.cli("run", "backend-dev")
+        self.cli("run")
         self.assertNotIn("full dashboard:", self.last_output)
         self.assertEqual(self.dashboards(), [name])
 
     def test_by_default_only_the_dashboard_command_writes_one(self):
         self.configure(full_on_stop=False)
         self.approved("--max-trials", "1")
-        self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
+        self.assertEqual(self.cli("run", env={"DEVLOOPS_STUB": "fail"}), 20,
                          self.last_output)
         self.assertEqual(self.dashboards(), [])
         # The summary says where files and conversations are instead.
@@ -92,29 +92,28 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.configure(full_on_stop=False)
         self.approved("--max-trials", "1")
         self.configure(full_on_stop=True)
-        self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
+        self.assertEqual(self.cli("run", env={"DEVLOOPS_STUB": "fail"}), 20,
                          self.last_output)
         self.assertEqual(len(self.dashboards()), 1)
 
     def test_written_after_a_stop_on_failure(self):
         self.approved("--max-trials", "1")
-        code = self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"})
+        code = self.cli("run", env={"DEVLOOPS_STUB": "fail"})
         self.assertEqual(code, 20, self.last_output)
         self.assertEqual(len(self.dashboards()), 1)
         self.assertIn("full dashboard: ", self.last_output)
         # Started again without a retry grant: nothing changes, so no new one.
-        self.assertEqual(self.cli("run", "backend-dev"), 20, self.last_output)
-        self.assertEqual(self.cli("orchestrate"), 20, self.last_output)
+        self.assertEqual(self.cli("run"), 20, self.last_output)
         self.assertEqual(len(self.dashboards()), 1)
 
     def test_not_written_when_the_lock_is_refused(self):
-        self.completed()
+        self.approved()
         before = self.dashboards()
         lock = self.path(os.path.join("state", "lock"))
         with open(lock, "w") as f:
             json.dump({"pid": os.getpid(), "host": socket.gethostname(),
                        "started_at": state.now_iso()}, f)
-        self.assertEqual(self.cli("run", "backend-dev"), 40, self.last_output)
+        self.assertEqual(self.cli("run"), 40, self.last_output)
         self.assertEqual(self.dashboards(), before)
 
     def test_which_endings_count_as_final(self):
@@ -307,7 +306,7 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
             f.write("a file where the dashboards folder should be")
         self.configure(dashboards_dir="not-a-dir")
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         self.assertIn("devloops: warning: could not write the full dashboard", self.last_output)
         self.assertEqual(self.run_state()["status"], "completed")
 

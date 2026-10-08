@@ -95,7 +95,7 @@ class ConversationCopyTest(StubLoopMixin, unittest.TestCase):
 
     def test_every_call_of_a_full_run_has_its_own_copy(self):
         self.approved()
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         records = self.records()
         self.assertGreaterEqual(len(records), 3)
         for record in records:

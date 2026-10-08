@@ -169,7 +169,7 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
                        "implement": implemented("M01-T01")})
 
     def speckit_run(self, *extra):
-        return self.cli("run", "backend-dev", "--speckit-feature", *extra, "--target",
+        return self.cli("run", "--speckit-feature", *extra, "--backend-target",
                         self.t.target_dir)
 
     def workspace_json(self):
@@ -231,8 +231,8 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
 
     def test_missing_inputs(self):
         os.makedirs(os.path.join(self.t.root, "specs", "002-empty"))
-        self.assertEqual(self.cli("run", "backend-dev", "--speckit-feature",
-                                  os.path.join(self.t.root, "specs", "002-empty"), "--target",
+        self.assertEqual(self.cli("run", "--speckit-feature",
+                                  os.path.join(self.t.root, "specs", "002-empty"), "--backend-target",
                                   self.t.target_dir), 30, self.last_output)
         self.assertIn("002-empty has no spec.md", self.last_output)
 
@@ -244,7 +244,7 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.speckit_run(), 10, self.last_output)
         with open(os.path.join(self.feature_dir, "tasks.md"), "a") as f:
             f.write("- [ ] T008 [US2] Something new\n")
-        self.assertEqual(self.cli("run", "backend-dev"), 30, self.last_output)
+        self.assertEqual(self.cli("run"), 30, self.last_output)
         reason = self.run_state()["status_reason"]
         self.assertEqual((reason["code"], reason["input"]), ("input-changed", "tasks"))
 
@@ -255,7 +255,7 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.speckit_run(), 10, self.last_output)
         self.assertIsNone(self.workspace_json()["requirements"]["speckit"]["tasks_md"])
         os.rename(tasks + ".later", tasks)
-        self.assertEqual(self.cli("run", "backend-dev"), 30, self.last_output)
+        self.assertEqual(self.cli("run"), 30, self.last_output)
         reason = self.run_state()["status_reason"]
         self.assertEqual((reason["code"], reason["input"]), ("input-changed", "tasks"))
         self.assertIn("absent", reason["message"])
@@ -267,17 +267,17 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
         with open(os.path.join(self.t.root, ".specify", "feature.json"), "w") as f:
             json.dump({"feature_directory": "specs/002-other"}, f)
         # A usage error: the run stays resumable without the flag.
-        self.assertEqual(self.cli("run", "backend-dev", "--speckit-feature"), 2,
+        self.assertEqual(self.cli("run", "--speckit-feature"), 2,
                          self.last_output)
         self.assertIn("omit --speckit-feature", self.last_output)
         self.assertEqual(self.run_state()["status"], "awaiting-approval")
-        self.assertEqual(self.cli("run", "backend-dev", "--speckit-feature", "specs/typo"), 2,
+        self.assertEqual(self.cli("run", "--speckit-feature", "specs/typo"), 2,
                          self.last_output)
         self.assertEqual(self.run_state()["status"], "awaiting-approval")
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("run"), 10, self.last_output)
 
-    def test_orchestrate_passes_the_feature_to_the_loops(self):
-        code = self.cli("orchestrate", "--speckit-feature", "--backend-target",
+    def test_run_passes_the_feature_to_every_loop(self):
+        code = self.cli("run", "--speckit-feature", "--backend-target",
                         self.t.target_dir, "--frontend-target", self.t.frontend_target_dir)
         self.assertEqual(code, 10, self.last_output)  # the backend planned and awaits approval
         self.assertEqual(self.run_state()["inputs"]["requirements"]["speckit"]["feature_dir"],
@@ -286,20 +286,20 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
 
     def test_spec_kit_cannot_be_combined_with_a_requirements_file(self):
         self.assertEqual(self.speckit_run("--story-file"), 2, self.last_output)
-        code = self.cli("run", "backend-dev", "--speckit-feature", "--requirements", self.prd)
+        code = self.cli("run", "--speckit-feature", "--requirements", self.prd)
         self.assertEqual(code, 2, self.last_output)
 
     def test_the_project_configuration_can_name_the_feature(self):
         self.t.make_project(self.t.root, {"workspaces_dir": "workspaces",
                                           "requirements": {"speckit_feature": "active"}})
-        self.assertEqual(self.cli("run", "backend-dev", "--target", self.t.target_dir), 10,
+        self.assertEqual(self.cli("run", "--backend-target", self.t.target_dir), 10,
                          self.last_output)
         self.assertEqual(self.workspace_json()["requirements"]["speckit"]["feature_dir"], FEATURE)
         # A later start without flags resumes the recorded feature, whatever is active then.
         with open(os.path.join(self.t.root, ".specify", "feature.json"), "w") as f:
             json.dump({"feature_directory": "specs/none"}, f)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
-        self.assertNotEqual(self.cli("run", "backend-dev"), 30, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
+        self.assertNotEqual(self.cli("run"), 30, self.last_output)
         self.cli("status", "backend-dev", "--json")
         self.assertEqual(json.loads(self.last_output)["speckit_feature"], self.feature_dir)
 

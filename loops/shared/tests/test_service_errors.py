@@ -14,7 +14,7 @@ class ServiceErrorTest(StubLoopMixin, unittest.TestCase):
         self.approved()
         self.scenario({"implement": [service_error(status), implemented("M01-T01"),
                                      implemented("M02-T01")]})
-        self.assertEqual(self.cli("run", "backend-dev"), 50, self.last_output)
+        self.assertEqual(self.cli("run"), 50, self.last_output)
         return self.run_state()
 
     def test_a_429_voids_the_trial_and_stops_as_a_service_error(self):
@@ -34,7 +34,7 @@ class ServiceErrorTest(StubLoopMixin, unittest.TestCase):
 
     def test_the_next_run_resumes_with_the_same_trial_number(self):
         self.stopped_during_implement(429)
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "completed")
         self.assertIsNone(rs["resume_status"])
@@ -61,14 +61,14 @@ class ServiceErrorTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(rs["resume_status"], "planning")
         self.assertEqual([t["status"] for t in rs["planning"]["trials"]], ["void"])
 
-        self.assertEqual(self.cli("run", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("run"), 10, self.last_output)
         trials = self.run_state()["planning"]["trials"]
         self.assertEqual([(t["n"], t["status"]) for t in trials], [(1, "void"), (1, "passed")])
 
     def test_is_error_without_an_api_status_is_a_counted_work_failure(self):
         self.approved()
         self.scenario({"implement": {"is_error": True, "result": "something went wrong"}})
-        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "1"), 20,
+        self.assertEqual(self.cli("run", "--max-trials", "1"), 20,
                          self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "stopped-on-failure")

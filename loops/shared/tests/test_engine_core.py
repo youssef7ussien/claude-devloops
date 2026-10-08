@@ -69,7 +69,7 @@ class EngineCoreTest(unittest.TestCase):
         return code
 
     def first_run(self, *extra, env=None):
-        return self.cli("run", "backend-dev", "--requirements", self.prd, "--target",
+        return self.cli("run", "--requirements", self.prd, "--backend-target",
                         self.t.target_dir, *extra, env=env)
 
     def run_state(self):
@@ -102,18 +102,18 @@ class EngineCoreTest(unittest.TestCase):
                                                    "tasks": {"M01-T01": "pending"}, "trials": [],
                                                    "started_at": None, "ended_at": None})
         # A second run while awaiting approval makes no call and still exits 10.
-        self.assertEqual(self.cli("run", "backend-dev"), 10)
+        self.assertEqual(self.cli("run"), 10)
         self.assertEqual(self.steps_called(), ["plan"])
 
     def test_approve_then_run_completes(self):
         self.assertEqual(self.first_run(), 10)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "implementing")
         self.assertEqual(rs["approval"]["action"], "approve")
         self.assertEqual(len(rs["approval"]["answers_sha256"]), 64)
 
-        self.assertEqual(self.cli("run", "backend-dev"), 0, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "completed")
         self.assertEqual(self.steps_called(), ["plan", "implement", "implement"])
@@ -137,15 +137,15 @@ class EngineCoreTest(unittest.TestCase):
 
         # FR-029: a completed run makes no calls and changes nothing.
         before = self.read("state/run.json")
-        self.assertEqual(self.cli("run", "backend-dev"), 0)
+        self.assertEqual(self.cli("run"), 0)
         self.assertEqual(self.steps_called(), ["plan", "implement", "implement"])
         self.assertEqual(self.read("state/run.json"), before)
 
     def test_fix_prompt_carries_the_previous_failure_and_only_open_tasks(self):
         self.assertEqual(self.first_run(), 10)
-        self.cli("approve", "--no-continue", "backend-dev")
+        self.cli("approve", "--no-continue")
         self.scenario({"implement": implemented("M01-T01"), "fix": implemented("M01-T01")})
-        self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20)
+        self.assertEqual(self.cli("run", env={"DEVLOOPS_STUB": "fail"}), 20)
         fix_prompt = [c for c in self.t.fake_calls() if c["step"] == "fix"][0]["prompt"]
         context = json.loads(fix_prompt.split("```json\n", 1)[1].rsplit("\n```", 1)[0])
         self.assertEqual(context["previous_failure"]["trial"], 1)
@@ -177,16 +177,16 @@ class EngineCoreTest(unittest.TestCase):
         self.assertEqual(rs["status"], "stopped-on-failure")
         self.assertEqual(rs["status_reason"]["code"], "planning-trials-exhausted")
         self.assertEqual(len(self.t.fake_calls()), 2)
-        self.assertEqual(self.cli("run", "backend-dev"), 20)  # terminal: no further calls
+        self.assertEqual(self.cli("run"), 20)  # terminal: no further calls
         self.assertEqual(len(self.t.fake_calls()), 2)
 
     # --- validation is the driver's, never the model's ---
 
     def test_model_claims_are_never_a_pass(self):
         self.assertEqual(self.first_run(), 10)
-        self.cli("approve", "--no-continue", "backend-dev")
+        self.cli("approve", "--no-continue")
         self.scenario({"implement": implemented("M01-T01"), "fix": implemented("M01-T01")})
-        self.assertEqual(self.cli("run", "backend-dev", env={"DEVLOOPS_STUB": "fail"}), 20,
+        self.assertEqual(self.cli("run", env={"DEVLOOPS_STUB": "fail"}), 20,
                          self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status_reason"]["code"], "trials-exhausted")
@@ -202,12 +202,12 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_boundary_violation_fails_the_trial(self):
         self.assertEqual(self.first_run("--max-trials", "1"), 10)
-        self.cli("approve", "--no-continue", "backend-dev")
+        self.cli("approve", "--no-continue")
         outside = os.path.join(self.t.root, "loops", "shared", "sneaky.txt")
         answer = implemented("M01-T01")
         answer["writes"].append({"path": outside, "content": "x"})  # Bash-style: no hook
         self.scenario({"implement": answer})
-        self.assertEqual(self.cli("run", "backend-dev"), 20, self.last_output)
+        self.assertEqual(self.cli("run"), 20, self.last_output)
         failure = self.trial("M01", 1)["failure"]
         self.assertEqual(failure["reason"], "boundary-violation")
         self.assertIn(outside, failure["detail"])
@@ -217,13 +217,13 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_boundary_is_audited_even_when_the_call_fails(self):
         self.assertEqual(self.first_run("--max-trials", "2"), 10)
-        self.cli("approve", "--no-continue", "backend-dev")
+        self.cli("approve", "--no-continue")
         outside = os.path.join(self.t.root, "loops", "shared", "sneaky.txt")
         self.scenario({"implement": {"is_error": True,
                                      "writes": [{"path": outside, "content": "first"}]},
                        "fix": {"structured_output": {"tasks": []},
                                "writes": [{"path": outside, "content": "second"}]}})
-        self.assertEqual(self.cli("run", "backend-dev"), 20, self.last_output)
+        self.assertEqual(self.cli("run"), 20, self.last_output)
         first, second = self.trial("M01", 1)["failure"], self.trial("M01", 2)["failure"]
         self.assertEqual((first["reason"], second["reason"]),
                          ("boundary-violation", "boundary-violation"))
@@ -235,8 +235,8 @@ class EngineCoreTest(unittest.TestCase):
 
     def failed_trial_after(self, stub_mode):
         self.assertEqual(self.first_run(), 10)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0, self.last_output)
-        self.cli("run", "backend-dev", "--max-trials", "1", env={"DEVLOOPS_STUB": stub_mode})
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
+        self.cli("run", "--max-trials", "1", env={"DEVLOOPS_STUB": stub_mode})
         return self.trial("M01", 1)["failure"]
 
     def test_a_validator_call_failure_keeps_its_own_reason(self):
@@ -250,16 +250,16 @@ class EngineCoreTest(unittest.TestCase):
 
     def test_failed_call_without_violation_keeps_its_own_reason(self):
         self.assertEqual(self.first_run("--max-trials", "1"), 10)
-        self.cli("approve", "--no-continue", "backend-dev")
+        self.cli("approve", "--no-continue")
         self.scenario({"implement": {"structured_output": {"tasks": []}}})
-        self.assertEqual(self.cli("run", "backend-dev"), 20)
+        self.assertEqual(self.cli("run"), 20)
         self.assertEqual(self.trial("M01", 1)["failure"]["reason"], "invalid-output")
 
     # --- input errors ---
 
     def test_missing_requirements_exits_30_without_recording_a_run(self):
-        code = self.cli("run", "backend-dev", "--requirements",
-                        os.path.join(self.t.base, "nope.md"), "--target", self.t.target_dir)
+        code = self.cli("run", "--requirements",
+                        os.path.join(self.t.base, "nope.md"), "--backend-target", self.t.target_dir)
         self.assertEqual(code, 30, self.last_output)
         self.assertIn("does not exist", self.last_output)
         self.assertIsNone(self.run_state())
@@ -267,15 +267,17 @@ class EngineCoreTest(unittest.TestCase):
         # Fixing the input then works: a typo does not lock the workspace.
         self.assertEqual(self.first_run(), 10)
 
-    def test_missing_target_exits_30(self):
-        self.assertEqual(self.cli("run", "backend-dev", "--requirements", self.prd), 30)
-        self.assertIn("--target", self.last_output)
+    def test_no_target_is_no_loop_to_run(self):
+        # The test project sets no targets: nothing to run, and nothing is created (003 FR-006).
+        self.assertEqual(self.cli("run", "--requirements", self.prd), 30)
+        self.assertIn("no loop to run", self.last_output)
+        self.assertFalse(os.path.exists(self.t.workspace_dir))
 
     def test_requirements_changed_after_planning(self):
         self.assertEqual(self.first_run(), 10)
         with open(self.prd, "a") as f:
             f.write("- FR-3 delete items\n")
-        self.assertEqual(self.cli("run", "backend-dev"), 30)
+        self.assertEqual(self.cli("run"), 30)
         rs = self.run_state()
         self.assertEqual(rs["status"], "stopped-on-input-error")
         self.assertEqual(rs["status_reason"]["input"], "requirements")
@@ -284,16 +286,16 @@ class EngineCoreTest(unittest.TestCase):
         self.assertEqual(self.first_run(), 10)
         with open(os.path.join(self.loop_dir, "outputs", "open-questions.md"), "a") as f:
             f.write("extra note\n")
-        self.assertEqual(self.cli("run", "backend-dev"), 10)
+        self.assertEqual(self.cli("run"), 10)
 
     # --- commands and output ---
 
     def test_approve_only_when_awaiting_approval(self):
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 2)
+        self.assertEqual(self.cli("approve", "--no-continue"), 2)
         self.assertEqual(self.first_run(), 10)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 2)
-        self.assertIn("awaiting-approval", self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0)
+        self.assertEqual(self.cli("approve", "--no-continue"), 2)
+        self.assertIn("nothing awaits approval (run: paused)", self.last_output)
 
     def test_replan_uses_the_answers_and_pauses_again(self):
         plan = samples.plan()
@@ -308,7 +310,7 @@ class EngineCoreTest(unittest.TestCase):
             text = f.read()
         with open(path, "w") as f:
             f.write(text.replace("**Answer:**", "**Answer:** use 8765"))
-        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue"), 10, self.last_output)
         replan_prompt = self.t.fake_calls()[-1]["prompt"]
         self.assertIn("use 8765", replan_prompt)
         rs = self.run_state()
@@ -319,31 +321,30 @@ class EngineCoreTest(unittest.TestCase):
         self.scenario({"plan": {"structured_output": samples.plan()},
                        "replan": {"structured_output": samples.plan()}})
         self.assertEqual(self.first_run(), 10)                       # planning trial 1 of 3
-        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10)      # 2 of 3
-        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10)      # 3 of 3
+        self.assertEqual(self.cli("replan", "--no-continue"), 10)      # 2 of 3
+        self.assertEqual(self.cli("replan", "--no-continue"), 10)      # 3 of 3
         plan_before = self.read("state/plan.json")
-        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 2, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue"), 2, self.last_output)
         self.assertIn("no planning trials left (3 of 3 used)", self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "awaiting-approval")
         self.assertIsNone(rs["status_reason"])
         self.assertEqual(len(self.t.fake_calls()), 3)
         self.assertEqual(self.read("state/plan.json"), plan_before)
-        self.assertEqual(self.cli("approve", "--no-continue",
-                                  "backend-dev"), 0)     # the plan is still usable
+        self.assertEqual(self.cli("approve", "--no-continue"), 0)     # the plan is still usable
 
     def test_replan_that_finds_no_valid_plan_keeps_the_previous_one(self):
         self.scenario({"plan": {"structured_output": samples.plan()},
                        "replan": {"structured_output": {"milestones": []}}})
         self.assertEqual(self.first_run("--max-trials", "2"), 10)
         plan_before = self.read("state/plan.json")
-        self.assertEqual(self.cli("replan", "--no-continue", "backend-dev"), 10, self.last_output)
+        self.assertEqual(self.cli("replan", "--no-continue"), 10, self.last_output)
         self.assertIn("previous plan still awaits approval", self.last_output)
         rs = self.run_state()
         self.assertEqual(rs["status"], "awaiting-approval")
         self.assertEqual([t["status"] for t in rs["planning"]["trials"]], ["passed", "failed"])
         self.assertEqual(self.read("state/plan.json"), plan_before)
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev"), 0)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0)
 
     def test_status_json(self):
         self.assertEqual(self.first_run(), 10)
@@ -353,20 +354,23 @@ class EngineCoreTest(unittest.TestCase):
         self.assertEqual((obj["status"], obj["next_milestone"], obj["trials_used"],
                           obj["trial_limit"]), ("awaiting-approval", "M01", 0, 3))
         code, out, _ = self.t.run_cli(["status", "--workspace", WS, "--json"])
-        self.assertEqual(json.loads(out)["loops"]["frontend-dev"]["status"], "not-started")
+        # Only the loops the run includes (003 FR-016b): this project has no frontend.
+        self.assertEqual(list(json.loads(out)["loops"]), ["backend-dev"])
 
     def test_run_json_prints_one_status_object(self):
-        code, out, _ = self.t.run_cli(["run", "backend-dev", "--workspace", WS, "--requirements",
-                                       self.prd, "--target", self.t.target_dir, "--json"])
+        code, out, _ = self.t.run_cli(["run", "--workspace", WS, "--requirements",
+                                       self.prd, "--backend-target", self.t.target_dir, "--json"])
         self.assertEqual(code, 10)
         obj = json.loads(out)
-        self.assertEqual((obj["status"], obj["exit_code"]), ("awaiting-approval", 10))
+        self.assertEqual((obj["loops"]["backend-dev"]["status"], obj["exit_code"]),
+                         ("awaiting-approval", 10))
+        self.assertEqual(obj["run"]["status"], "paused")
 
     def test_usage_errors_exit_2(self):
         # Outside any project (002 FR-008).
         self.assertEqual(self.t.run_cli(["status", "--workspace", WS], cwd=self.t.base)[0], 2)
         self.assertEqual(self.cli("run", "other-loop"), 2)
-        self.assertEqual(self.cli("run", "backend-dev", "--max-trials", "0"), 2)
+        self.assertEqual(self.cli("run", "--max-trials", "0"), 2)
         self.assertEqual(self.t.run_cli(["status", "--workspace", "missing"])[0], 2)
 
 

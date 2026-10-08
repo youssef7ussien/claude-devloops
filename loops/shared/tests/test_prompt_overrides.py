@@ -66,7 +66,7 @@ class PromptOverridesTest(unittest.TestCase):
     def test_a_step_override_is_used_and_recorded(self):
         text = "PROJECT PLAN RULES: use the existing logger.\n"
         self.override("steps/plan.md", text)
-        self.assertEqual(self.cli("run", "backend-dev")[0], 10, self.output)
+        self.assertEqual(self.cli("run")[0], 10, self.output)
         self.assertIn("PROJECT PLAN RULES", self.prompt("0001-plan.md"))
         [record] = self.records()
         self.assertEqual(schema.validate(record, "invocation-record.schema.json"), [])
@@ -84,7 +84,7 @@ class PromptOverridesTest(unittest.TestCase):
         self.override("common.md", "PROJECT COMMON\n")
         self.override("backend-dev/Loop-instructions.md", "PROJECT BACKEND\n")
         self.override("frontend-dev/Loop-instructions.md", "PROJECT FRONTEND\n")
-        self.assertEqual(self.cli("run", "backend-dev")[0], 10, self.output)
+        self.assertEqual(self.cli("run")[0], 10, self.output)
         prompt = self.prompt("0001-plan.md")
         self.assertIn("PROJECT COMMON", prompt)
         self.assertIn("PROJECT BACKEND", prompt)
@@ -96,7 +96,7 @@ class PromptOverridesTest(unittest.TestCase):
         self.assertEqual(self.status()["prompt_drift"], [])
 
     def test_without_overrides_the_packaged_prompts_are_used(self):
-        self.assertEqual(self.cli("run", "backend-dev")[0], 10, self.output)
+        self.assertEqual(self.cli("run")[0], 10, self.output)
         sources = self.records()[0]["prompt_sources"]
         self.assertEqual({s["source"] for s in sources}, {"packaged"})
         with open(os.path.join(self.t.root, "loops", "shared", "prompts", "steps", "plan.md"),
@@ -109,7 +109,7 @@ class PromptOverridesTest(unittest.TestCase):
     def test_unknown_files_are_ignored_and_reported(self):
         self.override("steps/typo.md", "TYPO RULES\n")
         self.override("README.md", "the installed README\n")
-        self.assertEqual(self.cli("run", "backend-dev")[0], 10, self.output)
+        self.assertEqual(self.cli("run")[0], 10, self.output)
         self.assertNotIn("TYPO RULES", self.prompt("0001-plan.md"))
         [warning] = self.status()["warnings"]
         self.assertIn(".devloops/prompts/steps/typo.md", warning)
@@ -122,7 +122,7 @@ class PromptOverridesTest(unittest.TestCase):
 
     def test_the_sources_are_frozen_and_changes_reported(self):
         self.override("steps/plan.md", "FIRST\n")
-        self.assertEqual(self.cli("run", "backend-dev")[0], 10, self.output)
+        self.assertEqual(self.cli("run")[0], 10, self.output)
         rs = state.read_json(os.path.join(self.state_dir, "run.json"))
         frozen = self.by_part(rs["prompt_sources"])
         self.assertEqual(frozen["steps/plan.md"]["source"], "override")
@@ -136,7 +136,7 @@ class PromptOverridesTest(unittest.TestCase):
         self.assertIn("prompt parts changed since the first run", self.output)
         self.assertEqual(self.events("prompt-sources-changed"), [])  # status is read-only
 
-        self.assertEqual(self.cli("run", "backend-dev")[0], 10, self.output)
+        self.assertEqual(self.cli("run")[0], 10, self.output)
         [event] = self.events("prompt-sources-changed")
         self.assertIn("steps/plan.md", event["message"])
         self.assertIn("steps/implement.md", event["message"])
@@ -145,8 +145,8 @@ class PromptOverridesTest(unittest.TestCase):
         self.assertEqual(self.status()["prompt_drift"], ["steps/plan.md", "steps/implement.md"])
 
         # The calls of a later start use the current override.
-        self.assertEqual(self.cli("approve", "--no-continue", "backend-dev")[0], 0, self.output)
-        self.assertEqual(self.cli("run", "backend-dev")[0], 0, self.output)
+        self.assertEqual(self.cli("approve", "--no-continue")[0], 0, self.output)
+        self.assertEqual(self.cli("run")[0], 0, self.output)
         implement = [r for r in self.records() if r["step"] == "implement"]
         self.assertTrue(implement)
         self.assertEqual(self.by_part(implement[0]["prompt_sources"])["steps/implement.md"]
@@ -157,7 +157,7 @@ class PromptOverridesTest(unittest.TestCase):
 
     def test_removing_an_override_is_drift(self):
         path = self.override("steps/plan.md", "FIRST\n")
-        self.assertEqual(self.cli("run", "backend-dev")[0], 10, self.output)
+        self.assertEqual(self.cli("run")[0], 10, self.output)
         os.remove(path)
         self.assertEqual(self.status()["prompt_drift"], ["steps/plan.md"])
 

@@ -351,8 +351,8 @@ def _intro(loop, workspace_name):
             f"Claude suggests an answer where it can. Leave {ANSWER_MARK} empty to accept the "
             f"suggestion, or write your own answer after the marker (more lines are fine). By "
             f"default the run accepts the suggestions itself. When it pauses for review, run "
-            f"`devloops approve {loop} --workspace {workspace_name}` to accept the plan and "
-            f"continue, or `devloops replan {loop} --workspace {workspace_name}` to plan again "
+            f"`devloops approve --workspace {workspace_name}` to accept the plan and "
+            f"continue, or `devloops replan --workspace {workspace_name}` to plan again "
             f"with the answers. Approving (or `retry` after a needs-input stop) copies each "
             f"accepted suggestion into its answer and marks it with {SOURCE_MARK}.", ""]
 
@@ -558,11 +558,13 @@ def render_all(loop_dir, loop, workspace_name, kit, final=False, questions=None)
 # --- Orchestrator progress -----------------------------------------------------------------------------
 
 def render_orchestrator_progress(workspace_name, orch):
-    """`orchestrator/progress.md` from `orchestrator/state.json` (T066; R-15)."""
-    lines = [f"# Orchestrator progress: {workspace_name}", "",
+    """`run/progress.md` from `run/state.json` (T066; R-15; 003 FR-016)."""
+    loops = orch.get("loops") or ["backend-dev", "frontend-dev"]  # older records: both
+    order = ("Order: `backend-dev`, then `frontend-dev`. The frontend starts only after the "
+             "backend is completed." if len(loops) > 1 else f"Loop: `{loops[0]}`.")
+    lines = [f"# Run progress: {workspace_name}", "",
              f"**Status:** {orch['status']}", "",
-             "Order: `backend-dev`, then `frontend-dev`. The frontend starts only after the "
-             "backend is completed. Run `devloops orchestrate` again to resume.", "",
+             f"{order} Run `devloops run` again to resume.", "",
              "## Steps", ""]
     steps = orch.get("steps") or []
     if steps:
@@ -580,10 +582,12 @@ def render_orchestrator_progress(workspace_name, orch):
                   for key in ("start_command", "cwd", "base_url", "ready_url") if runtime.get(key)]
     else:
         lines.append("Not built yet: it is built once `backend-dev` is completed.")
+    if "frontend-dev" not in loops:
+        lines += ["", "This run has no frontend-dev; the handoff is kept for one added later."]
     for s in steps:
         if s["status"] == "awaiting-approval":
-            lines += ["", f"**Action:** review `{s['loop']}/outputs/`, then run `devloops approve "
-                          f"{s['loop']}`, which continues the run."]
+            lines += ["", f"**Action:** review `{s['loop']}/outputs/`, then run `devloops approve`, "
+                          "which continues the run."]
         elif s["status"] in STOPPED:
             lines += ["", f"**Action:** `{s['loop']}` stopped ({s.get('reason')}); see "
                           f"`{s['loop']}/progress.md`."]
