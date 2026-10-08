@@ -25,6 +25,8 @@ PROMPTS_README = os.path.join(project_mod.DIRNAME, "prompts", "README.md")
 IGNORE_BEGIN = '# >>> devloops (added by "devloops init")'
 IGNORE_END = "# <<< devloops"
 DEFAULT_TARGETS = {"backend-dev": "backend", "frontend-dev": "frontend"}
+NO_TARGET = "none"  # the target answer for a loop the project does not use (003 FR-013)
+NEEDS_A_LOOP = "a project needs at least one loop"
 
 
 class InitError(DevloopsError):
@@ -44,6 +46,8 @@ class InitOptions:
 
     backend_target: str = None
     frontend_target: str = None
+    no_backend: bool = False  # --no-backend: targets.backend-dev is null (003 FR-014)
+    no_frontend: bool = False
     requirements: str = None
     speckit_feature: str = None
     no_prompt: bool = False
@@ -249,13 +253,24 @@ def ask_missing(opts, project_root, kit, stdin, stdout):
             raise state.UsageError(f"no valid answer for {question!r} before the end of input")
 
     targets = {}
+    unused = _unused_by_flag(opts)  # grows with each `none` answer
     for loop, label, flag in (("backend-dev", "Backend", opts.backend_target),
                               ("frontend-dev", "Frontend", opts.frontend_target)):
         if flag:
             targets[loop] = os.path.abspath(flag)
             continue
+        if loop in unused:
+            targets[loop] = None
+            continue
         while True:
-            answer = ask(f"{label} target", DEFAULT_TARGETS[loop])
+            answer = ask(f"{label} target ('{NO_TARGET}': not used)", DEFAULT_TARGETS[loop])
+            if answer.lower() == NO_TARGET:  # a folder named none: ./none
+                if unused | {loop} == set(DEFAULT_TARGETS):
+                    rejected(f"{label} target", NEEDS_A_LOOP)
+                    continue
+                unused.add(loop)
+                targets[loop] = None
+                break
             path = proj.resolve(answer)
             try:
                 check_targets(proj, kit, dict(targets, **{loop: path}))
@@ -295,6 +310,17 @@ def ask_missing(opts, project_root, kit, stdin, stdout):
                 break
             rejected(question, "answer y or n")
     return targets, requirements, models
+
+
+def _unused_by_flag(opts):
+    """The loops `--no-backend` / `--no-frontend` leave out; both is a usage error, raised before
+    anything is asked or written (003 FR-014)."""
+    unused = {loop for loop, off in (("backend-dev", opts.no_backend),
+                                     ("frontend-dev", opts.no_frontend)) if off}
+    if unused == set(DEFAULT_TARGETS):
+        raise state.UsageError(f"{NEEDS_A_LOOP}: --no-backend and --no-frontend cannot go "
+                               "together")
+    return unused
 
 
 def _flag_requirements(opts, proj):
@@ -384,6 +410,8 @@ def init(project_root, kit, opts, answers=None):
     existing_config = os.path.isfile(proj.config_path)
     ignored = [flag for flag, value in (("--backend-target", opts.backend_target),
                                         ("--frontend-target", opts.frontend_target),
+                                        ("--no-backend", opts.no_backend),
+                                        ("--no-frontend", opts.no_frontend),
                                         ("--requirements", opts.requirements),
                                         ("--speckit-feature", opts.speckit_feature)) if value]
     if existing_config:
@@ -393,11 +421,15 @@ def init(project_root, kit, opts, answers=None):
         if answers is not None:
             targets, requirements, models = answers
         else:
-            targets = {loop: os.path.abspath(given) if given else proj.resolve(default)
+            unused = _unused_by_flag(opts)
+            targets = {loop: None if loop in unused else
+                       os.path.abspath(given) if given else proj.resolve(default)
                        for (loop, default), given in zip(DEFAULT_TARGETS.items(),
                                                          (opts.backend_target,
                                                           opts.frontend_target))}
             requirements = _flag_requirements(opts, proj) or default_requirements(proj)
+        if not any(targets.values()):
+            raise state.UsageError(NEEDS_A_LOOP)
         checked = check_targets(proj, kit, targets)
         config = default_project_config(
             {loop: proj.relative_or_absolute(p) if p else None for loop, p in checked.items()},
@@ -454,7 +486,7 @@ def init(project_root, kit, opts, answers=None):
                      + (f" ({', '.join(ignored)} ignored; edit it instead)" if ignored else ""))
     if not config.get("requirements"):
         notes.append(f"no requirements set: add \"requirements\" to {config_rel}, or pass "
-                     "--requirements <file> or --speckit-feature [dir] to run/orchestrate")
+                     "--requirements <file> or --speckit-feature [dir] to run")
     if not existing_config and (config.get("config") or {}).get("models"):
         notes.append(f"models: sonnet, with opus to plan, write checks, and make a milestone's "
                      f"last fix trial (edit \"config\" in {config_rel}; init --no-models leaves "
@@ -667,5 +699,4 @@ def print_result(result, out):
                   f"run devloops outside the skills without asking, run: {command} init "
                   f"--allow-skills\n(it adds {result['permission_rule']} to "
                   f".claude/settings.json under permissions.allow)", file=out)
-        print(f"\nNext: `{result['next']}`, then `{command} orchestrate` or "
-              f"`{command} run <backend-dev|frontend-dev>`.", file=out)
+        print(f"\nNext: `{result['next']}`, then `{command} run`.", file=out)

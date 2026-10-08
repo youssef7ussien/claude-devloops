@@ -119,7 +119,11 @@ The optional loop name is kept.
 ## `devloops check`: changes
 
 - **Which loops:** only the loops the project includes are checked, using the selection rule with
-  no workspace and no flags. Outside a project, both loops are checked.
+  no flags and the project's default workspace when it exists (a loop recorded there stays
+  checked). Outside a project, both loops are checked.
+- **No loop:** a project that includes no loop gets a `missing` item `loops` (`the project
+  includes no loop`; fix: set `targets.backend-dev` or `targets.frontend-dev` in
+  `.devloops/devloops.json`), so `check` exits 30, as `devloops run` would.
 - **Status `unused`:** an item needed only by loops the project does not include gets status
   `unused`, with detail `not used by this project (<loop>)` and no fix. It never makes the check
   fail.

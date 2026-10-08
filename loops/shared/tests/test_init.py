@@ -121,6 +121,7 @@ class InitTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn(f"Bash({COMMAND} *)", out)
         self.assertIn(f"{COMMAND} check", out)
+        self.assertIn(f"Next: `{COMMAND} check`, then `{COMMAND} run`.", out)
         self.assertIn("created: .devloops/manifest.json", out)
 
     def test_second_init_changes_nothing(self):
@@ -218,6 +219,31 @@ class InitTest(unittest.TestCase):
         self.assertEqual(config["targets"], {"backend-dev": "src/api", "frontend-dev": outside})
         self.assertEqual(config["requirements"], {"path": "docs/prd.md"})
 
+    # --- a project without a backend or a frontend (003 FR-013, FR-014) ---
+
+    def test_no_frontend_and_no_backend_write_null(self):
+        code, result = self.init_json("--no-frontend")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(json.loads(self.read(".devloops/devloops.json"))["targets"],
+                         {"backend-dev": "backend", "frontend-dev": None})
+
+    def test_no_backend_writes_null(self):
+        code, result = self.init_json("--no-backend", "--frontend-target", "web")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(json.loads(self.read(".devloops/devloops.json"))["targets"],
+                         {"backend-dev": None, "frontend-dev": "web"})
+
+    def test_no_backend_with_a_backend_target_is_a_usage_error(self):
+        code, out, err = self.init("--no-prompt", "--no-backend", "--backend-target", "api")
+        self.assertEqual(code, 2, err)
+        self.assertEqual(all_files(self.dir), [])
+
+    def test_no_loop_at_all_is_refused_before_any_write(self):
+        code, out, err = self.init("--no-prompt", "--no-backend", "--no-frontend")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("a project needs at least one loop", err)
+        self.assertEqual(all_files(self.dir), [])
+
     def test_missing_requirements_file_is_refused(self):
         code, result = self.init_json("--requirements", "nope.md")
         self.assertEqual(code, 30)
@@ -282,8 +308,8 @@ class InteractiveInitTest(unittest.TestCase):
     def test_accepting_the_defaults(self):
         code, out = self.run_tty(["", "", "", ""])
         self.assertEqual(code, 0, out)
-        self.assertIn("Backend target [backend]", out)
-        self.assertIn("Frontend target [frontend]", out)
+        self.assertIn("Backend target ('none': not used) [backend]", out)
+        self.assertIn("Frontend target ('none': not used) [frontend]", out)
         self.assertIn("Recommended models (opus to plan and write checks, sonnet to build; "
                       "y/n) [y]", out)
         self.assertEqual(self.config()["targets"],
@@ -306,9 +332,41 @@ class InteractiveInitTest(unittest.TestCase):
     def test_an_invalid_backend_answer_is_asked_again(self):
         code, out = self.run_tty([".devloops/x", "api", "", "", ""])
         self.assertEqual(code, 0, out)
-        self.assertEqual(out.count("Backend target [backend]"), 2, out)
+        self.assertEqual(out.count("Backend target ('none': not used) [backend]"), 2, out)
         self.assertIn("overlaps", out)
         self.assertEqual(self.config()["targets"]["backend-dev"], "api")
+
+    def test_no_loop_at_all_is_refused_before_any_question(self):
+        code, out = self.run_tty(["", "", ""], "--no-backend", "--no-frontend")
+        self.assertEqual(code, 2, out)
+        self.assertIn("a project needs at least one loop", out)
+        self.assertNotIn("Requirements", out)
+        self.assertNotIn("Recommended models", out)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, ".devloops")))
+
+    def test_none_leaves_a_loop_out(self):
+        code, out = self.run_tty(["", " None ", "", ""])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.config()["targets"], {"backend-dev": "backend",
+                                                    "frontend-dev": None})
+
+    def test_a_folder_named_none_is_entered_as_dot_slash_none(self):
+        code, out = self.run_tty(["./none", "", "", ""])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.config()["targets"]["backend-dev"], "none")
+
+    def test_none_for_both_is_refused_and_asked_again(self):
+        code, out = self.run_tty(["none", "NONE", "web", "", ""])
+        self.assertEqual(code, 0, out)
+        self.assertIn("a project needs at least one loop", out)
+        self.assertEqual(out.count("Frontend target ('none': not used) [frontend]"), 2, out)
+        self.assertEqual(self.config()["targets"], {"backend-dev": None, "frontend-dev": "web"})
+
+    def test_none_after_no_frontend_is_refused(self):
+        code, out = self.run_tty(["none", "api", "", ""], "--no-frontend")
+        self.assertEqual(code, 0, out)
+        self.assertIn("a project needs at least one loop", out)
+        self.assertEqual(self.config()["targets"], {"backend-dev": "api", "frontend-dev": None})
 
     def test_the_active_feature_is_the_requirements_default(self):
         os.makedirs(os.path.join(self.dir, "specs", "001-x"))

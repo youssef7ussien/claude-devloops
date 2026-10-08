@@ -16,7 +16,8 @@ already allows `string | null`. Only the property descriptions change.
 **Validation**:
 - `init` never writes both as `null` (FR-014).
 - A hand-edited file with both `null` is valid JSON. `devloops run` reports it (exit 30,
-  `no-loop`), and `devloops check` reports both loops as unused.
+  `no-loop`), and `devloops check` reports a `missing` `loops` item (exit 30) and both loops'
+  tools as unused.
 
 ## Loop selection (computed, not stored)
 
@@ -36,7 +37,8 @@ for each loop:
 - no loop selected → exit 30, `no-loop`;
 - frontend-dev selected without backend-dev → exit 30, `frontend-needs-backend`.
 
-`devloops check` uses the same rule with no workspace and no flags.
+`devloops check` uses the same rule with no flags and the project's default workspace when it
+exists.
 
 ## Run (formerly "orchestrator") — `<workspace>/run/state.json`
 
@@ -87,3 +89,4 @@ run` creates `run/` and continues, skipping completed loops (spec FR-016a).
 |-------|--------|
 | `loops` | **New**: the loops the project includes (both outside a project). |
 | `items[].status` | **New value** `unused`: the item is needed only by loops the project does not include. It never makes `ready` false. |
+| `items[]` `loops` | **New item**, only when the project includes no loop: status `missing`, so `ready` is false (exit 30). |

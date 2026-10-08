@@ -206,30 +206,30 @@ run` completes after the backend, and `check` does not need frontend tools.
 
 ### Tests for User Story 2
 
-- [ ] T023 [P] [US2] Add tests to `loops/shared/tests/test_init.py`:
+- [X] T023 [P] [US2] Add tests to `loops/shared/tests/test_init.py`:
   - `--no-frontend` and `--no-backend` write `null`;
   - `--no-backend` with `--backend-target` exits 2;
   - `--no-backend --no-frontend` exits 2 and writes no `.devloops/`;
   - at the pseudo-terminal prompt, `None ` (any case, trimmed) gives `null`, `./none` gives a folder, and answering none twice is refused with `a project needs at least one loop` before asking again;
   - the final hint names `devloops run`.
-- [ ] T024 [P] [US2] Add tests to `loops/shared/tests/test_check.py`:
+- [X] T024 [P] [US2] Add tests to `loops/shared/tests/test_check.py`:
   - in a backend-only project, `playwright-mcp`, `browser`, and `display` are `unused` with detail `not used by this project (frontend-dev)` and no fix;
   - `ready` stays true and the exit code is 0 with no browser;
   - `--json` has `"loops": ["backend-dev"]`;
   - outside a project, both loops are listed.
-- [ ] T025 [P] [US2] Add backend-only tests to `loops/shared/tests/test_run_command.py`:
+- [X] T025 [P] [US2] Add backend-only tests to `loops/shared/tests/test_run_command.py`:
   - a project with `targets: {"backend-dev": "backend", "frontend-dev": null}` completes with exit 0 after backend-dev, with `run: completed`, the handoff in `run/state.json`, no `frontend-dev/` folder, and `status` / the dashboard data listing only backend-dev (FR-007, FR-016b);
   - after the project sets `targets.frontend-dev`, the next `devloops run` starts frontend-dev from the recorded handoff without re-running the backend (US2 scenario 4).
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] Implement the init options in `loops/shared/devloops/initcmd.py` and `loops/shared/devloops/cli.py` (FR-013, FR-014, research R-7):
+- [X] T026 [US2] Implement the init options in `loops/shared/devloops/initcmd.py` and `loops/shared/devloops/cli.py` (FR-013, FR-014, research R-7):
   - **Flags:** `--no-backend` and `--no-frontend`, each in a mutually exclusive group with its `--*-target` flag. `InitOptions` gains `no_backend` and `no_frontend`. Add both to the `--upgrade` "does not change the project configuration" list.
   - **Prompt:** in `_ask_answers` (about lines 251–266), the answer `none` (`answer.strip().lower() == "none"`) records `None` without calling `check_targets`. If both end up `None`, print `a project needs at least one loop` and ask for that target again.
   - **No-prompt:** with `--no-prompt`, both none raises `state.UsageError` before anything is written.
   - **Writing:** `default_project_config` writes `null` for a `None` target.
   - **Next line:** at about line 670 it reads ``Next: `devloops check`, then `devloops run` ``, and the requirements hint at about line 457 says "to run".
-- [ ] T027 [US2] Implement the check changes in `loops/shared/devloops/checkcmd.py` (FR-015, research R-8):
+- [X] T027 [US2] Implement the check changes in `loops/shared/devloops/checkcmd.py` (FR-015, research R-8):
   - `run_checks` computes the project's loops: `[loop for loop, t in project.targets.items() if t]`, or both when there is no project.
   - Any item whose `needed_for` contains no included loop and is not `all` becomes `{"status": "unused", "detail": "not used by this project (<loops>)", "fix": None}`.
   - `ready` ignores `unused`.

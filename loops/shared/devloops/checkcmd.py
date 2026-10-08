@@ -1,8 +1,9 @@
 """`devloops check`: is this environment ready for the loops? (002 FR-018, FR-019, research P-14)
 
 Each item is `{name, status, detail, fix, needed_for}`, with `status` one of `ready`, `missing`,
-or `warning`. Inside a project the checks follow its effective configuration (defaults, then
-`devloops.json`, then `devloops.local.json`); outside one, the packaged defaults. Nothing is
+`warning`, or `unused` (needed only by loops the project does not include, 003 FR-015). Inside a
+project the checks follow its effective configuration (defaults, then `devloops.json`, then
+`devloops.local.json`); outside one, the packaged defaults. Nothing is
 written. A run's own preflight (001 FR-013b) is separate and unchanged.
 """
 import os
@@ -11,6 +12,8 @@ import subprocess
 import sys
 
 from . import config as config_mod
+from . import orchestrator, workspace
+from .state import DevloopsError
 from .preflight import MIN_CLAUDE_VERSION, VERSION_TIMEOUT_SECONDS, claude_bin, parse_version
 
 BACKEND, FRONTEND, ALL = "backend-dev", "frontend-dev", "all"
@@ -168,17 +171,48 @@ def effective_config(project, kit):
                                      project_layers=layers)
 
 
+def project_loops(project, kit):
+    """The loops the project includes, as `devloops run` without flags selects them (003 FR-005,
+    FR-015): its `targets` that are set, and the loops its default workspace recorded, if that
+    workspace exists. Both loops outside a project."""
+    if project is None:
+        return [BACKEND, FRONTEND]
+    try:
+        ws = workspace.open_workspace(project.default_workspace, project, kit, create=False)
+    except DevloopsError:  # not created yet (or unusable: `devloops run` reports that)
+        ws = None
+    return list(orchestrator.select_loops(project, ws))
+
+
+def _no_loop():
+    return _item("loops", "missing", "the project includes no loop",
+                 "set targets.backend-dev or targets.frontend-dev in .devloops/devloops.json")
+
+
+def _unused(item, loops):
+    """An item needed only by loops the project does not include never fails the check."""
+    needed = item["needed_for"]
+    if ALL in needed or any(loop in loops for loop in needed):
+        return item
+    return dict(item, status="unused", fix=None,
+                detail=f"not used by this project ({', '.join(needed)})")
+
+
 def run_checks(project, kit, env=None, platform=None, browser_paths=BROWSER_PATHS):
-    """`{ready, project, items}`: `ready` is false when any item is `missing`."""
+    """`{ready, project, loops, items}`: `ready` is false when any item is `missing`."""
     env = dict(os.environ if env is None else env)
     platform = platform or sys.platform
     cfg = effective_config(project, kit)
     items = [_python(), _claude(env), _curl(env), _playwright_mcp(cfg, env),
              _browser(cfg, env, browser_paths), _git(cfg, env), _display(cfg, env, platform),
              _shared_visible_browser(project)]
-    items = [i for i in items if i is not None]
+    loops = project_loops(project, kit)
+    items = [_unused(i, loops) for i in items if i is not None]
+    if not loops:  # `devloops run` stops here too (no-loop, exit 30)
+        items.insert(0, _no_loop())
     return {"ready": not any(i["status"] == "missing" for i in items),
-            "project": project.root if project is not None else None, "items": items}
+            "project": project.root if project is not None else None, "loops": loops,
+            "items": items}
 
 
 def print_result(result, out):

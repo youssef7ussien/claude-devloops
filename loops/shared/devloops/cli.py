@@ -176,8 +176,14 @@ def build_parser():
 
     init = sub.add_parser("init", help="set up a directory as a devloops project")
     init.add_argument("dir", nargs="?", default=".", help="the project root (default: .)")
-    init.add_argument("--backend-target", help="backend-dev's target (default: backend)")
-    init.add_argument("--frontend-target", help="frontend-dev's target (default: frontend)")
+    backend = init.add_mutually_exclusive_group()
+    backend.add_argument("--backend-target", help="backend-dev's target (default: backend)")
+    backend.add_argument("--no-backend", action="store_true",
+                         help="the project has no backend-dev (targets.backend-dev: null)")
+    frontend = init.add_mutually_exclusive_group()
+    frontend.add_argument("--frontend-target", help="frontend-dev's target (default: frontend)")
+    frontend.add_argument("--no-frontend", action="store_true",
+                          help="the project has no frontend-dev (targets.frontend-dev: null)")
     req = init.add_mutually_exclusive_group()
     req.add_argument("--requirements", help="default requirements file (PRD or story)")
     req.add_argument("--speckit-feature", nargs="?", const="active", metavar="DIR",
@@ -761,6 +767,7 @@ def _init(args, kit):
     """`devloops init` (contracts/cli.md): needs no project; exit 0, 30, or 2."""
     opts = initcmd.InitOptions(
         backend_target=args.backend_target, frontend_target=args.frontend_target,
+        no_backend=args.no_backend, no_frontend=args.no_frontend,
         requirements=args.requirements, speckit_feature=args.speckit_feature,
         no_prompt=args.no_prompt or args.json, track_workspaces=args.track_workspaces,
         track_dashboards=args.track_dashboards, allow_skills=args.allow_skills,
@@ -771,6 +778,7 @@ def _init(args, kit):
     if args.upgrade:
         given = [flag for flag, value in (
             ("--backend-target", args.backend_target), ("--frontend-target", args.frontend_target),
+            ("--no-backend", args.no_backend), ("--no-frontend", args.no_frontend),
             ("--requirements", args.requirements), ("--speckit-feature", args.speckit_feature),
             ("--track-workspaces", args.track_workspaces),
             ("--track-dashboards", args.track_dashboards),

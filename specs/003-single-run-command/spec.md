@@ -99,6 +99,11 @@ Code review of the US1 implementation:
 - Q: Is `--max-trials N` kept after the command that passes it? → A: Yes. Each loop the command
   starts or resumes keeps it in its frozen configuration, like any command-line override (FR-004
   revised; it previously said "this command only").
+- Q: Which loops does `check` check when the default workspace recorded a loop the project now sets
+  to `null`? → A: The recorded loop too, as `devloops run` still runs it (FR-015 revised).
+- Q: What does `check` report for a project with no loop? → A: A `missing` `loops` item (exit 30),
+  as `devloops run` stops there (FR-015 revised).
+- Q: Does `unused` also replace an item that is ready? → A: Yes, as in the contract's example.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -317,9 +322,12 @@ commands, without loop names.
 - **FR-014** [E]: `init` MUST refuse to leave both targets `null`: a terminal prompt MUST ask again;
   flags that set both to none MUST be a usage error, and nothing MUST be written.
 - **FR-015** [E]: `devloops check` MUST check only the loops the project includes (FR-005, without
-  flags or workspace). Each item needed only by loops the project does not include MUST get the
-  status `unused`, with the detail `not used by this project (<loop>)`. An `unused` item MUST NOT
-  make `ready` false or change the exit code. `--json` MUST list the included loops (`loops`).
+  flags, with the project's default workspace when it exists, so a loop recorded there stays
+  checked). Each item needed only by loops the project does not include MUST get the status
+  `unused`, with the detail `not used by this project (<loop>)`. An `unused` item MUST NOT make
+  `ready` false or change the exit code. When the project includes no loop, a `loops` item MUST be
+  `missing` (fix: set `targets.backend-dev` or `targets.frontend-dev`), so `check` fails like
+  `devloops run` (exit 30). `--json` MUST list the included loops (`loops`).
 
 #### Naming and records
 

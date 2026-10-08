@@ -21,6 +21,9 @@ class CheckTest(unittest.TestCase):
             self.stub(name, output)
         self.env = dict(self.t.env, PATH=self.bin)
         self.env.pop("DEVLOOPS_CLAUDE_BIN", None)
+        self.targets = {"backend-dev": "backend", "frontend-dev": "frontend"}  # both loops
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces",
+                                          "targets": self.targets})
 
     def stub(self, name, output):
         path = os.path.join(self.bin, name)
@@ -45,7 +48,7 @@ class CheckTest(unittest.TestCase):
         path = os.path.join(self.t.root, ".devloops", name)
         data = {"config": config}
         if name == "devloops.json":
-            data.update(schema_version=1, workspaces_dir="workspaces")
+            data.update(schema_version=1, workspaces_dir="workspaces", targets=self.targets)
         with open(path, "w") as f:
             json.dump(data, f)
 
@@ -150,7 +153,8 @@ class CheckTest(unittest.TestCase):
     def test_exit_codes_and_json_shape(self):
         code, out = self.cli("--json")
         result = json.loads(out)
-        self.assertEqual(set(result), {"ready", "project", "items"})
+        self.assertEqual(set(result), {"ready", "project", "loops", "items"})
+        self.assertEqual(result["loops"], ["backend-dev", "frontend-dev"])
         self.assertEqual(result["project"], self.t.root)
         for item in result["items"]:
             self.assertEqual(set(item), {"name", "status", "detail", "fix", "needed_for"})
@@ -168,6 +172,7 @@ class CheckTest(unittest.TestCase):
         os.makedirs(outside)
         code, out = self.cli("--json", cwd=outside)
         self.assertIsNone(json.loads(out)["project"])
+        self.assertEqual(json.loads(out)["loops"], ["backend-dev", "frontend-dev"])
         self.assertIn(code, (0, 30))
         self.assertIsNone(self.check(project=False)["project"])
         self.env["DEVLOOPS_PROJECT"] = outside  # named explicitly, but not a project
@@ -175,6 +180,63 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(code, 2, self.output)
         self.assertIn("DEVLOOPS_PROJECT", self.output)
         self.assertTrue(self.check(project=False)["ready"])
+
+    # --- only the project's loops (003 FR-015) ---
+
+    def test_a_backend_only_project_does_not_need_the_frontend_tools(self):
+        self.targets = {"backend-dev": "backend", "frontend-dev": None}
+        self.write_config("devloops.json", {"playwright": {"headless": False}})
+        self.hide("npx")
+        self.hide("google-chrome")
+        for key in ("DISPLAY", "WAYLAND_DISPLAY"):
+            self.env.pop(key, None)
+        result = self.check()
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["loops"], ["backend-dev"])
+        for name in ("playwright-mcp", "browser", "display"):
+            item = self.item(result, name)
+            self.assertEqual(item["status"], "unused", item)
+            self.assertEqual(item["detail"], "not used by this project (frontend-dev)")
+            self.assertIsNone(item["fix"])
+        self.assertEqual(self.item(result, "curl")["status"], "ready")
+        code, out = self.cli()
+        self.assertEqual(code, 0, self.output)
+        self.assertRegex(out, r"(?m)^  unused   browser +not used by this project \(frontend-dev\)$")
+
+    def test_a_frontend_only_project_does_not_need_curl(self):
+        self.targets = {"backend-dev": None, "frontend-dev": "frontend"}
+        self.write_config("devloops.json", {})
+        self.hide("curl")
+        result = self.check()
+        self.assertTrue(result["ready"])
+        self.assertEqual(self.item(result, "curl")["status"], "unused")
+
+    def test_a_loop_recorded_in_the_default_workspace_stays_checked(self):
+        from devloops import workspace
+        ws = workspace.open_workspace(self.t.project().default_workspace, self.t.project(),
+                                      self.t.kit())
+        ws.set_target("frontend-dev", os.path.join(self.t.root, "frontend"))
+        self.targets = {"backend-dev": "backend", "frontend-dev": None}  # null after recording
+        self.write_config("devloops.json", {})
+        self.hide("google-chrome")
+        result = self.check()
+        self.assertEqual(result["loops"], ["backend-dev", "frontend-dev"])  # as `run` selects
+        self.assertEqual(self.item(result, "browser")["status"], "missing")
+        self.assertFalse(result["ready"])
+
+    def test_a_project_with_no_loop_is_not_ready(self):
+        self.targets = {"backend-dev": None, "frontend-dev": None}
+        self.write_config("devloops.json", {})
+        result = self.check()
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["loops"], [])
+        item = self.item(result, "loops")
+        self.assertEqual((item["status"], item["detail"]), ("missing",
+                                                           "the project includes no loop"))
+        self.assertIn("targets.backend-dev", item["fix"])
+        self.assertEqual(self.item(result, "curl")["status"], "unused")
+        code, _ = self.cli()
+        self.assertEqual(code, 30, self.output)
 
 
 if __name__ == "__main__":

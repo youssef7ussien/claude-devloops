@@ -343,6 +343,51 @@ class RunCommandTest(unittest.TestCase):
         code, out, err = self.t.run_cli(["status", "backend-dev", "--workspace", WS, "--json"])
         self.assertEqual(json.loads(out)["loop"], "backend-dev")
 
+    # --- a backend-only project (003 US2) -------------------------------------------------------------
+
+    def backend_only(self, frontend=None):
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces", "targets": {
+            "backend-dev": "backend", "frontend-dev": frontend}})
+
+    def test_a_backend_only_run_completes_after_the_backend(self):
+        self.backend_only()
+        self.assertEqual(self.run_cmd("--accept-suggested"), 0, self.last_output)
+        self.assertIn("run: completed", self.last_output)
+        self.assertNotIn("frontend-dev", self.last_output)
+        run = self.orch_state()
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual([s["loop"] for s in run["steps"]], ["backend-dev"])
+        artifact = self.loop_path("backend-dev", "outputs", "openapi.json")
+        self.assertEqual(os.path.realpath(run["handoff"]["api_spec"]["path"]),
+                         os.path.realpath(artifact))  # FR-007: recorded all the same
+        self.assertFalse(os.path.exists(self.loop_path("frontend-dev")))
+        ws = state.read_json(os.path.join(self.t.workspace_dir, "workspace.json"))
+        self.assertEqual(list(ws["targets"]), ["backend-dev"])
+        # The dashboard's data lists only the loops the run includes (FR-016b).
+        from devloops import dashboard, workspace
+        data = dashboard.collect(workspace.open_workspace(WS, self.t.project(), self.t.kit(),
+                                                          create=False))
+        self.assertEqual(list(data["loops"]), ["backend-dev"])
+
+    def test_a_frontend_added_later_starts_from_the_recorded_handoff(self):
+        self.backend_only()
+        self.assertEqual(self.run_cmd("--accept-suggested"), 0, self.last_output)
+        calls = len(self.t.fake_calls())
+        self.backend_only(frontend="frontend")  # the project now has a frontend
+        code, out, err = self.t.run_cli(["run", "--workspace", WS])
+        self.assertEqual(code, 0, out + err)  # accept-suggested is kept by the run
+        self.assertEqual(self.steps_called()[calls:], ["plan", "implement"])  # frontend only
+        fe = self.run_state("frontend-dev")
+        self.assertEqual(fe["status"], "completed")
+        artifact = self.loop_path("backend-dev", "outputs", "openapi.json")
+        self.assertEqual(os.path.realpath(fe["inputs"]["api_spec"]["path"]),
+                         os.path.realpath(artifact))
+        self.assertEqual(os.path.realpath(fe["target_dir"]),
+                         os.path.realpath(os.path.join(self.t.root, "frontend")))
+        run = self.orch_state()
+        self.assertEqual((run["status"], run["loops"]), ("completed", ["backend-dev",
+                                                                       "frontend-dev"]))
+
     def test_both_loops_run_through_the_engine(self):
         # In-process, so `engine.Engine` can be spied on. The stub validator lives in the temp
         # repo copy, so register it under the package this process imported.
