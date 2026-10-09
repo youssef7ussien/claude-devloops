@@ -10,8 +10,13 @@ Two loops turn requirements into working, validated code by driving headless Cla
   milestone is validated in a real browser through the Playwright MCP server. Every backend call
   the page makes is checked against the document. The UI URL is published as `outputs/ui-url.txt`.
 
-An optional **orchestrator** runs `backend-dev`, then `frontend-dev`, in one workspace and hands
-the backend's contract to the frontend.
+One command, `devloops run`, runs the loops the project uses: `backend-dev`, then `frontend-dev`,
+in one workspace, handing the backend's contract to the frontend. A project can also use the
+backend alone ([Backend-only projects](#backend-only-projects)).
+
+> Changed by [spec 003](../specs/003-single-run-command/spec.md): `devloops run` (no loop name)
+> replaces `devloops orchestrate` and `devloops run <loop>`, and `approve`, `replan`, and `retry`
+> take no loop name.
 
 The loops never trust the model's own claims. A milestone is achieved only when the driver's
 validation passes. Each milestone gets a limited number of trials. By default a run needs no
@@ -46,23 +51,24 @@ Prerequisites:
   [Visible browser](#visible-browser)).
 - **git**, only for `git.commit_per_milestone`.
 
-`devloops check` reports each of these (see below). Each run also checks the tools its loop needs
-and stops with exit 30 if one is missing; `orchestrate` checks the tools of both loops before
-it starts, so a missing frontend tool stops it before the backend spends anything.
+`devloops check` reports each of these (see below); a tool only a loop the project does not use
+needs is `unused` and never fails it. Before it starts, `devloops run` checks the tools of every
+loop that has work left, so a missing frontend tool stops it with exit 30 before the backend spends
+anything.
 
 ## Quick start
 
 ```sh
 cd /path/to/myapp
 devloops init          # once: asks for the backend and frontend folders and the requirements
-devloops orchestrate   # plans and builds the backend, then the frontend; exit 0
+devloops run           # plans and builds the backend, then the frontend; exit 0
 ```
 
-That is the whole run. `orchestrate` goes through these phases without stopping:
+That is the whole run. `devloops run` goes through these phases without stopping:
 
 | # | Phase | What happens |
 |---|-------|--------------|
-| 1 | Machine check | claude, curl, the Playwright MCP server, and the browser are checked for both loops. A missing tool stops here, before anything is spent (exit 30); `devloops check` shows the full report and the fixes |
+| 1 | Machine check | claude and curl (backend), and the Playwright MCP server and the browser (frontend), are checked for each loop the run includes that has work left. A missing tool stops here, before anything is spent (exit 30); `devloops check` shows the full report and the fixes |
 | 2 | Backend plan | Claude turns the requirements into milestones, with tasks, acceptance criteria, a stack, and a runtime. What the requirements leave open becomes an assumption, or an open question with a suggested answer. The plan is approved with the suggestions |
 | 3 | Backend build | For each milestone in dependency order: Claude writes the HTTP checks (frozen before any code), implements, and curl validates. A failure gets a `fix` trial, up to `max_trials` (3) |
 | 4 | Handoff | The backend's verified `openapi.json` and how to start it go to the frontend |
@@ -71,8 +77,9 @@ That is the whole run. `orchestrate` goes through these phases without stopping:
 | 7 | Done | `final-report.md` per loop and the dashboards are written |
 
 Progress shows in the terminal and the [live dashboard](#dashboards)
-(`devloops dashboard --serve` in another terminal). If you stop it (`Ctrl C`, a
-crash, a reboot), `devloops orchestrate` again resumes where it stopped.
+(`devloops dashboard --serve` in another terminal). If you stop it (`Ctrl C`, a crash, a reboot),
+`devloops run` again resumes where it stopped. A backend-only project skips phases 5 and 6; the
+handoff (phase 4) is still recorded, for a frontend added later.
 
 **Review afterwards.** Read `.devloops/workspaces/main/<loop>/outputs/final-report.md`. Its first
 sections, **Suggested answers accepted** and **Assumptions for review**, are the decisions the
@@ -80,19 +87,20 @@ requirements left open. `open-questions.md` has every question with the answer u
 `devloops dashboard --serve` or `devloops status` show the rest.
 
 **When it stops**, it prints the one command to run next. `retry`, `approve`, and `replan` record
-your decision and then continue the run in the same command, so `orchestrate` is not needed again:
+your decision and then continue the run in the same command, so `devloops run` is not needed again.
+None takes a loop name: each acts on the loop that is waiting.
 
 | Stop | What to do |
 |------|------------|
-| A milestone used all its trials (exit 20) | Read its evidence, then `devloops retry <loop> --milestone M03 --reason "<guidance>"`, which continues |
-| A question Claude could not suggest an answer for (exit 20; rare) | Write the answer in `open-questions.md`, then `devloops retry <loop> --milestone M03`, which continues |
-| A missing tool (exit 30) | Install it, then `devloops orchestrate` |
-| Claude Code outage, rate limit, or expired login (exit 50) | Fix the cause, then `devloops orchestrate`. No trial is lost |
-| The run was killed | `devloops orchestrate`; it resumes |
+| A milestone used all its trials (exit 20) | Read its evidence, then `devloops retry --milestone M03 --reason "<guidance>"`, which continues |
+| A question Claude could not suggest an answer for (exit 20; rare) | Write the answer in `open-questions.md`, then `devloops retry --milestone M03`, which continues |
+| A missing tool (exit 30) | Install it, then `devloops run` |
+| Claude Code outage, rate limit, or expired login (exit 50) | Fix the cause, then `devloops run`. No trial is lost |
+| The run was killed | `devloops run`; it resumes |
 
 The full list is under [Recovery](#recovery).
 
-**To review each plan first**, run `devloops orchestrate --review-plan`. Each plan then pauses
+**To review each plan first**, run `devloops run --review-plan`. Each plan then pauses
 before any code is written. In a terminal it asks:
 
 ```text
@@ -103,17 +111,11 @@ Review: .devloops/workspaces/main/backend-dev/outputs/plan-summary.md
 
 `a` approves (empty answers take their suggestions) and keeps building; `e` opens
 `open-questions.md` in `$VISUAL` or `$EDITOR`, then asks again; `r` plans again with your answers;
-`q` exits with code 10, and `devloops approve <loop>` later approves and continues. Without a
+`q` exits with code 10, and `devloops approve` later approves and continues. Without a
 terminal (CI, `--json`), a review pause exits 10 and never asks. To review plans by default, set
 `"questions": "ask"` in `.devloops/devloops.json` (see [Approval](#approval-replan-and-open-questions)).
 
-Every command works from any folder inside the project. Each loop can also run on its own:
-
-```sh
-devloops run backend-dev          # target, requirements, and workspace from the project
-devloops run frontend-dev --api-spec .devloops/workspaces/main/backend-dev/outputs/openapi.json \
-  --config frontend-config.json   # see "frontend-dev on its own" below
-```
+Every command works from any folder inside the project.
 
 ### `devloops init`
 
@@ -122,7 +124,8 @@ questions; press Enter to keep the default:
 
 - *Backend target* [`backend`] and *Frontend target* [`frontend`]: the folders each loop writes code
   into, relative to the project root. Each loop needs its own folder; neither can be the project
-  root.
+  root. Answer `none` for a loop the project does not use (its target is written as `null`); a
+  project needs at least one loop.
 - *Requirements*: a PRD or story file, a spec-kit feature folder, or `active` for the active
   spec-kit feature. The default is the active feature when `.specify/feature.json` names one.
 - *Recommended models* [`y`]: write the recommended model split into `devloops.json`: sonnet, with
@@ -134,6 +137,7 @@ questions; press Enter to keep the default:
 | Flag | Effect |
 |------|--------|
 | `--backend-target <dir>`, `--frontend-target <dir>` | The targets, without asking |
+| `--no-backend`, `--no-frontend` | The project does not use that loop (`null` target). Not both: a project needs at least one loop (exit 2) |
 | `--requirements <file>` / `--speckit-feature [DIR]` | The default requirements (`active` with no `DIR`) |
 | `--no-models` | Write no model choice (`"config": {}`); without it, the recommended models are written |
 | `--no-prompt` | Never ask (implied when stdin or stdout is not a terminal, and by `--json`) |
@@ -144,7 +148,8 @@ questions; press Enter to keep the default:
 
 `init` never overwrites a file. If an installed file already exists with different content, it
 lists every such file, writes nothing, and exits 30 (`init-conflict`). Running it again on an
-initialized project changes nothing. An existing `.devloops/devloops.json` is kept as it is.
+initialized project changes nothing. An existing `.devloops/devloops.json` is kept as it is. It
+ends with the next commands: ``Next: `devloops check`, then `devloops run`.``
 
 ### `devloops check`
 
@@ -160,8 +165,13 @@ $ devloops check
 ```
 
 Each item says what it is needed for and how to fix it. The exit code is 0 when nothing needed is
-missing, else 30; warnings (such as a visible browser with no display) never change it. `check`
-works outside a project too, with the packaged defaults. `--json` prints `{ready, project, items}`.
+missing, else 30; warnings (such as a visible browser with no display) never change it.
+
+`check` looks only at the loops the project uses: its `targets` that are set, plus the loops its
+default workspace has recorded. An item only an unused loop needs (the browser and the Playwright
+MCP server in a backend-only project) shows as `unused` and never fails the check. A project that
+uses no loop gets a `missing` `loops` item (exit 30). Outside a project, `check` covers both loops,
+with the packaged defaults. `--json` prints `{ready, project, loops, items}`.
 
 ## The project
 
@@ -203,7 +213,8 @@ The project is found from the current folder upward; `DEVLOOPS_PROJECT=<dir>` na
 - `workspace`: the workspace commands use without `--workspace`. A bare name maps to
   `<workspaces_dir>/<name>`.
 - `targets` and `requirements` (`{"path": "docs/prd.md"}` or `{"speckit_feature": "active" | "<dir>"}`):
-  what `run` and `orchestrate` use when no flag is given.
+  what `run` uses when no flag is given. A target that is `null` or missing means the project does
+  not use that loop (see [Backend-only projects](#backend-only-projects)).
 - `config`: run settings, with the keys of [Configuration](#configuration). `init` writes the recommended models here ([Models per step](#models-per-step)); `--no-models` writes `{}`.
 
 Paths are relative to the project root. The workspace stores the targets and inputs relative to the
@@ -238,22 +249,24 @@ version is newer, install that version.
 |---------|--------------|
 | `init [DIR]` | Set up a project ([above](#devloops-init)) |
 | `check` | Report whether this machine is ready ([above](#devloops-check)) |
-| `run <backend-dev\|frontend-dev>` | Start or resume one loop. It exits when the run completes, stops, or pauses for review |
-| `approve <loop>` | Accept the stored plan and the answers in `outputs/open-questions.md`, then continue the run. Allowed only in `awaiting-approval` |
-| `replan <loop>` | Plan again with the answers (a planning trial), then continue: the new plan is approved and built, or, when plans are reviewed, pauses again. Allowed only in `awaiting-approval` |
-| `retry <loop> --milestone <id> [--reason <text>] [--trials <n>]` | Give a failed milestone more trials (default `max_trials`), then continue the run. The reason, when given, is guidance passed to later fix prompts |
-| `status [<loop>]` | Show the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the exported dashboards. Read-only |
-| `orchestrate` | Run `backend-dev`, then `frontend-dev` ([orchestrator/README.md](orchestrator/README.md)) |
+| `run` | Start or resume the run: the project's loops in order, `backend-dev` then `frontend-dev` ([orchestrator/README.md](orchestrator/README.md)). It exits when the run completes, stops, or pauses for review |
+| `approve` | Accept the stored plan of the loop awaiting approval and the answers in its `outputs/open-questions.md`, then continue the run. Refused (exit 2, `nothing awaits approval (run: <status>)`) when no loop is in `awaiting-approval` |
+| `replan` | Plan the waiting loop again with the answers (a planning trial), then continue: the new plan is approved and built, or, when plans are reviewed, pauses again. Refused like `approve` |
+| `retry --milestone <id> [--reason <text>] [--trials <n>]` | Give the loop stopped on failure more trials for that milestone (default `max_trials`), then continue the run. The reason, when given, is guidance passed to later fix prompts. Refused (exit 2, `no loop is stopped on failure (run: <status>)`) otherwise |
+| `status [<loop>]` | Show the run's status (`run: <status>`) and, for each loop it includes (or the one named), the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the exported dashboards. Read-only |
 | `export-sessions [--csv <file>]` | Write every Claude invocation as CSV (standard output by default) |
 | `dashboard [--serve \| --export]` | Refresh the summary page `<workspace>/dashboard.html`. `--serve` serves the live dashboard, with every file and conversation, until `Ctrl C`; `--export [--out <file>]` writes it as one self-contained file (see [Dashboards](#dashboards)) |
 
-`approve`, `replan`, `retry`, `run`, and `orchestrate` also take `--force-unlock` (see
+`devloops orchestrate` and `devloops run <loop>` were removed by
+[spec 003](../specs/003-single-run-command/spec.md): both are usage errors (exit 2).
+
+`approve`, `replan`, `retry`, and `run` also take `--force-unlock` (see
 [Recovery](#recovery)), `--review-plan` or `--accept-suggested` (see `run` options), and
 `--quiet` or `--verbose` (see [Progress](#progress)).
 
 ### Progress
 
-`run`, `orchestrate`, `approve`, `replan`, and `retry` report what they are doing as they do it, on
+`run`, `approve`, `replan`, and `retry` report what they are doing as they do it, on
 stderr. First, where to look while the command works:
 
 ```
@@ -319,18 +332,19 @@ write outside its target.
 
 ### `approve`, `replan`, and `retry`
 
-Each records a decision, then continues the run as `run` would, in the same command:
+None takes a loop name. `approve` and `replan` act on the loop in `awaiting-approval`, `retry` on
+the loop in `stopped-on-failure`; a run has at most one such loop. Each records a decision, then
+continues the whole run as `run` would, in the same command:
 
 - the run goes on until it completes, stops, or pauses for review, and the command exits with
-  that code (0, 20, 10, ...), printing the same summary as `run`;
-- in a workspace started by `orchestrate`, it continues the whole orchestrated run: retrying a
-  backend milestone finishes the backend, then plans and builds the frontend;
-- for a single loop, the lock is held from the decision to the end of the run;
-- a refused decision changes nothing and runs nothing: exit 2 (for example `approve` when nothing
-  awaits approval), 40 (another driver holds the lock), or 30 when a tool the run needs is
-  missing, so a decision is never recorded for a run that cannot go on.
+  that code (0, 20, 10, ...), printing the same summary as `run`: retrying a backend milestone
+  finishes the backend, then plans and builds the frontend;
+- a refused decision changes nothing and runs nothing: exit 2 (`approve` when nothing awaits
+  approval, `retry` when no loop is stopped on failure; the message gives the run's status), 40
+  (another driver holds the lock), or 30 when a tool the run needs is missing, so a decision is
+  never recorded for a run that cannot go on.
 
-`--no-continue` only records the decision; the run continues on the next `run` or `orchestrate`
+`--no-continue` only records the decision; the run continues on the next `run`
 (pass `--review-plan` or `--accept-suggested` there: with `--no-continue` they are refused).
 Use it to grant several retries first, or in a script that must not wait: without it, these
 commands run until the loop ends, which can take hours.
@@ -343,41 +357,56 @@ commands run until the loop ends, which can take hours.
 | `--speckit-feature [DIR]` | A spec-kit feature folder as the requirements; with no `DIR`, the active feature (see [Spec-kit features](#spec-kit-features)). Not combined with `--requirements` or `--story-file` |
 | `--story-id <id>` | Implement only this story. In a PRD, the ID must appear as a whole ID, with matching case, or the run stops with `story-not-found`. With a spec-kit feature, `US<n>` selects `User Story <n>` |
 | `--story-file` | The requirements file is one standalone story. Cannot be combined with `--story-id` |
-| `--target <dir>` | Where this loop writes application code. Default: the project's `targets.<loop>`. It is created if missing. It must be writable, outside the project's `.devloops/` and the installed devloops files, and must not overlap the other loop's target |
-| `--api-spec <file>` | The backend's OpenAPI 3 JSON document. **Required for `frontend-dev`** run on its own |
-| `--max-trials <n>` | Override `max_trials` for this start |
+| `--backend-target <dir>`, `--frontend-target <dir>` | Where that loop writes application code, on the first run. Default: the project's `targets.<loop>`. A target is created if missing. It must be writable, outside the project's `.devloops/` and the installed devloops files, and must not overlap the other loop's target. A flag also includes a loop the project leaves `null` |
+| `--target-root <dir>` | On the first run, place each loop the project uses at `<dir>/backend` and `<dir>/frontend`. It never adds a loop; the two flags above override it |
+| `--max-trials <n>` | Override `max_trials` for every loop this command starts or resumes; each keeps it |
 | `--review-plan` | Pause after each plan for review, and stop on open questions (`questions: ask`, see [Approval](#approval-replan-and-open-questions)). Recorded: later starts keep it |
 | `--accept-suggested` | Approve plans and accept Claude's suggested answers without pausing (`questions: accept-suggested`, the default). Use it on a later start to stop reviewing a run that was started with `--review-plan` |
 
-On later starts, omit the flags or repeat them unchanged. Different story options are refused
-(exit 2) and leave the run as it was. Changed requirement or API-spec bytes stop the run for good
-(`input-changed`), because the plan was made for the old input: start a new workspace.
+The requirements, story options, and `--review-plan` / `--accept-suggested` apply to every loop.
+Targets, inputs, and the review mode are recorded on the first run, so later runs (and `approve`,
+`replan`, `retry`) need no flags. On later starts, omit the flags or repeat them unchanged: a
+target flag that differs from the recorded target, or different story options, are refused (exit
+2) and leave the run as it was. Changed requirement bytes, or a changed API spec handed to the
+frontend, stop the run for good (`input-changed`), because the plan was made for the old input:
+start a new workspace.
 
-### `orchestrate` options
+### Which loops a run includes
 
-`--requirements` / `--speckit-feature`, `--story-id` / `--story-file` (passed to both loops),
-`--target-root <dir>` (targets `<dir>/backend` and `<dir>/frontend`), `--backend-target`,
-`--frontend-target`, `--review-plan` or `--accept-suggested` (for both loops), and `--force-unlock`.
-Without them, the project's targets and requirements are used. Targets, inputs, and
-`--review-plan` / `--accept-suggested` are recorded on the first call, so later calls (and
-`approve`, `replan`, `retry`) need no flags. A workspace orchestrated before this was recorded
-keeps the backend's mode for the frontend. Before running anything, `orchestrate` checks the
-tools of each loop that has work left; a missing one stops it with exit 30 and nothing recorded.
+For each loop, the first of these that applies decides its target; a loop none of them gives a
+target is not part of the run:
 
-### frontend-dev on its own
+1. the target recorded in the workspace (once a loop has run, it stays in the run);
+2. `--backend-target` / `--frontend-target`;
+3. the project's `targets.<loop>`, when it is neither `null` nor missing (under `--target-root`
+   when given).
 
-`orchestrate` hands the backend's contract and runtime to the frontend for you. To run
-`frontend-dev` alone, pass the backend's `outputs/openapi.json` with `--api-spec`, and tell it how
-to start the backend in a workspace config. Copy the runtime from the backend's
-`outputs/plan-summary.md`, with `cwd` set to the backend target:
+The frontend is handed the backend's verified `outputs/openapi.json` and how to start the backend,
+so `frontend-dev` always runs after `backend-dev` in the same run. Before anything is created, a
+selection that cannot run stops with exit 30 (`stopped-on-input-error`):
 
-```json
-{"backend": {"start_command": "node server.js", "cwd": "/path/to/myapp/backend",
-             "ready_url": "http://127.0.0.1:8000/health"}}
-```
+| Code | When | Fix |
+|------|------|-----|
+| `no-loop` | No loop has a target | Set `targets.backend-dev` or `targets.frontend-dev` in `.devloops/devloops.json`, or run `devloops init` |
+| `frontend-needs-backend` | Only `frontend-dev` has a target | Set `targets.backend-dev` (or pass `--backend-target`) |
 
-Without a `backend` block the frontend is validated with no backend, and every criterion that
-needs one fails.
+With `--json`, such a stop prints `{"exit_code": 30, "status_reason": {"code": "<code>",
+"message": "<what to fix>"}}`. Nothing is written, not even the workspace. A missing tool also
+stops it with exit 30 before anything is recorded (`missing-tool`, naming the loop).
+
+### Backend-only projects
+
+A project that has no frontend sets `targets.frontend-dev` to `null` (or leaves it out):
+`devloops init --no-frontend`, or answer `none` to the frontend question. `devloops run` then plans
+and builds the backend alone and completes; `status` and the dashboards show only the backend, and
+`check` marks the browser and the Playwright MCP server `unused`. The handoff to a frontend (the
+backend's contract and runtime) is still recorded in `<workspace>/run/state.json`, so setting
+`targets.frontend-dev` later and running `devloops run` again starts the frontend from it, without
+running the backend again.
+
+A frontend-only run (a frontend against an existing backend's OpenAPI document) is not supported
+yet; it is planned for a later feature. Until then, `frontend-dev` runs only after `backend-dev`
+in the same run.
 
 ### Exit codes
 
@@ -386,7 +415,7 @@ needs one fails.
 | 0 | `completed` (or, for `init` and `check`, success) |
 | 10 | `awaiting-approval`: plans are reviewed (`--review-plan`, `questions: ask`), or a question has no suggested answer. Review the plan, then `approve` or `replan` |
 | 20 | `stopped-on-failure`: a milestone used all its trials, a question needs an answer, a planning or invocation limit was hit |
-| 30 | `stopped-on-input-error`: a missing or changed input, an unknown story, a missing tool, an unusable target, an invalid project configuration. Also: `check` found something missing; `init` refused (`init-conflict`, `downgrade-refused`, `settings-unreadable`, `target-unwritable`) |
+| 30 | `stopped-on-input-error`: a missing or changed input, an unknown story, a missing tool, an unusable target, an invalid project configuration, no loop to run (`no-loop`), a frontend without a backend (`frontend-needs-backend`). Also: `check` found something missing; `init` refused (`init-conflict`, `downgrade-refused`, `settings-unreadable`, `target-unwritable`) |
 | 40 | Another driver holds the lock, or a stale lock is left (see [Recovery](#recovery)) |
 | 50 | `stopped-on-service-error`: a Claude Code outage, rate limit, or authentication failure. No trial was used; run again to resume |
 | 2 | Usage error (including no project found): nothing was changed |
@@ -426,7 +455,7 @@ sequenceDiagram
     participant CLI as devloops
     participant Claude as claude -p
     participant App as Backend (target)
-    Dev->>CLI: run backend-dev --requirements --target
+    Dev->>CLI: run --requirements --backend-target
     CLI->>Claude: plan
     Claude-->>CLI: plan (milestones, runtime, open questions with suggested answers)
     CLI->>CLI: approve with the suggested answers (with --review-plan: pause, exit 10)
@@ -450,8 +479,8 @@ sequenceDiagram
     participant Claude as claude -p
     participant UI as Frontend (target)
     participant API as Backend
-    Dev->>CLI: run frontend-dev --requirements --target --api-spec
-    CLI->>CLI: check and freeze the OpenAPI document
+    Dev->>CLI: run (after backend-dev completes)
+    CLI->>CLI: check and freeze the backend's OpenAPI document
     CLI->>Claude: plan
     CLI->>CLI: approve with the suggested answers (with --review-plan: pause, exit 10)
     loop each milestone, up to max_trials
@@ -468,26 +497,26 @@ sequenceDiagram
     CLI-->>Dev: exit 0, outputs/ui-url.txt and final-report.md
 ```
 
-### orchestrate
+### The whole run
 
 ```mermaid
 sequenceDiagram
     actor Dev as Developer
-    participant Orch as devloops orchestrate
+    participant Run as devloops run
     participant BE as backend-dev engine
     participant FE as frontend-dev engine
-    Dev->>Orch: orchestrate --requirements --target-root
-    Orch->>Orch: check the tools of both loops
-    Orch->>BE: run (same path as `run backend-dev`)
-    BE-->>Orch: exit 0 (planned, approved, built)
-    Orch->>Orch: handoff: outputs/openapi.json + backend runtime
-    Orch->>FE: run with --api-spec and backend.*
-    FE-->>Orch: exit 0
-    Orch-->>Dev: exit 0
+    Dev->>Run: run --requirements --target-root
+    Run->>Run: select the loops, check the tools of each
+    Run->>BE: run
+    BE-->>Run: exit 0 (planned, approved, built)
+    Run->>Run: handoff: outputs/openapi.json + backend runtime
+    Run->>FE: run with that document and backend.* (when the project uses frontend-dev)
+    FE-->>Run: exit 0
+    Run-->>Dev: exit 0, run: completed
 ```
 
-With `--review-plan`, each loop pauses after its plan: `orchestrate` exits 10 (or asks in a
-terminal), and `devloops approve <loop>` approves and continues the orchestrated run from there.
+With `--review-plan`, each loop pauses after its plan: `devloops run` exits 10 (or asks in a
+terminal), and `devloops approve` approves and continues the run from there.
 
 ## Dashboards
 
@@ -518,7 +547,7 @@ The sidebar switches between workspaces.
   progress and next action; the **trial timeline** (every planning and milestone trial, colored
   and labeled by result), **cost by milestone**, and **cost by step** (hover a bar for its
   details).
-- **Orchestrator**: its steps and the handoff to frontend-dev.
+- **Run**: the run's steps, one per loop it includes, and the handoff to frontend-dev.
 - **Per loop**: its outputs (progress, plan summary, final report, OpenAPI document), the UI URL,
   stack and runtime, and a card per milestone with its tasks, acceptance-criteria results with
   observations and evidence (screenshots as thumbnails), the exact curl commands or the browser's
@@ -586,7 +615,7 @@ HTTP: use it on a private network only. To reach it from elsewhere, use an SSH t
 
 ### The summary page
 
-`<workspace>/dashboard.html` is written when `run`, `approve`, `replan`, `retry`, or `orchestrate`
+`<workspace>/dashboard.html` is written when `run`, `approve`, `replan`, or `retry`
 pauses, stops, or ends, and by `devloops dashboard`. It is one offline file with the Overview, each
 loop's milestones and trials, Claude calls, Questions, Events, and links to the exported
 dashboards, so after a pause or a stop the state is one click away. It shows no file contents and
@@ -613,7 +642,7 @@ conversation of every call are embedded in it.
 - **Size**: the command prints the file's path and size and lists the five largest embedded items.
   A file over 5 MB is listed but not embedded (the command names it); open it on disk, or in the
   live dashboard, which has no limit.
-- **At every stop**: to have `run`, `approve`, `replan`, `retry`, and `orchestrate` export one each
+- **At every stop**: to have `run`, `approve`, `replan`, and `retry` export one each
   time they end in `completed` or a `stopped-*` status, as earlier versions did, set
   `dashboard.full_on_stop` to `true`.
 - **Review before sharing.** It contains whole conversations, including file contents Claude
@@ -658,12 +687,12 @@ question fits into a milestone's trials.
 
 When a run pauses at a plan, review the files above, then either:
 
-- `approve <loop>`: accept the plan together with your answers, then continue the run. Each
+- `approve`: accept the plan together with your answers, then continue the run. Each
   suggestion you left unanswered is copied into its answer and marked with an
   `**Answer source:**` line, so the file says exactly what the run uses. The answers become part
   of every later prompt. After approval, `open-questions.md` is fingerprinted: editing it stops
   the run with `input-changed`, except as part of a `retry` (below).
-- `replan <loop>`: plan again with your answers (a planning trial), then continue: under `ask`
+- `replan`: plan again with your answers (a planning trial), then continue: under `ask`
   it pauses at the new plan; with `--accept-suggested` the new plan is approved and built. With
   `--no-continue` it always pauses at the new plan. If no valid plan comes back within the limit,
   the previous plan still awaits approval.
@@ -676,8 +705,8 @@ answers, start a new workspace (`--workspace <name>`).
 When an `implement` or `fix` call raises a question that the requirements cannot answer, it is
 appended to `open-questions.md` as a new `OQ<n>`, with Claude's suggested answer. Under `ask`, or
 when the question has no suggestion, the milestone fails at once (`needs-input`, exit 20): answer
-it, or leave the answer empty to accept the suggestion, then `devloops retry <loop> --milestone
-<id>`, which continues the run.
+it, or leave the answer empty to accept the suggestion, then `devloops retry --milestone <id>`,
+which continues the run.
 
 ### Reviewing accepted suggestions
 
@@ -771,7 +800,7 @@ question with a suggested answer, and builds the rest of the milestone on that s
   rewrite an answer first; the `retry` records the file as it is then.
 - **`ask`, or a question with no suggestion**: the trial fails with `needs-input` and the run stops
   at once. Answer in `open-questions.md` (an empty answer accepts the suggestion), then
-  `devloops retry <loop> --milestone <id>`.
+  `devloops retry --milestone <id>`.
 
 ### Processes Claude starts
 
@@ -821,12 +850,12 @@ Trial 3's `pkill` is blocked, and Claude is told to stop its server by PID.
 
 ### When a milestone runs out of trials
 
-1. Read why: `devloops status <loop>` shows the last failure. `progress.md`, the dashboard, and
+1. Read why: `devloops status` shows the last failure. `progress.md`, the dashboard, and
    `state/milestones/<id>/trials/<n>/` have each trial's `trial.json` (reason and detail),
    `validation.json` (per criterion, the checks, and the contract), and `evidence/`.
-2. Grant more trials and continue: `devloops retry <loop> --milestone <id> --reason "<what to
-   change>"`. The reason reaches the next `fix` call as guidance; leave it out if the evidence
-   says enough. `--trials n` grants `n` trials (default `max_trials`).
+2. Grant more trials and continue: `devloops retry --milestone <id> --reason "<what to change>"`.
+   The reason reaches the next `fix` call as guidance; leave it out if the evidence says enough.
+   `--trials n` grants `n` trials (default `max_trials`).
 3. If the plan itself is wrong, start a new workspace with clearer requirements: a finished
    milestone cannot be replanned.
 
@@ -835,9 +864,10 @@ Trial 3's `pkill` is blocked, and Claude is told to stop its server by PID.
 | Situation | What to do |
 |-----------|------------|
 | The driver was killed or the machine stopped mid-trial | Run the same command again. The unfinished trial is recorded as failed (`interrupted`) and counts toward the limit |
-| A milestone used all its trials (exit 20, `trials-exhausted`) | Read the last trial's `validation.json` and `evidence/`, then `retry <loop> --milestone <id> --reason "<guidance>" [--trials n]`; it continues the run (see [Trials and failures](#when-a-milestone-runs-out-of-trials)) |
-| A question stopped the run (exit 20, `needs-input`) | Answer it in `open-questions.md`, or leave the answer empty to accept Claude's suggestion, then `retry <loop> --milestone <id>`; it continues the run. `retry` is refused while a question has neither an answer nor a suggestion |
-| A tool is missing (exit 30, `missing-tool`) from `orchestrate` | Nothing was recorded: install it (`devloops check` shows how), then `orchestrate` again |
+| A milestone used all its trials (exit 20, `trials-exhausted`) | Read the last trial's `validation.json` and `evidence/`, then `retry --milestone <id> --reason "<guidance>" [--trials n]`; it continues the run (see [Trials and failures](#when-a-milestone-runs-out-of-trials)) |
+| A question stopped the run (exit 20, `needs-input`) | Answer it in `open-questions.md`, or leave the answer empty to accept Claude's suggestion, then `retry --milestone <id>`; it continues the run. `retry` is refused while a question has neither an answer nor a suggestion |
+| A tool is missing (exit 30, `missing-tool`) | Nothing was recorded: install it (`devloops check` shows how), then `devloops run` again |
+| No loop to run, or a frontend without a backend (exit 30, `no-loop`, `frontend-needs-backend`) | Nothing was created: set the targets in `.devloops/devloops.json` (see [Which loops a run includes](#which-loops-a-run-includes)), then `devloops run` again |
 | Planning failed `max_trials` times (`planning-trials-exhausted`) | Final: start a new workspace, perhaps with clearer requirements |
 | Claude Code outage, rate limit, or expired login (exit 50) | Fix the cause (for example, log in again), then run again. No trial was used; the same trial number is retried |
 | `max_invocations_per_run` reached (`invocation-cap`) | Final for this run: the config is frozen at the first start and no milestone is left failed, so `retry` has nothing to grant. Start a new workspace with a higher limit in its config |
@@ -846,7 +876,7 @@ Trial 3's `pkill` is blocked, and Claude is told to stop its server by PID.
 | An input changed (exit 30, `input-changed`) | Restore the original file, or start a new workspace |
 
 Without a `retry` grant, `run` on a stopped workspace changes nothing. A `retry --no-continue`
-grant is used by the next `run` or `orchestrate`.
+grant is used by the next `run`.
 
 ## Configuration
 
@@ -963,8 +993,8 @@ package when installed), then edit it.
 A [spec-kit](https://github.com/github/spec-kit) feature folder can be the requirements:
 
 ```sh
-devloops orchestrate --speckit-feature               # the active feature (.specify/feature.json)
-devloops run backend-dev --speckit-feature specs/003-billing --story-id US2
+devloops run --speckit-feature                       # the active feature (.specify/feature.json)
+devloops run --speckit-feature specs/003-billing --story-id US2
 ```
 
 Or set it once in `devloops.json`: `"requirements": {"speckit_feature": "active"}` (what `init`
@@ -1017,8 +1047,13 @@ the likeliest place for a secret to hide.
 │       ├── conversations/<seq>-<step>.jsonl   # the call's Claude Code transcript, redacted
 │       └── milestones/<id>/{checks.json, trials/<n>/{trial.json, validation.json, stream.jsonl, evidence/}}
 ├── frontend-dev/             # the same shape; outputs/ has ui-url.txt instead of openapi.json
-└── orchestrator/{state.json, progress.md}
+└── run/{state.json, progress.md}  # the run: its steps and the handoff to frontend-dev
 ```
+
+A loop the run does not include has no folder. Changed by
+[spec 003](../specs/003-single-run-command/spec.md): `run/` replaces `orchestrator/` (an
+`orchestrator/` folder left by an older devloops is ignored), the dashboards call that view
+**Run**, and `status --json` reports it under `run`.
 
 Everything under `outputs/` and `progress.md` is rendered from `state/`. The one exception is
 your answers in `open-questions.md`. `export-sessions` turns every `invocations.jsonl` into one
@@ -1027,12 +1062,17 @@ cost, start, and end.
 
 ## Claude Code skills
 
-`devloops init` installs seven skills in `.claude/skills/`: `devloops-run`, `devloops-orchestrate`,
-`devloops-approve`, `devloops-replan`, `devloops-retry`, `devloops-status`, and
-`devloops-dashboard` (for example `/devloops-run backend-dev`). Each runs one devloops command with
-`--json` and summarizes the result. They contain no loop logic. Like the commands, the approve,
-replan, and retry skills continue the run; pass `--no-continue` to only record the decision. They call `devloops`, or
+`devloops init` installs six skills in `.claude/skills/`: `devloops-run`, `devloops-approve`,
+`devloops-replan`, `devloops-retry`, `devloops-status`, and `devloops-dashboard` (for example
+`/devloops-run --review-plan`, or `/devloops-retry --milestone M03`). Each runs one devloops
+command with `--json` and summarizes the result. They contain no loop logic, and none asks for a
+loop name: like the commands, the approve, replan, and retry skills act on the waiting loop and
+continue the run; pass `--no-continue` to only record the decision. They call `devloops`, or
 `bin/devloops` by its path when `init` ran from a checkout.
+
+> Changed by [spec 003](../specs/003-single-run-command/contracts/skills.md): the
+> `devloops-orchestrate` skill was removed (`init --upgrade` removes an unchanged copy), and no
+> skill takes a loop name.
 
 The skills pre-approve their own command. To let Claude Code run devloops outside the skills
 without asking, run `devloops init --allow-skills` (also on an initialized project). It adds

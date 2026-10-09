@@ -16,11 +16,17 @@
 │       └── <ws>/<YYYYMMDDTHHMMSSZ>[-n].html
 ├── .claude/
 │   ├── settings.json            # only touched by `init --allow-skills`
-│   └── skills/devloops-{run,approve,replan,retry,status,orchestrate,dashboard}/SKILL.md
+│   └── skills/devloops-{run,approve,replan,retry,status,dashboard}/SKILL.md
 └── .gitignore                   # one block appended under a marker
 ```
 
 `workspaces/` and `dashboards/` are created when they are first used, not by `init`.
+
+> Revised by specs/003-single-run-command: the `devloops-orchestrate` skill is no longer installed.
+> In `devloops.json`, `targets.backend-dev` and `targets.frontend-dev` name each loop's folder; a
+> `null` or missing target means the project does not use that loop (`init --no-backend`,
+> `--no-frontend`, or the answer `none`). A project needs at least one loop, and frontend-dev runs
+> only with backend-dev.
 
 **Ownership**:
 
@@ -74,7 +80,9 @@ is visible.
 
 From a source checkout, the kit is `loops/`. When installed, it is
 `site-packages/devloops_kit/`. Both have the same tree:
-- 001's `backend-dev/`, `frontend-dev/`, `orchestrator/`, and `shared/{prompts,schemas,hooks,config}`;
+- 001's `backend-dev/`, `frontend-dev/`, `orchestrator/` (the kit folder keeps its name; a
+  workspace's run state is in `<ws>/run/`, revised by specs/003-single-run-command), and
+  `shared/{prompts,schemas,hooks,config}`;
 - the new `shared/skills/<name>/SKILL.md` templates.
 
 Runs never write to the kit. The target guard rejects any target that overlaps it (FR-009,

@@ -19,11 +19,14 @@ when they are opened ([Live dashboard](#live-dashboard)).
 
 ## Content
 
-Everything in the summary page (FR-038): KPIs, orchestrator, charts, milestones, criteria,
+*(Revised by specs/003-single-run-command: the orchestrator's view, files, and file-tree group
+are now named "Run" / `run/`.)*
+
+Everything in the summary page (FR-038): KPIs, run, charts, milestones, criteria,
 checks, calls, questions, and events. In addition:
 
 **Layout** (every dashboard shares it, `ui.py` and `assets/`): a sidebar of views (Overview,
-Orchestrator, one per loop, Claude calls, Files, Questions, Events), one shown at a time; a viewer
+Run, one per loop, Claude calls, Files, Questions, Events), one shown at a time; a viewer
 dialog that opens files and calls; and a "go to" palette that matches names and, from three
 characters, the text of every file and conversation (a result opens at the matching line). The
 Overview starts with a "Needs attention" panel: stopped or paused loops and their next action,
@@ -43,14 +46,14 @@ read.
 | Per loop → Progress | `progress.md` | a file in the Files explorer |
 | Per call → Prompt | `state/prompts/<seq>-<step>.md`, with `prompt_sources` | a file in the Files explorer; the call's Prompt tab shows it with its parts |
 | Per call → Conversation | `state/conversations/<seq>-<step>.jsonl` (FR-040) | rendered transcript (below) |
-| Orchestrator | `orchestrator/state.json`, `orchestrator/progress.md` | text / JSON |
+| Run | `run/state.json`, `run/progress.md` | text / JSON |
 | Events | `events.jsonl` (all of them) | table |
 
 **Every embedded item is labelled with**: its workspace-relative path, its size, and its milestone,
 trial, and step where they apply.
 
 **Files explorer**: a tree per loop (Inputs, Plan, Milestones → each trial → `evidence/`, Calls,
-Outputs, Run state, `progress.md`), then the orchestrator's and the workspace's own files. A file's
+Outputs, Run state, `progress.md`), then the run's (`run/`) and the workspace's own files. A file's
 kind picks its viewer (`ui.KINDS`, by extension, else JSON when it parses, else text): Markdown
 (rendered, or source), JSON (indented and highlighted, or a tree), JSON lines (one record per
 row), code and logs (highlighted), images (fit, or full size), and other binary files (download).

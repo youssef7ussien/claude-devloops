@@ -4,17 +4,17 @@
   "kit_mode": "source",
   "command": "bin/devloops",
   "installed_at": "2026-10-05T21:54:19.915Z",
-  "upgraded_at": "2026-10-09T00:39:32.457Z",
+  "upgraded_at": "2026-10-09T00:59:50.829Z",
   "ignore_rules": [
     ".devloops/dashboards/",
     ".devloops/devloops.local.json"
   ],
   "files": {
-    ".claude/skills/devloops-approve/SKILL.md": "849a4f7f77259e2724a0cde04860583b3fab8091e92ea0bec1341cd537c8f461",
+    ".claude/skills/devloops-approve/SKILL.md": "5983262ab740f458d6cb4397402b44442944c4696cbfe425947fd6822010ce6c",
     ".claude/skills/devloops-dashboard/SKILL.md": "d74d5eeadd4e4419b0a5d1b5ca07ed9aa2af5a51608e77fa941df94284275e29",
-    ".claude/skills/devloops-replan/SKILL.md": "c4641457a87c9f8b118f25a771850d7d0177760a96bfc96b79051f5a1c49968c",
-    ".claude/skills/devloops-retry/SKILL.md": "36a0730a0f1333a055d15446556b2233b6057afbc02945aa6ba96abfac92f2d8",
-    ".claude/skills/devloops-run/SKILL.md": "103fb9a99fb4c008f78886efb6ca118fba3c7f5ba817cf07e133516ebe3866dc",
+    ".claude/skills/devloops-replan/SKILL.md": "6a64604fae370acebcbd3748b8eb9f70251a75c614dd96ee0641f3aad0e563e3",
+    ".claude/skills/devloops-retry/SKILL.md": "17f2480b41dfb693566e76979b335446e7ace21c6d8dcb3a629e8a3514a29a32",
+    ".claude/skills/devloops-run/SKILL.md": "55bb5c3682989daffd4188dae7f87ce7f7a8b311108e774a1e0ed0e312ffb017",
     ".claude/skills/devloops-status/SKILL.md": "fe13f50341f5c5ed65f95bba3125c93cb2fa7930b670055b6f18f9d267ca13c9",
     ".devloops/prompts/README.md": "b213a801cb34b1f308afa1249ab6d91fcb2039b8321eb29352bb1e1885f4357d"
   }

@@ -123,8 +123,8 @@ copying or pointing back to the devloops repository.
    each conflicting path is listed.
 4. **Given** `init` runs in a terminal without target flags, **When** the developer accepts the
    offered defaults, **Then** `devloops.json` records `backend/` and `frontend/` as the targets and
-   the active spec-kit feature (if any) as the requirements, and `orchestrate` then runs with no
-   path flags.
+   the active spec-kit feature (if any) as the requirements, and `devloops run` then runs with no
+   path flags. *(Revised by specs/003-single-run-command.)*
 5. **Given** `init --no-prompt` runs in a script, **When** no values are given, **Then** it
    completes without waiting for input, writes the default targets, and says the requirements still
    need to be set.
@@ -136,19 +136,20 @@ copying or pointing back to the devloops repository.
 
 ### User Story 2 - Run the loops in a project with its own defaults (Priority: P1)
 
-In an initialized project, the developer runs a loop or the orchestrator from the project root or
-any folder below it. Devloops finds the project the way version control finds its repository. It
-reads the targets, the requirements file, limits, and browser settings from the project
-configuration, and keeps workspaces inside the project. Targets may be folders of the project itself
-(for example `api/` and `web/`). The developer can show the browser during UI validation by
-changing one setting.
+In an initialized project, the developer runs `devloops run` (formerly a loop or the orchestrator;
+revised by specs/003-single-run-command) from the project root or any folder below it. Devloops
+finds the project the way version control finds its repository. It reads the targets, the
+requirements file, limits, and browser settings from the project configuration, and keeps workspaces
+inside the project. Targets may be folders of the project itself (for example `api/` and `web/`).
+The developer can show the browser during UI validation by changing one setting.
 
 **Why this priority**: This is the outcome the developer asked for. The loops run in the developer's
 project, with project-wide defaults, and without repeating paths and options on every command.
 
 **Independent Test**:
 1. Initialize a temporary project, and set targets and requirements in its configuration.
-2. Run `orchestrate` from a subfolder, using the offline test double for Claude Code.
+2. Run `devloops run` from a subfolder, using the offline test double for Claude Code. *(Revised by
+   specs/003-single-run-command.)*
 3. Confirm the workspace is created inside the project.
 4. Confirm the code is written only into the configured targets.
 5. Confirm no command-line flag beyond the story selection was needed.
@@ -156,9 +157,9 @@ project, with project-wide defaults, and without repeating paths and options on 
 **Acceptance Scenarios**:
 
 1. **Given** an initialized project whose configuration names the requirements and both targets,
-   **When** the developer runs `devloops orchestrate --story-id US1` from a subfolder, **Then** the
+   **When** the developer runs `devloops run --story-id US1` from a subfolder, **Then** the
    run uses those values, and the workspace and its dashboard are created in the project's workspaces
-   location.
+   location. *(Revised by specs/003-single-run-command.)*
 2. **Given** a configuration value and a different value passed on the command line, **When** a run
    starts, **Then** the command-line value wins, and the frozen run configuration records the value
    used. In the same way, a value in the local configuration wins over the shared project
@@ -216,9 +217,10 @@ run must name the missing item, give its fix, and exit with a non-zero code.
 
 ### User Story 4 - Drive the loops from Claude Code (Priority: P2)
 
-Inside Claude Code, the developer types a devloops skill: run a loop, approve, retry, status,
-orchestrate, or dashboard. Each skill runs exactly one devloops command in the project and
-summarizes the result, including what the exit code asks the developer to do next.
+Inside Claude Code, the developer types a devloops skill: run, approve, replan, retry, status, or
+dashboard (the orchestrate skill was removed by specs/003-single-run-command). Each skill runs
+exactly one devloops command in the project and summarizes the result, including what the exit code
+asks the developer to do next.
 
 **Why this priority**: spec-kit is used through slash commands, and the developer wants the same
 experience. The skills hold no loop logic, so they are thin and low-risk.
@@ -230,9 +232,9 @@ experience. The skills hold no loop logic, so they are thin and low-risk.
 
 **Acceptance Scenarios**:
 
-1. **Given** an initialized project, **When** the developer invokes the run skill with a loop
-   name, **Then** the skill runs that loop in the project and summarizes the status, the exit code,
-   and the next action.
+1. **Given** an initialized project, **When** the developer invokes the run skill, **Then** the
+   skill runs the project's loops and summarizes the status, the exit code, and the next action.
+   *(Revised by specs/003-single-run-command.)*
 2. **Given** a skill invocation that is missing a required argument, **When** the command stops
    with a usage error, **Then** the skill reports the error and does not retry or guess.
 3. **Given** an initialized project, **When** the developer runs `devloops init --allow-skills`,
@@ -244,7 +246,8 @@ experience. The skills hold no loop logic, so they are thin and low-risk.
 ### User Story 5 - Use a spec-kit feature as the requirements (Priority: P2)
 
 The developer has written a feature with spec-kit (`specs/<feature>/spec.md`, maybe also
-`plan.md`). They pass that feature folder to a loop or the orchestrator, or use the spec-kit
+`plan.md`). They pass that feature folder to `devloops run` (revised by
+specs/003-single-run-command), or use the spec-kit
 feature that is currently active. The feature's spec becomes the requirements. When the feature
 has `plan.md` and `tasks.md`, the planner follows them: spec-kit's phases become devloops
 milestones, and its task IDs are kept. Devloops adds the acceptance criteria and checks, and pauses
@@ -403,7 +406,10 @@ override file and its fingerprint.
   not install it, `init` MUST write nothing and MUST list the conflicting paths.
 - **FR-006** [I, from Principle IV]: Running `init` on an initialized project MUST change nothing,
   and MUST report that the project is initialized and how to upgrade.
-- **FR-007** [E]: `init` MUST print every file it created or changed and the next command to run.
+- **FR-007** [E]: `init` MUST print every file it created or changed and the next command to run
+  (`devloops check`, then `devloops run`). *(Revised by specs/003-single-run-command: the next
+  command no longer names `orchestrate` or `run <loop>`. A target prompt also accepts `none`, and
+  `--no-backend` / `--no-frontend` write a `null` target; a project needs at least one loop.)*
 - **FR-007a** [Clarifications]: `init` MUST accept the backend target, the frontend target, and the
   requirements input as options, and write them to the project configuration (relative to the
   project root, per FR-013).
@@ -480,8 +486,10 @@ override file and its fingerprint.
 
 #### Readiness check
 
-- **FR-018** [E]: `devloops check` MUST report each prerequisite as ready, missing, or warning,
-  with a one-line fix for each one that is not ready. The prerequisites are:
+- **FR-018** [E]: `devloops check` MUST report each prerequisite as ready, missing, warning, or
+  unused (not used by the project's loops), with a one-line fix for each one that is missing or a
+  warning. *(Revised by specs/003-single-run-command: `unused` added; an unused item never fails
+  the check.)* The prerequisites are:
   - the language runtime version;
   - Claude Code, at or above the minimum supported version;
   - the HTTP client for backend validation;
@@ -491,12 +499,14 @@ override file and its fingerprint.
 - **FR-019** [I, from FR-018]: `check` MUST exit 0 when every prerequisite needed by the project's
   configuration is ready, and non-zero otherwise. It MUST offer machine-readable output like the
   other commands (001 `--json`). It MUST work outside a project, checking against the packaged
-  defaults.
+  defaults. *(Revised by specs/003-single-run-command: inside a project, only the loops the project
+  includes are checked, and a project that includes no loop gets a missing `loops` item.)*
 
 #### Claude Code skills
 
-- **FR-020** [E]: `init` MUST install one skill for each of: run a loop, approve, replan, retry,
-  status, orchestrate, and dashboard.
+- **FR-020** [E]: `init` MUST install one skill for each of: run, approve, replan, retry,
+  status, and dashboard. *(Revised by specs/003-single-run-command: the run skill runs the
+  project's loops, and the orchestrate skill is removed.)*
 - **FR-021** [K, 001 skills design]: Each skill MUST run exactly one devloops command, pass the
   user's arguments unchanged, summarize the result and what the exit code asks of the developer,
   and contain no loop logic.
@@ -513,7 +523,8 @@ override file and its fingerprint.
 
 #### Spec-kit bridge
 
-- **FR-023** [E]: Loops and the orchestrator MUST accept a spec-kit feature folder as input. Its
+- **FR-023** [E]: `devloops run` MUST accept a spec-kit feature folder as input
+  *(revised by specs/003-single-run-command; formerly "loops and the orchestrator")*. Its
   `spec.md` is the requirements input, with the same content identity checks as 001 FR-051a. Its
   `plan.md`, when present, is supplied to planning as stack context, at the "named in the
   requirements" level of 001's stack priority (001 FR-057–060).
@@ -592,30 +603,32 @@ override file and its fingerprint.
 - **FR-038** [K, 001 dashboard; revised 2026-10-07]: The workspace's `dashboard.html` is kept as a
   summary page: status, milestones, trials, failures, questions, calls, and cost. It MUST NOT link
   to files on disk or show conversations; where it would, it MUST say how to see them
-  (`devloops dashboard --serve`). Loop and orchestrate commands MUST write it when they pause,
+  (`devloops dashboard --serve`). The run and decision commands (revised by
+  specs/003-single-run-command) MUST write it when they pause,
   stop, or end (not after every event), and it MUST NOT reload itself. `devloops dashboard` writes
   it on demand. `dashboard.light` (default `true`; not frozen, like `dashboard.full_on_stop`) turns
   the automatic writes off.
-- **FR-039** [Clarifications; revised: full dashboards accumulated unasked]: The full dashboard
-  MUST be generated by `devloops dashboard --export`. It MAY also be generated automatically whenever a loop
-  or orchestrate command ends in a final status (completed, stopped-on-failure,
-  stopped-on-input-error, or stopped-on-service-error), only when `dashboard.full_on_stop` is set
-  (default `false`; not frozen: read from the configuration files as they are when the command
-  ends, and not reported as drift). The command's summary MUST say where files and conversations
-  are shown: the running server's URL (FR-042c), or `devloops dashboard --serve`. It MUST NOT be generated at awaiting-approval or when a lock is refused. As with the
+- **FR-039** [Clarifications; revised: full dashboards accumulated unasked]: The full dashboard MUST
+  be generated by `devloops dashboard --export`. It MAY also be generated automatically whenever a
+  run or decision command (revised by specs/003-single-run-command) ends in a final status
+  (completed, stopped-on-failure, stopped-on-input-error, or stopped-on-service-error), only when
+  `dashboard.full_on_stop` is set (default `false`; not frozen: read from the configuration files as
+  they are when the command ends, and not reported as drift). The command's summary MUST say where
+  files and conversations are shown: the running server's URL (FR-042c), or `devloops dashboard
+  --serve`. It MUST NOT be generated at awaiting-approval or when a lock is refused. As with the
   lightweight dashboard, a failure to generate it MUST only warn and MUST NOT change the command's
   outcome or exit code.
-- **FR-039a** [a run printed nothing until it ended]: `run`, `orchestrate`, `approve`, `replan`,
-  and `retry` MUST report progress as they work, on stderr: one timestamped line per recorded
-  event and per Claude call (its start, with the model, and its end, with duration, cost, and tool
-  calls), and while a call runs, a status line in a terminal or a "still ..." line every minute
-  otherwise. They MUST print, before running, where files and conversations are shown (as in
-  FR-039) and where the progress log is.
-  `--verbose` adds one line per tool Claude uses, `--quiet` prints only the final summary, and
-  `--json` is quiet unless `--verbose`. The same lines (tools included, no colors) MUST be appended
-  to the loop's `state/run.log`, with a "still ..." line every minute while a call runs; the
-  write-boundary audit does not count the log as Claude's write. When a call ends, what it left
-  running in its process group MUST be stopped.
+- **FR-039a** [a run printed nothing until it ended]: `run`, `approve`, `replan`, and `retry`
+  (revised by specs/003-single-run-command: `orchestrate` removed) MUST report progress as they
+  work, on stderr: one timestamped line per recorded event and per Claude call (its start, with the
+  model, and its end, with duration, cost, and tool calls), and while a call runs, a status line in
+  a terminal or a "still ..." line every minute otherwise. They MUST print, before running, where
+  files and conversations are shown (as in FR-039) and where the progress log is. `--verbose` adds
+  one line per tool Claude uses, `--quiet` prints only the final summary, and `--json` is quiet
+  unless `--verbose`. The same lines (tools included, no colors) MUST be appended to the loop's
+  `state/run.log`, with a "still ..." line every minute while a call runs; the write-boundary audit
+  does not count the log as Claude's write. When a call ends, what it left running in its process
+  group MUST be stopped.
 - **FR-040** [Clarifications]: The full dashboard MUST embed, for every recorded Claude Code call,
   that call's complete conversation, untruncated:
   - every message;

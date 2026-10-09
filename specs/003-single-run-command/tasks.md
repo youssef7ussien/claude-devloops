@@ -307,7 +307,7 @@ call.
 
 ## Phase 7: Polish & cross-cutting concerns
 
-- [ ] T034 [P] Update `loops/README.md`, adding notes pointing to spec 003 (FR-018):
+- [X] T034 [P] Update `loops/README.md`, adding notes pointing to spec 003 (FR-018):
   - **Commands table:** `run` (no loop) replaces `run <loop>` and `orchestrate`; decisions take no loop.
   - **New "Backend-only projects" text:** `init --no-frontend`, `none`, `null` targets.
   - **The "frontend-dev on its own" section:** replace it with a note that frontend-only runs come in a later feature.
@@ -315,7 +315,7 @@ call.
   - **Renaming:** `run/` instead of `orchestrator/` in the workspace layout and the "Run" dashboard view.
   - **`check`:** the `unused` status.
   - **Examples:** remove every `orchestrate`, `run backend-dev`, `run frontend-dev`, and `--api-spec` example.
-- [ ] T035 [P] Update spec 001's living documents in place, each changed passage with a note "Revised by specs/003-single-run-command":
+- [X] T035 [P] Update spec 001's living documents in place, each changed passage with a note "Revised by specs/003-single-run-command":
   - `specs/001-reusable-dev-loops/spec.md`: FR-039, FR-040, the FR-056a/FR-056b wording, and User Story 5 scenario 3;
   - `specs/001-reusable-dev-loops/contracts/cli.md`:
     - the `run` section (no loop, the new options);
@@ -326,7 +326,7 @@ call.
   - `specs/001-reusable-dev-loops/contracts/workspace-layout.md`: `orchestrator/` becomes `run/`.
 
   Do not edit tasks.md, validation-results.md, research.md, plan.md, data-model.md, or earlier clarification sessions (spec FR-018).
-- [ ] T036 [P] Update spec 002's living documents in place, with the same notes:
+- [X] T036 [P] Update spec 002's living documents in place, with the same notes:
   - `specs/002-devloops-init/spec.md`: the command names in FR-007, FR-019, FR-020, FR-023, FR-039a, and the US2 scenarios naming `orchestrate`, plus FR-018's statuses, which gain `unused` (not used by the project's loops);
   - `specs/002-devloops-init/contracts/cli.md`:
     - the `run`/`orchestrate` section;
@@ -336,9 +336,9 @@ call.
   - `specs/002-devloops-init/contracts/skills.md`: the table, from contracts/skills.md in this feature;
   - `specs/002-devloops-init/contracts/project-layout.md`: the skills list without `orchestrate`, and the targets text;
   - `specs/002-devloops-init/contracts/full-dashboard.md`: "orchestrator" becomes "run".
-- [ ] T037 Check SC-005 with `grep -rn "orchestrate\|run backend-dev\|run frontend-dev\|run <loop>\|--api-spec" loops/README.md loops/shared/skills .claude/skills specs/001-reusable-dev-loops/contracts specs/002-devloops-init/contracts`. Fix any match that is not inside a "removed" or "revised by 003" note.
-- [ ] T038 Run the full suite: `VISUAL=true EDITOR=true timeout 900 python3 -m unittest discover -s loops/shared/tests`. All tests must pass (SC-006). Record the count and duration.
-- [ ] T039 Walk through the scenarios in `specs/003-single-run-command/quickstart.md` (1–5) in a scratchpad project with the fake Claude (`DEVLOOPS_CLAUDE_BIN=loops/shared/tests/fake_claude.py`). Record each result, and fix any difference.
+- [X] T037 Check SC-005 with `grep -rn "orchestrate\|run backend-dev\|run frontend-dev\|run <loop>\|--api-spec" loops/README.md loops/shared/skills .claude/skills specs/001-reusable-dev-loops/contracts specs/002-devloops-init/contracts`. Fix any match that is not inside a "removed" or "revised by 003" note.
+- [X] T038 Run the full suite: `VISUAL=true EDITOR=true timeout 900 python3 -m unittest discover -s loops/shared/tests`. All tests must pass (SC-006). Record the count and duration.
+- [X] T039 Walk through the scenarios in `specs/003-single-run-command/quickstart.md` (1–5) in a scratchpad project with the fake Claude (`DEVLOOPS_CLAUDE_BIN=loops/shared/tests/fake_claude.py`). Record each result, and fix any difference.
 
 ---
 

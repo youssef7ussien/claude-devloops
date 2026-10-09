@@ -11,6 +11,10 @@
 > - `workspace.json` stores targets and the requirements path relative to the project root when
 >   they are inside it.
 
+> **Revised by specs/003-single-run-command**: the run's record moves from `orchestrator/` to
+> `run/` in each workspace, and the kit's `orchestrator/README.md` describes the single `devloops
+> run` command.
+
 ## Reusable infrastructure (unchanged across applications: FR-037, FR-050)
 
 ```text
@@ -38,7 +42,7 @@ loops/
 │   │   ├── validators/
 │   │   │   ├── curl.py               # backend-dev adapter (R-8)
 │   │   │   └── playwright.py         # frontend-dev adapter (R-10)
-│   │   └── orchestrator.py           # Optional orchestration (R-15)
+│   │   └── orchestrator.py           # The run: loop selection and order, handoff (R-15)
 │   ├── hooks/guard_writes.py         # PreToolUse write guard (R-11)
 │   ├── prompts/
 │   │   ├── common.md                 # Rules shared by all steps (scope, no unrelated changes, ambiguity)
@@ -55,7 +59,7 @@ loops/
 │   ├── task.md
 │   └── loop.json                     # {name, required_inputs: [requirements, api_spec], validator: "playwright"}
 └── orchestrator/
-    └── README.md                     # Orchestration behavior (logic lives in shared/devloops/orchestrator.py)
+    └── README.md                     # Run behavior (logic lives in shared/devloops/orchestrator.py)
 ```
 
 ## Per-run workspace (D-3, FR-049)
@@ -79,7 +83,7 @@ workspaces/<name>/
 │       ├── prompts/<seq>-<step>.md
 │       └── milestones/<id>/{checks.json, trials/<n>/{trial.json, validation.json, stream.jsonl, evidence/}}
 ├── frontend-dev/                     # Same shape; outputs/ has ui-url.txt instead of openapi.json
-└── orchestrator/{state.json, progress.md}
+└── run/{state.json, progress.md}      # The run: included loops, status, handoff (revised by 003)
 ```
 
 ## Write permissions (D-7, FR-035b)

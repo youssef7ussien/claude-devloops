@@ -199,8 +199,12 @@ artifacts exactly as it would when run directly.
 2. **Given** an orchestrated run where one loop stopped on failure, **When** the orchestrator
    evaluates the run, **Then** it records which loop stopped and why, and it does not start work that
    depends on the failed output.
-3. **Given** the loops, **When** they are run directly without the orchestrator, **Then** they
-   behave the same as they do under the orchestrator.
+3. **Given** a project that includes only `backend-dev`, **When** the developer runs `devloops
+   run`, **Then** backend-dev runs alone and behaves the same as it does in a run with both loops.
+
+   > **Revised by specs/003-single-run-command**: scenario 3 tested each loop run directly
+   > (`devloops run <loop>`); that command is removed, and a project chooses which loops its run
+   > includes.
 
 ---
 
@@ -461,15 +465,19 @@ changing only the inputs and configuration. No loop instructions or shared infra
   listed for review in the final report, and flagged in the dashboards.
 - **FR-056** [I — from D-4 plus FR-040]: Under the orchestrator, each loop's planning pause MUST
   also pause the orchestrated run. Work that depends on the paused loop MUST NOT start.
-- **FR-056a** [D-13]: `approve`, `replan`, and `retry` MUST record their decision and then
-  continue the run in the same command, as `run` would (in an orchestrated workspace, the
-  orchestrated run), unless `--no-continue` is given. A refused decision MUST change nothing,
-  including the orchestrator's record. In a terminal, a planning pause MAY ask the developer
-  inline (approve, edit the answers, replan, or quit with the pause's exit code); without one, or
-  with `--json`, it MUST NOT ask.
-- **FR-056b** [D-13]: `orchestrate` MUST check the required tools (FR-013b) of every loop with
-  work left before running either, so a tool missing for `frontend-dev` stops it before
+- **FR-056a** [D-13]: `approve`, `replan`, and `retry` MUST record their decision for the waiting
+  loop and then continue the whole run in the same command, as `devloops run` would, unless
+  `--no-continue` is given. A refused decision MUST change nothing, including the run's record
+  (`run/state.json`). In a terminal, a planning pause MAY ask the developer inline (approve, edit
+  the answers, replan, or quit with the pause's exit code); without one, or with `--json`, it MUST
+  NOT ask.
+- **FR-056b** [D-13]: `devloops run` MUST check the required tools (FR-013b) of every loop with
+  work left before running any, so a tool missing for `frontend-dev` stops it before
   `backend-dev` spends anything, with nothing recorded.
+
+  > **Revised by specs/003-single-run-command**: FR-056a and FR-056b named `orchestrate` and
+  > decisions with a loop name. There is now one `devloops run` command, and the decisions take no
+  > loop name (003 FR-009, FR-010).
 
 #### Stack selection
 
@@ -518,15 +526,25 @@ changing only the inputs and configuration. No loop instructions or shared infra
 - **FR-038** [C, Principle VI]: Behavior common to both loops MUST be defined once and reused by
   both, not duplicated. That behavior includes: input checks, milestone-file format, progress and state
   recording, trial counting and stop evaluation, token/time/session recording, and resume logic.
-- **FR-039** [C, Principle VI]: Each loop MUST be runnable on its own, without the other loop or the
-  orchestrator. For `frontend-dev`, this assumes a Swagger document is supplied. When run directly,
-  `frontend-dev` MUST accept either the address of a running backend or instructions for starting
-  one. Without either, criteria that need a backend MUST fail, never pass silently [R, CHK027].
+- **FR-039** [C, Principle VI]: Each loop MUST be runnable without the other once its own inputs
+  exist: a project MAY include only `backend-dev`, and its run then runs backend-dev alone.
+  `frontend-dev` needs the backend's API contract and how to start the backend; until a later
+  feature (frontend-only runs) lets it take them from the project configuration, it runs only after
+  `backend-dev` in the same run, which hands them over. Without a backend, criteria that need
+  one MUST fail, never pass silently [R, CHK027].
+
+  > **Revised by specs/003-single-run-command**: FR-039 required each loop to be runnable directly
+  > through the CLI (`devloops run <loop>`, with `--api-spec` for `frontend-dev`). That command is
+  > removed; frontend-only runs are a documented, temporary deviation (003 FR-019).
 
 #### Orchestration
 
-- **FR-040** [E]: An optional orchestrator MUST be able to run the loops, and each loop MUST also be
-  usable directly.
+- **FR-040** [E]: One command, `devloops run`, MUST run the loops the project includes, in order
+  (backend-dev, then frontend-dev). There is no separate per-loop run command.
+
+  > **Revised by specs/003-single-run-command**: FR-040 asked for an optional orchestrator
+  > (`devloops orchestrate`) beside direct use of each loop; both are replaced by `devloops run`
+  > (003 FR-001, FR-008).
 - **FR-041** [I — the frontend loop requires the backend Swagger, FR-011]: When the orchestrator
   runs both loops, it MUST give the Swagger output of `backend-dev` to `frontend-dev` as input.
 - **FR-042** [I — from constitution Principle V]: The orchestrator MUST NOT start a loop whose
