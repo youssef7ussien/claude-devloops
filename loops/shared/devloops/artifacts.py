@@ -151,7 +151,7 @@ def collect_artifacts(ws, loop):
                           "input": name})
     for path in _walk(loop_dir):
         parts = relative(path, loop_dir).split(os.sep)
-        if parts == ["state", "lock"]:
+        if parts in (["state", "lock"], ["state", "live.json"]):  # held or written while running
             continue
         section, details = _classify(parts)
         items.append(dict(details, rel=relative(path, ws.path), abs=path, section=section))
@@ -377,7 +377,8 @@ def file_index(ws, data):
       true}` for a file that cannot be read; `id` is today's anchor, so links stay stable;
     - `by_id` holds the files that can be sent (never a missing one), `inputs` the ids of
       recorded inputs, which may lie outside the workspace.
-    Conversations are not listed (the calls show them), nor the summary page and a run's lock.
+    Conversations are not listed (the calls show them), nor the summary page, a run's lock, or
+    the running call's `live.json`.
     """
     dashboard = _dashboard()
     ids, by_id, inputs = _Ids(), {}, set()

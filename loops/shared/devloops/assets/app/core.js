@@ -216,6 +216,13 @@
       t = t || {};
       return 'input ' + fmt.number(t.input || 0) + ' · output ' + fmt.number(t.output || 0) +
         ' · cache write ' + fmt.number(t.cache_creation || 0) + ' · cache read ' + fmt.number(t.cache_read || 0);
+    },
+    /* A Totals' token cell: `{text, tip, partial}` — the total, its parts, and whether some call
+       did not record its usage (the sums are then a lower bound). */
+    totalsCell: function (totals) {
+      var t = (totals && totals.tokens) || {}, partial = !!(totals && totals.partial);
+      return { text: fmt.tokens(t.total || 0), partial: partial,
+        tip: fmt.tokenParts(t) + (partial ? ' · partial: some calls did not record usage' : '') };
     }
   };
 
@@ -252,10 +259,10 @@
   /* A Totals' token count: the total, its parts in a tooltip, and "partial" when some call did
      not record its usage (the sums are then a lower bound). */
   DL.tokens = function (totals) {
-    var t = (totals && totals.tokens) || {}, span = DL.el('span', 'tok', DL.fmt.tokens(t.total || 0));
-    span.setAttribute('data-tip', DL.fmt.tokenParts(t) + (totals && totals.partial ? ' · partial: some calls did not record usage' : ''));
+    var cell = DL.fmt.totalsCell(totals), span = DL.el('span', 'tok', cell.text);
+    span.setAttribute('data-tip', cell.tip);
     span.tabIndex = 0;
-    if (totals && totals.partial) DL.add(span, ' ', DL.el('span', 'partial', 'partial'));
+    if (cell.partial) DL.add(span, ' ', DL.el('span', 'partial', 'partial'));
     return span;
   };
   /* A table cell; content is text, an element, or a list of them. */

@@ -292,10 +292,16 @@ class ClaudeRunner:
         if self.progress:
             self.progress.call_started(self.loop, step, milestone_id, trial, model,
                                        progress_mod.log_path(self.loop_dir), target_dir)
+        live = progress_mod.LiveCall()  # the dashboard's "now" panel (specs/005 FR-016)
+        live.start(self.loop_dir, self.loop, step, milestone_id, trial, model, session_id,
+                   target_dir)
         started_at, t0 = state.now_iso(), time.monotonic()
         try:
             stdout, stderr, returncode, timed_out, exited = self._run(
-                argv, prompt if via_stdin else None, target_dir, env, self._on_stream_line)
+                argv, prompt if via_stdin else None, target_dir, env,
+                # bound to this call's LiveCall: a reader outliving the call (a process holding
+                # stdout open) never writes into the next call's file
+                lambda line: self._on_stream_line(line, live))
             elapsed_ms = int((exited - t0) * 1000)  # not counting the cleanup after it
             ended_at = state.now_iso()
             out.snapshot_after = snapshot() if snapshot else None
@@ -316,6 +322,8 @@ class ClaudeRunner:
                     "interrupted" if isinstance(e, KeyboardInterrupt)
                     else self.redactor.redact(f"{type(e).__name__}: {e}"[:300])[0]))
             raise
+        finally:
+            live.end()
         if self.progress:
             cost = (result or {}).get("total_cost_usd")
             self.progress.call_ended(
@@ -357,9 +365,10 @@ class ClaudeRunner:
             return {"conversation": "unavailable", "conversation_reason": "unreadable"}, False
         return {"conversation": "copied", "conversation_path": self._rel(path)}, redacted
 
-    def _on_stream_line(self, line):
-        """Tell the progress reporter about each tool Claude uses, as the stream arrives."""
-        if not self.progress or '"tool_use"' not in line:
+    def _on_stream_line(self, line, live=None):
+        """Tell the progress reporter and the call's `live` (a progress.LiveCall) about each tool
+        Claude uses, as the stream arrives."""
+        if '"tool_use"' not in line:
             return
         try:
             event = json.loads(line)
@@ -372,7 +381,10 @@ class ClaudeRunner:
             return
         for block in (event.get("message") or {}).get("content") or []:
             if isinstance(block, dict) and block.get("type") == "tool_use":
-                self.progress.tool_use(block.get("name") or "?", block.get("input"))
+                if self.progress:
+                    self.progress.tool_use(block.get("name") or "?", block.get("input"))
+                if live:
+                    live.tool(block.get("name") or "?", block.get("input"))
 
     def _run(self, argv, stdin_text, cwd, env, on_line=None):
         """Run the call; return `(stdout, stderr, returncode, timed_out, exited)`, `exited` being

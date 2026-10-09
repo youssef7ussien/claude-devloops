@@ -16,7 +16,7 @@ import shlex
 import socket
 import threading
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import __version__, artifacts, render, state, ui
 
@@ -294,19 +294,25 @@ def list_full_dashboards(ws):
     return [item for _, item in sorted(found, key=lambda pair: pair[0], reverse=True)]
 
 
-def running(ws, loop):
-    """Whether a command is running `loop` now: its lock is held by a live process (a lock left
-    by a crash, or held on another host, does not count)."""
+def lock_holder(ws, loop):
+    """The pid of the live process on this host holding `loop`'s lock, or None (a lock left by a
+    crash, or held on another host, does not count)."""
     lock = state.read_json(os.path.join(ws.loop_dir(loop), "state", "lock"))
     if not isinstance(lock, dict) or lock.get("host") != socket.gethostname():
-        return False
+        return None
     try:
-        os.kill(int(lock.get("pid")), 0)
+        pid = int(lock.get("pid"))
+        os.kill(pid, 0)
     except PermissionError:
-        return True
+        return pid
     except (OSError, TypeError, ValueError):
-        return False
-    return True
+        return None
+    return pid
+
+
+def running(ws, loop):
+    """Whether a command is running `loop` now: its lock is held by a live process."""
+    return lock_holder(ws, loop) is not None
 
 
 def collect(ws):
@@ -674,6 +680,140 @@ def loop(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>; `loop` is 
     }
 
 
+_PARSED = {}  # conversation path -> ((size, mtime), artifacts.parse_conversation result)
+_PARSED_KEEP = 64
+_PARSED_LOCK = threading.Lock()  # the server answers requests in parallel
+
+
+def parsed_conversation(path, redactor):
+    """`artifacts.parse_conversation` of a copied conversation, kept per path while its size and
+    modification time stay the same (the newest _PARSED_KEEP); None when it cannot be read."""
+    try:
+        st = os.stat(path)
+        stamp = (st.st_size, st.st_mtime_ns)
+        with _PARSED_LOCK:
+            hit = _PARSED.get(path)
+        if hit and hit[0] == stamp:
+            return hit[1]
+        with open(path, encoding="utf-8", errors="replace") as f:
+            result = artifacts.parse_conversation(f.read(), redactor)
+    except OSError:
+        return None
+    with _PARSED_LOCK:
+        _PARSED.pop(path, None)
+        _PARSED[path] = (stamp, result)
+        while len(_PARSED) > _PARSED_KEEP:
+            _PARSED.pop(next(iter(_PARSED)))
+    return result
+
+
+def _why(t, criteria_text, ref):
+    """A trial's reasons for not passing (FR-019, data-model Reason), in the order checks,
+    criteria, contract, unit tests, boundary, voided or interrupted; `ref(rel)` is the FileRef of a
+    path relative to the trial's folder. A failed trial with none of these (its step's call
+    failed, say) gets one `failure` reason with the trial's own reason and detail."""
+    if t["status"] in ("passed", "in-progress"):
+        return []
+    v = t["validation"] or {}
+    why = []
+    for c in v.get("checks") or []:
+        if not c.get("passed"):
+            resp = c.get("response") or {}
+            why.append({"kind": "check", "check_id": c.get("check_id"), "command": c.get("command"),
+                        "status": resp.get("status"), "failures": c.get("failures") or [],
+                        "evidence": [ref(resp[k]) for k in ("body_path", "headers_path")
+                                     if resp.get(k)]})
+    if t["validation"] is not None:
+        results = {c.get("criterion_id"): c for c in v.get("criteria") or []}
+        ids = list(criteria_text) + [cid for cid in results if cid not in criteria_text]
+        for cid in ids:
+            c = results.get(cid)
+            if c is None or not c.get("passed"):
+                c = c or {"observed": "no result was recorded for this criterion"}
+                why.append({"kind": "criterion", "criterion_id": cid,
+                            "text": criteria_text.get(cid, ""), "steps": c.get("steps") or [],
+                            "observed": c.get("observed") or "",
+                            "evidence": [ref(e) for e in c.get("evidence") or []]})
+    contract = v.get("contract") or {}
+    if contract and not contract.get("passed", True):
+        why.append({"kind": "contract", "problem": contract.get("problem"),
+                    "unmatched_operations": contract.get("unmatched_operations") or [],
+                    "network_requests": v.get("network_requests") or []})
+    unit = v.get("unit_tests") or {}
+    if unit.get("enabled") and unit.get("exit_code") != 0:
+        why.append({"kind": "unit-tests", "command": unit.get("command"),
+                    "exit_code": unit.get("exit_code"),
+                    "log": ref(unit["log_path"]) if unit.get("log_path") else None})
+    boundary = v.get("boundary") or {}
+    if boundary and not boundary.get("passed", True):
+        why.append({"kind": "boundary", "violations": boundary.get("violations") or []})
+    message = ": ".join(x for x in (t.get("reason"), t.get("detail")) if x)
+    if t["status"] == "void":
+        why.append({"kind": "voided", "message": message or "voided"})
+    elif t.get("reason") == "interrupted":
+        why.append({"kind": "interrupted", "message": t.get("detail") or "interrupted"})
+    elif not why and t["status"] == "failed":
+        why.append({"kind": "failure", "reason": t.get("reason"), "detail": t.get("detail")})
+    return why
+
+
+def trial(ctx, loop, milestone, key):  # noqa: F811 - the builder; `loop` is its parameter
+    """`api/loops/<loop>/milestones/<id>/trials/<key>` (data-model Trial, FR-018, FR-019): the
+    trial's outcome, its steps with their calls, its validation result, why it did not pass, the
+    files in its folder, and the files its calls changed (`[{path, step, call_route, block}]`,
+    each path's last change). An earlier attempt voided under the same number (`n.k`) has no
+    files of its own: the folder holds the latest attempt's."""
+    d = _loop_data(ctx, loop)
+    m = next((m for m in d["milestones"] if m["id"] == milestone), None)
+    if m is None:
+        raise NotFound(f"no milestone {milestone!r} in {loop}")
+    t = next((t for t in m["trials"] if t["key"] == key), None)
+    if t is None:
+        raise NotFound(f"no trial {key!r} of {milestone}")
+    folder = os.path.dirname(t["evidence_dir"]).replace(os.sep, "/")
+    latest = "." not in t["key"]
+
+    def ref(rel):
+        return ctx.file_ref(f"{folder}/{rel}")
+    by_seq = {r.get("seq"): r for r in d["invocations"]}
+    steps, changed = [], {}
+    loop_dir, target = ctx.ws.loop_dir(loop), d["target_dir"]
+    for s in t["steps"]:
+        records = [by_seq[q] for q in s["calls"] if q in by_seq]
+        steps.append({"step": s["step"], "totals": s["totals"],
+                      "calls": [call_ref(loop, r) for r in records]})
+        for r in records:
+            if not r.get("conversation_path"):
+                continue
+            parsed = parsed_conversation(os.path.join(loop_dir, r["conversation_path"]),
+                                         ctx.redactor)
+            for f in (parsed or {}).get("files_changed") or []:
+                path = f["path"]
+                root = os.path.normpath(target) if target else None
+                if root and os.path.isabs(path) and os.path.normpath(path).startswith(
+                        root.rstrip(os.sep) + os.sep):
+                    path = os.path.normpath(path)[len(root.rstrip(os.sep)) + 1:].replace(
+                        os.sep, "/")
+                changed.pop(path, None)
+                changed[path] = {"path": path, "step": r.get("step"), "tool": f["tool"],
+                                 "block": f["block"],
+                                 "call_route": route("call", {"at": f["block"]}, loop=loop,
+                                                     seq=r.get("seq"))}
+    criteria_text = {c["id"]: c.get("text", "") for c in m["criteria"]}
+    evidence = sorted((r for path, r in ctx.refs.items() if path.startswith(folder + "/")),
+                      key=lambda r: r["path"]) if latest else []
+    return {"loop": loop, "milestone": milestone, "title": m["title"], "key": t["key"],
+            "n": t["n"], "attempt": t["attempt"], "kind": t["kind"], "status": t["status"],
+            "reason": t["reason"], "detail": t["detail"], "started_at": t["started_at"],
+            "ended_at": t["ended_at"], "seconds": t["seconds"], "totals": t["totals"],
+            "steps": steps, "validation": t["validation"], "why": _why(t, criteria_text, ref),
+            "evidence": evidence, "files_changed": list(changed.values()),
+            "routes": {"loop": route("loop", {"m": milestone}, loop=loop),
+                       "trials": [{"key": x["key"], "status": x["status"],
+                                   "route": route("trial", loop=loop, milestone=milestone,
+                                                  key=x["key"])} for x in m["trials"]]}}
+
+
 def _model_name(r):
     # A call from before models were recorded has no `model` key at all.
     return r.get("model") or ("(Claude Code default)" if "model" in r else "(not recorded)")
@@ -740,6 +880,50 @@ def questions(ctx):
         assumptions += [dict(a, loop=loop) for a in (d["plan"] or {}).get("assumptions") or []]
         grants += [dict(g, loop=loop) for g in d["grants"]]
     return {"questions": found, "assumptions": assumptions, "grants": grants}
+
+
+def _waiting_for(d):
+    """What a stopped loop waits for from the developer: `approval`, `questions`, `retry`, or
+    None."""
+    reason = d["status_reason"] or {}
+    if d["status"] == "awaiting-approval":
+        return "approval"
+    if d["status"] == "stopped-on-failure" and reason.get("code") == "needs-input":
+        return "questions"
+    if d["status"] == "stopped-on-failure" and reason.get("code") == "trials-exhausted":
+        return "retry"  # as next_action: an invocation cap also names a milestone, but no retry
+    return None
+
+
+def now(ctx):
+    """`api/now` (data-model Now, FR-016): the call running now, `{running: true, call,
+    elapsed_seconds}`, read from a loop's `state/live.json` while a command holds that loop's
+    lock; otherwise `{running: false, status, loop, next_action, waiting_for, busy}`, the loop
+    being the one the overall status comes from, `busy` the loops a command runs between calls
+    (validating, say; their next action is then not the developer's). Liveness is checked on
+    each request: the server does not keep this answer (`now.cached`)."""
+    from . import orchestrator, progress
+    for loop in orchestrator.select_loops(ctx.ws.project, ctx.ws):
+        doc = state.read_json(os.path.join(ctx.ws.loop_dir(loop), "state", progress.LIVE_NAME))
+        # Only the lock holder's own call: a file left by a killed command is not running, even
+        # while a later command holds the lock
+        holder = lock_holder(ctx.ws, loop)
+        if isinstance(doc, dict) and holder is not None and doc.get("pid") == holder:
+            started = _parse_time(doc.get("started_at"))
+            elapsed = (max(0.0, (datetime.now(timezone.utc) - started).total_seconds())
+                       if started else None)
+            return {"running": True, "call": doc, "elapsed_seconds": elapsed}
+    data = ctx.data
+    status = _overall_status(data)
+    busy = [loop for loop in data["loops"] if running(ctx.ws, loop)]
+    loop_ = next((loop for loop, d in data["loops"].items() if d["status"] == status), None)
+    d = data["loops"].get(loop_)
+    return {"running": False, "status": status, "loop": loop_, "busy": busy,
+            "next_action": next_action(loop_, d) if d and not busy else None,
+            "waiting_for": _waiting_for(d) if d and not busy else None}
+
+
+now.cached = False
 
 
 # --- formatting -------------------------------------------------------------------------------------

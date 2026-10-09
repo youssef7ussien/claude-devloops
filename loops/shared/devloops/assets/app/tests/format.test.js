@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const load = require('./load.js');
+const { plain } = load;
 
 const DL = load();
 const f = DL.fmt;
@@ -51,4 +52,25 @@ test('tokens spelled out', () => {
   assert.equal(DL.fmt.tokenParts({ input: 1200, output: 300, cache_creation: 5000, cache_read: 20000 }),
     'input 1.2k · output 300 · cache write 5.0k · cache read 20.0k');
   assert.equal(DL.fmt.tokenParts(null), 'input 0 · output 0 · cache write 0 · cache read 0');
+});
+
+test('a totals cell: the total, its parts, and partial', () => {
+  const t = { tokens: { input: 1200, output: 300, cache_creation: 5000, cache_read: 20000, total: 26500 }, partial: false };
+  assert.deepEqual(plain(DL.fmt.totalsCell(t)), {
+    text: '26.5k', partial: false, tip: 'input 1.2k · output 300 · cache write 5.0k · cache read 20.0k'
+  });
+  const p = DL.fmt.totalsCell(Object.assign({}, t, { partial: true }));
+  assert.equal(p.partial, true);
+  assert.match(p.tip, /· partial: some calls did not record usage$/);
+  assert.deepEqual(plain(DL.fmt.totalsCell(null)), {
+    text: '0', partial: false, tip: 'input 0 · output 0 · cache write 0 · cache read 0'
+  });
+});
+
+test('the now panel lists the last 20 tools, or all', () => {
+  const tools = Array.from({ length: 25 }, (_, i) => ({ name: 'T' + i }));
+  assert.deepEqual(plain(DL.now.visible(tools, false)).map((t) => t.name), tools.slice(5).map((t) => t.name));
+  assert.equal(DL.now.visible(tools, true).length, 25);
+  assert.equal(DL.now.visible(tools.slice(0, 3), false).length, 3);
+  assert.equal(DL.now.visible(null, false).length, 0);
 });

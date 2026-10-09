@@ -167,7 +167,7 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
             self.assertIn("Use ***", json.dumps(body))
         self.assertEqual(self.api("loops/frontend-dev", 404)[0],
                          {"error": "no loop 'frontend-dev' in this workspace"})
-        for path in ("calls", "files", "events", "questions"):
+        for path in ("calls", "files", "events", "questions", "now"):
             self.assertNotIn(SECRET, json.dumps(self.api(path)[0]), path)
 
     def test_a_builder_runs_once_per_version(self):
@@ -181,6 +181,20 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         self.write("progress.md", "changed\n")
         self.assertEqual(self.api("probe")[0], {"n": 2})
         self.assertEqual(len(calls), 2)
+
+    def test_a_builder_that_is_not_cached_runs_on_every_request(self):
+        self.completed()
+        calls = []
+
+        def probe(ctx):
+            calls.append(1)
+            return {"n": len(calls)}
+        probe.cached = False
+        self.builder("probe", probe)
+        self.start()
+        self.assertEqual([self.api("probe")[0]["n"] for _ in range(2)], [1, 2])
+        now, _ = self.api("now")  # api/now is such a builder: a dead command's lock is seen at once
+        self.assertEqual((now["running"], now["status"]), (False, "completed"))
 
     def test_the_query_is_part_of_the_answer_for_a_builder_that_takes_it(self):
         self.completed()

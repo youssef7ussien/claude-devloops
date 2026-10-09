@@ -88,9 +88,11 @@ def snapshot(kit, workspace_loop_dir, targets, project_root=None):
     by manifest, and every git repository holding the kit, the project, the loop, or a target by
     `git status`."""
     workspace_loop_dir = os.path.realpath(workspace_loop_dir)
-    # The driver's own progress log, appended to while the call runs: not fingerprinted (it only
-    # grows), and its git status change is the driver's, not the call's.
-    driver_writes = [progress.log_path(workspace_loop_dir)]
+    # The driver's own progress log, appended to while the call runs, and the running call's
+    # live.json (written while it runs, removed after): not fingerprinted, and their git status
+    # changes are the driver's, not the call's.
+    driver_writes = [progress.log_path(workspace_loop_dir),
+                     os.path.join(workspace_loop_dir, "state", progress.LIVE_NAME)]
     snap = {
         "manifest": _manifest([*kit.reserved, os.path.join(workspace_loop_dir, "state")],
                               skip=set(driver_writes)),

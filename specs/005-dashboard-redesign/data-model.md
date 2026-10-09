@@ -57,9 +57,11 @@ assumptions: [{id, text, source}], stack, runtime}`
 
 ## Trial (`api/loops/<loop>/milestones/<id>/trials/<key>`)
 
-`{loop, milestone, key, n, kind, status, reason, detail, started_at, ended_at, totals,
-steps: [Step], validation: Validation|null, why: [Reason], evidence: [FileRef],
-files_changed: [{path, step, call_route, block}]}`
+`{loop, milestone, title, key, n, attempt, kind, status, reason, detail, started_at, ended_at,
+seconds, totals, steps: [Step], validation: Validation|null, why: [Reason], evidence: [FileRef],
+files_changed: [{path, step, tool, call_route, block}], routes: {loop, trials: [{key, status,
+route}]}}`. `evidence` is every file in the trial's folder (none for an earlier voided attempt,
+whose folder holds the later attempt's files).
 
 - **Step**: `{step, totals, calls: [CallRef]}` in the order the calls ran.
 - **Validation**: the trial's `validation.json` as recorded (schema `validation-result`), redacted.
@@ -69,7 +71,9 @@ files_changed: [{path, step, call_route, block}]}`
   `{kind: "contract", problem, unmatched_operations, network_requests}` |
   `{kind: "unit-tests", command, exit_code, log: FileRef}` |
   `{kind: "boundary", violations}` |
-  `{kind: "voided"|"interrupted", message}`.
+  `{kind: "voided"|"interrupted", message}` |
+  `{kind: "failure", reason, detail}` (a failed trial with none of the above: its call failed).
+  A criterion without a result counts as failing (FR-068).
 - **State transitions** shown: `in-progress → passed | failed | void` (as in run.json).
 
 ## Call list and call (`api/calls`, `api/calls/<loop>/<seq>`)
@@ -108,13 +112,17 @@ files_changed: [{path, step, call_route, block}]}`
 | `tools` | `[{at, name, summary}]`, the last 200, oldest first |
 
 **Lifecycle**: written at `call_started`; replaced atomically after each `tool_use`; deleted at
-`call_ended` (also on failure). Shown only while the loop's lock is held by a live process;
-otherwise ignored, and deleted by the next call's start. Never read by the engine.
+`call_ended` (also on failure). Shown only while the loop's lock is held by the live process
+that wrote it (the lock's `pid` is the file's);
+otherwise ignored, and deleted by the next call's start. Never read by the engine; the write
+boundary audit treats it as the driver's own write, like `run.log`.
 
 ## Now (`api/now`)
 
-`{running: true, call: LiveCall, elapsed_seconds}` or `{running: false, status, next_action,
-waiting_for?}`.
+`{running: true, call: LiveCall, elapsed_seconds}` or `{running: false, status, loop,
+next_action, waiting_for, busy}`: `loop` is the loop the overall status comes from, `waiting_for`
+is `approval`, `questions`, `retry`, or null, and `busy` lists the loops a command runs between
+calls (their next action is then null). Worked out on every request, not kept per version.
 
 ## Export (FR-011–FR-015)
 

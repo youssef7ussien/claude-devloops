@@ -9,6 +9,8 @@ Levels: `quiet` prints nothing (the command's final summary still does), `normal
 and calls, `verbose` also prints each tool Claude uses. Every line except the status line is
 appended to the loop's `state/run.log` whatever the level, so a run started in the background can
 be followed with `tail -f`. A failure to write the log or the terminal never changes a run.
+
+`LiveCall` keeps the running call in `state/live.json` for the dashboard's "now" panel.
 """
 import os
 import sys
@@ -16,7 +18,11 @@ import threading
 import time
 from datetime import datetime
 
+from . import state
+
 LOG_NAME = "run.log"
+LIVE_NAME = "live.json"  # the running call, for the dashboard's "now" panel (LiveCall)
+LIVE_TOOLS = 200  # the tools a live call keeps, the newest
 HEARTBEAT_SECONDS = 60  # without a terminal: one "still ..." line this often
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 TERMINAL_LINE_CHARS = 400  # longer messages are cut on the terminal; the log keeps them whole
@@ -245,6 +251,59 @@ class Progress:
                 # Every minute in the log (so `tail -f` shows a long call is alive), and on the
                 # stream too when it has no status line. The lock is reentrant.
                 self.line(call["where"], f"still {text}", call["log_path"], terminal=not self.tty)
+
+
+class LiveCall:
+    """The call running now, as `<loop>/state/live.json` (specs/005 data-model Live call, research
+    R-8): `{loop, step, milestone_id, trial, model, session_id, started_at, pid, tools: [{at,
+    name, summary}]}`. Written when the call starts, replaced after each tool Claude uses (the
+    last LIVE_TOOLS kept), removed when it ends. A view file only: the engine never reads it, and
+    a failure to write it never changes a run. `tool` is called from the thread reading Claude's
+    output."""
+
+    def __init__(self):
+        self.path = None
+        self.doc = None
+        self.target_dir = None
+        self._lock = threading.Lock()
+
+    def start(self, loop_dir, loop, step, milestone_id=None, trial=None, model=None,
+              session_id=None, target_dir=None):
+        with self._lock:
+            self.path = os.path.join(loop_dir, "state", LIVE_NAME)
+            self.target_dir = target_dir
+            self.doc = {"loop": loop, "step": step, "milestone_id": milestone_id, "trial": trial,
+                        "model": model, "session_id": session_id, "started_at": state.now_iso(),
+                        "pid": os.getpid(), "tools": []}
+            self.write()
+
+    def tool(self, name, tool_input=None, target_dir=None):
+        with self._lock:
+            if self.doc is None:
+                return
+            tools = self.doc["tools"]
+            tools.append({"at": state.now_iso(), "name": name, "summary": tool_summary(
+                name, tool_input, target_dir or self.target_dir)})
+            del tools[:-LIVE_TOOLS]
+            self.write()
+
+    def end(self):
+        with self._lock:
+            if self.doc is None:
+                return
+            self.doc = None
+            try:
+                os.remove(self.path)
+            except OSError:
+                pass
+
+    def write(self):
+        """Replace the file atomically (`state.write_json_atomic`: a hidden temp file, then
+        `os.replace`), so a reader never sees half of it. Called with the lock held."""
+        try:
+            state.write_json_atomic(self.path, self.doc)
+        except OSError:
+            pass
 
 
 def log_path(loop_dir):

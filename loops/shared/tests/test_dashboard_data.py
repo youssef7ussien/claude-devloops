@@ -4,8 +4,8 @@ import json
 import os
 import unittest
 
-import helpers  # noqa: F401
-from devloops import dashboard, state, workspace
+import helpers
+from devloops import dashboard, schema, state, workspace
 from stub_loop import StubLoopMixin, WS, implemented, service_error
 
 
@@ -323,6 +323,154 @@ class BuildersTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual((two["id"], two["status"]), ("OQ2", "none"))
         self.assertEqual(q["grants"], [{"milestone_id": "M01", "extra_trials": 2,
                                         "loop": "backend-dev"}])
+
+
+PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06"
+       b"\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\x0f\x00\x00\x01\x01"
+       b"\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82")
+
+
+class TrialTest(StubLoopMixin, unittest.TestCase):
+    """`dashboard.trial`: a trial's steps, validation, and why it did not pass (FR-018, FR-019)."""
+
+    def ctx(self):
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
+        return dashboard.Context(ws, self.t.env)
+
+    def failed_once(self):
+        """M01's trial 1 fails validation; the run stops (one trial allowed)."""
+        self.approved()
+        self.assertEqual(self.cli("run", "--max-trials", "1", env={"DEVLOOPS_STUB": "fail"}), 20,
+                         self.last_output)
+        return os.path.join(self.loop_dir, "state", "milestones", "M01", "trials", "1")
+
+    def write_validation(self, trial_dir, doc):
+        schema.validate(doc, "validation-result.schema.json")
+        state.write_json_atomic(os.path.join(trial_dir, "validation.json"), doc)
+
+    def test_every_reason_with_its_evidence(self):
+        trial_dir = self.failed_once()
+        evidence = os.path.join(trial_dir, "evidence")
+        for name, data in (("c1.body", b"{}"), ("c1.headers", b"HTTP/1.1 500"),
+                           ("shot.png", PNG)):
+            with open(os.path.join(evidence, name), "wb") as f:
+                f.write(data)
+        with open(os.path.join(trial_dir, "unit-tests.log"), "w") as f:
+            f.write("1 failed\n")
+        plan = state.read_json(os.path.join(self.loop_dir, "state", "plan.json"))
+        [first, *rest] = [c["id"] for c in plan["milestones"][0]["acceptance_criteria"]]
+        doc = {
+            "kind": "playwright", "passed": False, "ui_url": "http://127.0.0.1:5173/",
+            "criteria": [{"criterion_id": first, "passed": False, "steps": ["open /", "add"],
+                          "observed": "the list stays empty", "evidence": ["evidence/shot.png"]}],
+            "checks": [{"check_id": "c1", "passed": False, "command": "curl -s /items",
+                        "response": {"status": 500, "body_path": "evidence/c1.body",
+                                     "headers_path": "evidence/c1.headers"},
+                        "failures": ["status 500, expected 200"]},
+                       {"check_id": "c2", "passed": True, "command": "curl -s /health",
+                        "response": {"status": 200}, "failures": []}],
+            "network_requests": [{"method": "GET", "url": "http://127.0.0.1:8000/items",
+                                  "status": 500},
+                                 {"method": "POST", "url": "http://127.0.0.1:8000/x",
+                                  "error": "net::ERR_CONNECTION_REFUSED"}],
+            "contract": {"passed": False, "problem": "no network log",
+                         "unmatched_operations": ["POST /x"]},
+            "unit_tests": {"enabled": True, "command": "pytest", "exit_code": 1,
+                           "log_path": "unit-tests.log"},
+            "boundary": {"passed": False, "violations": ["wrote ../outside.txt"]}}
+        self.write_validation(trial_dir, doc)
+        # The fake's transcript reads a file only: add a write, as Claude Code records it.
+        [call] = [r for r in state.read_jsonl(self.path(os.path.join("state", "invocations.jsonl")))
+                  if r.get("milestone_id") == "M01"]
+        with open(self.path(call["conversation_path"]), "a", encoding="utf-8") as f:
+            for name in ("app.py", "..env.example"):
+                f.write(json.dumps({"type": "assistant", "message": {"role": "assistant",
+                                                                     "content": [
+                    {"type": "tool_use", "id": "t1", "name": "Write", "input": {
+                        "file_path": os.path.join(self.t.target_dir, name), "content": "x"}}]}})
+                    + "\n")
+        t = dashboard.trial(self.ctx(), "backend-dev", "M01", "1")
+        self.assertEqual((t["key"], t["n"], t["status"], t["milestone"]), ("1", 1, "failed", "M01"))
+        self.assertEqual(t["validation"], doc)
+        kinds = [r["kind"] for r in t["why"]]
+        self.assertEqual(kinds, ["check"] + ["criterion"] * (1 + len(rest))
+                         + ["contract", "unit-tests", "boundary"])
+        check, crit = t["why"][0], t["why"][1]
+        self.assertEqual((check["check_id"], check["command"], check["status"], check["failures"]),
+                         ("c1", "curl -s /items", 500, ["status 500, expected 200"]))
+        self.assertEqual([r["path"].rsplit("/", 1)[1] for r in check["evidence"]],
+                         ["c1.body", "c1.headers"])
+        self.assertTrue(all(r["id"] for r in check["evidence"]), check["evidence"])
+        self.assertEqual((crit["criterion_id"], crit["steps"], crit["observed"]),
+                         (first, ["open /", "add"], "the list stays empty"))
+        self.assertTrue(crit["text"])
+        self.assertEqual([(r["kind"], bool(r["id"])) for r in crit["evidence"]], [("image", True)])
+        # A criterion without a result counts as failed (FR-068).
+        self.assertEqual([r["criterion_id"] for r in t["why"][2:2 + len(rest)]], rest)
+        contract, unit, boundary = t["why"][-3:]
+        self.assertEqual((contract["problem"], contract["unmatched_operations"]),
+                         ("no network log", ["POST /x"]))
+        self.assertEqual(contract["network_requests"], doc["network_requests"])
+        self.assertEqual((unit["command"], unit["exit_code"], unit["log"]["path"]),
+                         ("pytest", 1, f"backend-dev/state/milestones/M01/trials/1/unit-tests.log"))
+        self.assertEqual(boundary["violations"], ["wrote ../outside.txt"])
+        # SC-005: every failing item of validation.json is a reason.
+        shown = json.dumps(t["why"])
+        for item in [c["check_id"] for c in doc["checks"] if not c["passed"]] + \
+                [c["criterion_id"] for c in doc["criteria"]] + ["POST /x", "wrote ../outside.txt"]:
+            self.assertIn(item, shown)
+        self.assertNotIn('"c2"', shown)
+        # Steps in run order, with their calls and totals adding up.
+        records = {r["seq"]: r for r in self.ctx().data["loops"]["backend-dev"]["invocations"]}
+        seqs = [c["seq"] for s in t["steps"] for c in s["calls"]]
+        self.assertEqual(seqs, sorted(seqs))
+        self.assertTrue(seqs)
+        self.assertEqual(t["totals"], dashboard.totals([records[q] for q in seqs]))
+        for s in t["steps"]:
+            self.assertEqual(s["totals"]["calls"], len(s["calls"]))
+            self.assertTrue(all(c["route"] == f"#/call/backend-dev/{c['seq']}" for c in s["calls"]))
+        # Files: the trial's folder, and what its calls changed.
+        paths = [r["path"] for r in t["evidence"]]
+        self.assertIn("backend-dev/state/milestones/M01/trials/1/evidence/shot.png", paths)
+        self.assertIn("backend-dev/state/milestones/M01/trials/1/validation.json", paths)
+        self.assertIn("..env.example", [f["path"] for f in t["files_changed"]])  # in the target
+        [app] = [f for f in t["files_changed"] if f["path"] == "app.py"]
+        self.assertEqual((app["step"], app["tool"]), ("implement", "Write"))
+        self.assertEqual(app["call_route"],
+                         f"#/call/backend-dev/{seqs[0]}?at={app['block']}")
+
+    def test_a_trial_that_failed_without_a_validation(self):
+        trial_dir = self.failed_once()
+        os.remove(os.path.join(trial_dir, "validation.json"))
+        run = state.read_json(os.path.join(self.loop_dir, "state", "run.json"))
+        run["milestones"]["M01"]["trials"][0]["reason"] = "interrupted"
+        state.write_json_atomic(os.path.join(self.loop_dir, "state", "run.json"), run)
+        doc = state.read_json(os.path.join(trial_dir, "trial.json"))
+        doc["failure"] = {"reason": "interrupted", "detail": "the driver stopped"}
+        state.write_json_atomic(os.path.join(trial_dir, "trial.json"), doc)
+        t = dashboard.trial(self.ctx(), "backend-dev", "M01", "1")
+        self.assertIsNone(t["validation"])
+        self.assertEqual(t["why"], [{"kind": "interrupted", "message": "the driver stopped"}])
+
+    def test_a_voided_trial(self):
+        self.approved()
+        self.scenario({"implement": [service_error(429), implemented("M01-T01"),
+                                     implemented("M02-T01")]})
+        self.assertEqual(self.cli("run"), 50, self.last_output)
+        self.assertEqual(self.cli("run"), 0, self.last_output)
+        ctx = self.ctx()
+        void = dashboard.trial(ctx, "backend-dev", "M01", "1.1")
+        self.assertEqual((void["status"], void["validation"], void["evidence"]), ("void", None, []))
+        [reason] = void["why"]
+        self.assertEqual(reason["kind"], "voided")
+        self.assertIn(void["reason"], reason["message"])
+        self.assertEqual(void["steps"][0]["calls"][0]["failure_class"], "service")
+        passed = dashboard.trial(ctx, "backend-dev", "M01", "1")
+        self.assertEqual((passed["status"], passed["why"]), ("passed", []))
+        self.assertEqual([x["key"] for x in passed["routes"]["trials"]], ["1.1", "1"])
+        for args in (("M01", "9"), ("M01", "1.2"), ("M99", "1")):
+            with self.assertRaises(dashboard.NotFound):
+                dashboard.trial(ctx, "backend-dev", *args)
 
 
 if __name__ == "__main__":

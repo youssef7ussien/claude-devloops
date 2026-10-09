@@ -63,10 +63,13 @@ ASSETS = {"app.js": ("text/javascript; charset=utf-8", appbundle.script),
 # The data API: `(pattern of the path after /w/<ws>/api/, builder)`. A builder is the name of a
 # function of dashboard.py (or a function), called as `builder(ctx, **named groups)` with the
 # workspace version's `dashboard.Context`; it returns plain data, or raises `dashboard.NotFound`.
-# `files/<id>` (a file's content) and `search` are answered by the server itself.
+# `files/<id>` (a file's content) and `search` are answered by the server itself. An answer is
+# kept for the version, unless its builder says `cached = False`.
 API = [(re.compile(pattern), builder) for pattern, builder in (
     (r"^summary$", "summary"),
+    (r"^now$", "now"),
     (r"^loops/(?P<loop>[^/]+)$", "loop"),
+    (r"^loops/(?P<loop>[^/]+)/milestones/(?P<milestone>[^/]+)/trials/(?P<key>[^/]+)$", "trial"),
     (r"^calls$", "calls"),
     (r"^files$", "files"),
     (r"^events$", "events"),
@@ -252,8 +255,9 @@ class Site:
             params = {k: v[-1] for k, v in sorted(urllib.parse.parse_qs(query).items())}
             args["query"] = params
         key = (path, tuple(params.items()))
+        cached = getattr(build, "cached", True)  # False: worked out on every request (api/now)
         with self._lock:
-            hit = entry["answers"].get(key)
+            hit = entry["answers"].get(key) if cached else None
         if hit:
             return hit + (version,)
         try:
@@ -261,8 +265,9 @@ class Site:
         except dashboard.NotFound as e:
             status, data = 404, {"error": str(e)}
         body = json.dumps(ctx.redactor.redact_obj(data)[0], ensure_ascii=False)
-        with self._lock:
-            entry["answers"][key] = (status, body)
+        if cached:
+            with self._lock:
+                entry["answers"][key] = (status, body)
         return status, body, version
 
     def redactor(self, ws):

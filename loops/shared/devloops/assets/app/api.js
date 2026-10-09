@@ -44,8 +44,10 @@
   }
 
   /* A promise of the JSON answer for `path` (e.g. 'summary', 'loops/backend-dev'). Answers are
-     kept until the workspace changes; a failed request is not kept. */
-  function get(path) {
+     kept until the workspace changes, or asked for again with `fresh`; a failed request is not
+     kept. */
+  function get(path, fresh) {
+    if (fresh && source() === 'api') delete cache[path];
     if (!cache[path]) {
       var p = source() === 'embedded' ? embedded(path) : fetchJson(path);
       cache[path] = p;
