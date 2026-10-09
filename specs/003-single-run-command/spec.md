@@ -349,6 +349,8 @@ commands, without loop names.
   `devloops run`. The `devloops-approve`, `devloops-replan`, and `devloops-retry` skills MUST NOT
   pass a loop name. `init --upgrade` MUST remove an unchanged installed `devloops-orchestrate` skill
   and report a changed one, as it does for other removed files.
+  *Revised after spec 005: the approve, replan, retry, and dashboard skills are removed; the run
+  skill asks for those decisions and runs them (loops/README.md "Claude Code skills").*
 - **FR-018** [E]: The living documents MUST be updated in place, each changed passage with a note
   pointing to this spec:
   - the README and the skills;

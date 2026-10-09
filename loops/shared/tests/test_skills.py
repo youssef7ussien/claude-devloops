@@ -10,9 +10,10 @@ import helpers
 from devloops import kit
 
 TEMPLATES = os.path.join(helpers.REPO_ROOT, "loops", "shared", "skills")
-COMMANDS = {"devloops-run": "run", "devloops-approve": "approve", "devloops-replan": "replan",
-            "devloops-retry": "retry", "devloops-status": "status",
-            "devloops-dashboard": "dashboard"}
+COMMANDS = {"devloops-run": "run", "devloops-status": "status"}
+# The decisions the run skill carries out after asking the user, when the run waits for one.
+DECISIONS = {"devloops-run": ["approve", "replan", "retry"], "devloops-status": []}
+TOOLS = {"devloops-run": ", Read", "devloops-status": ""}
 SETTINGS = os.path.join(".claude", "settings.json")
 
 
@@ -25,17 +26,23 @@ class SkillTemplatesTest(unittest.TestCase):
     def test_the_contract_table_names_every_template(self):
         self.assertEqual(sorted(name for name, _ in self.templates()), sorted(COMMANDS))
 
-    def test_each_template_runs_exactly_one_command(self):
+    def test_each_template_runs_one_command_then_only_the_users_decisions(self):
         for name, text in self.templates():
             with self.subTest(skill=name):
-                commands = re.findall(r"\{\{DEVLOOPS\}\} (\S+)", text)
+                commands = [c.rstrip(",")
+                            for c in re.findall(r"\{\{DEVLOOPS\}\} (\S+)", text)]
                 frontmatter = text.split("---", 2)[1]
                 body = text.split("---", 2)[2]
                 runs = re.findall(r"(?m)^\s*\{\{DEVLOOPS\}\} (\S+) \$ARGUMENTS --json\s*$", body)
                 self.assertEqual(runs, [COMMANDS[name]])
-                # The only other mention is the pre-approval in the frontmatter (FR-021).
-                self.assertEqual(sorted(commands), sorted([COMMANDS[name], "*)"]))
-                self.assertIn("allowed-tools: Bash({{DEVLOOPS}} *)\n", frontmatter)
+                # Besides it: the pre-approval in the frontmatter (FR-021), and for the run skill
+                # the decision commands it runs once the user has chosen.
+                self.assertEqual(sorted(commands),
+                                 sorted([COMMANDS[name], "*)"] + DECISIONS[name]))
+                # Pre-approved: its devloops commands, and for the run skill reading the plan
+                # it shows (an edit of open-questions.md is asked for).
+                self.assertIn(f"allowed-tools: Bash({{{{DEVLOOPS}}}} *){TOOLS[name]}\n",
+                              frontmatter)
                 self.assertIn("user-invocable: true\n", frontmatter)
                 self.assertIn(f'name: "{name}"', frontmatter)
 
@@ -53,15 +60,23 @@ class SkillTemplatesTest(unittest.TestCase):
                 self.assertNotIn("orchestrate", text)
 
     def test_the_run_skill_describes_the_whole_run(self):
-        templates = dict(self.templates())
+        run = dict(self.templates())["devloops-run"]
         self.assertIn("Start or resume the devloops run in this project (backend-dev, then "
                       "frontend-dev, as the project configures), then summarize its status",
-                      templates["devloops-run"])
-        for name in ("devloops-approve", "devloops-replan"):
-            self.assertIn("the waiting loop", templates[name], name)
-        self.assertIn("the loop stopped on failure", templates["devloops-retry"])
-        for name in ("devloops-run", "devloops-approve", "devloops-replan", "devloops-retry"):
-            self.assertIn("`{error, exit_code}`: report `error`", templates[name], name)
+                      run)
+        self.assertIn("`{error, exit_code}`: report `error`", run)
+
+    def test_the_run_skill_asks_before_each_decision(self):
+        run = " ".join(dict(self.templates())["devloops-run"].split())  # one line
+        self.assertIn("AskUserQuestion", run)
+        self.assertIn("never decide for the user", run)
+        self.assertIn("never start a dashboard server yourself", run)
+        self.assertIn("{{DEVLOOPS}} retry --milestone <id>", run)
+        # retry only on a milestone; the other stops on failure are reported
+        self.assertIn("`status_reason.milestone_id`", run)
+        self.assertIn("`planning-trials-exhausted` is final", run)
+        # the dashboard only as the result gives it
+        self.assertIn("never state an address the result does not give", run)
 
 
 class AllowSkillsTest(unittest.TestCase):

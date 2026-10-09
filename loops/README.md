@@ -1092,23 +1092,40 @@ cost, start, and end.
 
 ## Claude Code skills
 
-`devloops init` installs six skills in `.claude/skills/`: `devloops-run`, `devloops-approve`,
-`devloops-replan`, `devloops-retry`, `devloops-status`, and `devloops-dashboard` (for example
-`/devloops-run --review-plan`, or `/devloops-retry --milestone M03`). Each runs one devloops
-command with `--json` and summarizes the result. They contain no loop logic, and none asks for a
-loop name: like the commands, the approve, replan, and retry skills act on the waiting loop and
-continue the run; pass `--no-continue` to only record the decision. They call `devloops`, or
-`bin/devloops` by its path when `init` ran from a checkout.
+`devloops init` installs two skills in `.claude/skills/`:
+
+- `devloops-run` (for example `/devloops-run --review-plan`) runs `devloops run --json` and
+  summarizes the result. When the run waits for a decision, it asks you and carries it out:
+  - paused for approval (exit 10): it shows the plan and the open questions with their suggested
+    answers, writes any answers you give into `open-questions.md`, then runs `devloops approve`
+    or `devloops replan`, as you choose;
+  - stopped on failure (exit 20): it shows the milestone and why it stopped, then runs
+    `devloops retry --milestone <id>` with the trials and guidance you give.
+
+  The decision continues the run, and the skill repeats this until the run completes, stops for
+  another reason, or you choose to stop (it then names the command that continues later). It never
+  starts a dashboard server: to watch the run live, run `devloops dashboard` in a terminal (or
+  `devloops dashboard --daemon`).
+- `devloops-status` runs `devloops status --json` and summarizes it (read-only).
+
+Neither contains loop logic or asks for a loop name. They call `devloops`, or `bin/devloops` by its
+path when `init` ran from a checkout. Approving, replanning, retrying, and the dashboard are also
+commands of their own, for a terminal.
+
+> Changed after [spec 005](../specs/005-dashboard-redesign/spec.md): the `devloops-approve`,
+> `devloops-replan`, `devloops-retry`, and `devloops-dashboard` skills were removed; the run skill
+> asks for the decisions instead. `init --upgrade` removes an unchanged installed copy of each.
 
 > Changed by [spec 003](../specs/003-single-run-command/contracts/skills.md): the
 > `devloops-orchestrate` skill was removed (`init --upgrade` removes an unchanged copy), and no
 > skill takes a loop name.
 
-The skills pre-approve their own command. To let Claude Code run devloops outside the skills
-without asking, run `devloops init --allow-skills` (also on an initialized project). It adds
-`Bash(devloops *)` to `permissions.allow` in `.claude/settings.json`, keeping every other setting.
-A settings file that is not valid JSON is left alone (exit 30), and the rule is printed so you can
-add it by hand.
+The skills pre-approve the devloops commands they run, and `devloops-run` reading the plan it shows
+you; Claude Code still asks before it writes your answers into `open-questions.md`. To let Claude
+Code run devloops outside the skills without asking, run `devloops init --allow-skills` (also on an
+initialized project). It adds `Bash(devloops *)` to `permissions.allow` in `.claude/settings.json`,
+keeping every other setting. A settings file that is not valid JSON is left alone (exit 30), and
+the rule is printed so you can add it by hand.
 
 ## Upgrades
 

@@ -160,7 +160,7 @@ loops/shared/tests/
 ├── test_live_call.py        # live.json lifecycle
 ├── test_dashboard_cli.py    # options, removed outputs, output hints, JSON fields
 └── test_app_js.py           # node --check on the joined script, node --test on assets/app/tests
-loops/shared/skills/devloops-dashboard/SKILL.md, devloops-{run,approve,replan,retry}/SKILL.md
+loops/shared/skills/devloops-run/SKILL.md (the dashboard and decision skills were removed)
 loops/shared/schemas/config.schema.json, project-config.schema.json
 loops/README.md; specs/001-…/contracts/{cli.md,workspace-layout.md}; specs/002-…/{spec.md,
 contracts/cli.md, contracts/full-dashboard.md, contracts/skills.md, contracts/project-layout.md}

@@ -1,5 +1,11 @@
 # Contract: skills changes (003)
 
+> **Revised after specs/005-dashboard-redesign**: the `devloops-approve`, `devloops-replan`,
+> `devloops-retry`, and `devloops-dashboard` skills are removed. `devloops-run` asks the user for
+> the decision when the run waits for one (exit 10: approve or replan; exit 20: retry), then runs
+> that command itself; it never starts a dashboard server. Only `devloops-run` and `devloops-status`
+> remain (loops/README.md "Claude Code skills").
+
 This contract replaces the skills table in `specs/002-devloops-init/contracts/skills.md`, which is
 edited in place to match. The template rules there (rendering `{{DEVLOOPS}}`, one command per skill,
 summarizing the `--json` result) are unchanged.

@@ -426,10 +426,11 @@ network, and open it: every view, file, and conversation within the size limit o
 
 #### Skills and documentation
 
-- **FR-031**: The `devloops-dashboard` skill MUST be updated: it finds the running server, or
-  starts one with `--daemon`, and reports its address; stops it with `--stop`; or exports and
-  reports the file. The run and decision skills MUST report
-  `dashboard_url` when present instead of the summary page and full-dashboard paths.
+- **FR-031**: The `devloops-run` skill MUST report `dashboard_url` when present, and otherwise
+  say that `devloops dashboard` shows the run live, instead of the summary page and
+  full-dashboard paths; it MUST NOT start a dashboard server. *Revised during implementation:
+  the `devloops-dashboard` skill, and the approve, replan, and retry skills, are removed (the run
+  skill asks for those decisions); the dashboard is started by command only.*
 - **FR-032**: The README and the affected contracts of specs 001 and 002 MUST be updated with
   "Revised by specs/005-dashboard-redesign" notes, and `contracts/full-dashboard.md` MUST be
   replaced by this feature's contracts.

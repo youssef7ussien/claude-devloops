@@ -174,3 +174,9 @@ the result. They contain no loop logic, and none takes a loop name except `devlo
 > **Revised by specs/003-single-run-command**
 > ([contracts/skills.md](../../003-single-run-command/contracts/skills.md)): the per-loop skills
 > and the orchestrator skill are replaced by `devloops-run`, which runs `devloops run`.
+
+> **Revised after specs/005-dashboard-redesign**: the `devloops-approve`, `devloops-replan`,
+> `devloops-retry`, and `devloops-dashboard` skills are removed. `devloops-run` asks the user for
+> the decision when the run waits for one (exit 10: approve or replan; exit 20: retry), then runs
+> that command itself; it never starts a dashboard server. Only `devloops-run` and `devloops-status`
+> remain (loops/README.md "Claude Code skills").

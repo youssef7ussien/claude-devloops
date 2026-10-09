@@ -13,53 +13,40 @@ The installed skills and this repository's skills are rendered from the same tem
 > project's loops with no loop name, the decision skills take no loop, and `devloops-orchestrate`
 > is removed (`init --upgrade` removes an unchanged installed copy and reports a changed one).
 
-| Skill | Runs exactly | Arguments (`$ARGUMENTS`, passed unchanged) |
-|-------|--------------|---------------------------------------------|
-| `devloops-run` | `{{DEVLOOPS}} run $ARGUMENTS --json` | `[--workspace …] [--requirements … \| --speckit-feature [dir]] [--story-id …] [--target-root …] [--backend-target …] [--frontend-target …] [--max-trials n] [--review-plan \| --accept-suggested] …` |
-| `devloops-approve` | `{{DEVLOOPS}} approve $ARGUMENTS --json` | `[--workspace …] [--no-continue] [--review-plan \| --accept-suggested]` |
-| `devloops-replan` | `{{DEVLOOPS}} replan $ARGUMENTS --json` | `[--workspace …] [--no-continue] [--review-plan \| --accept-suggested]` |
-| `devloops-retry` | `{{DEVLOOPS}} retry $ARGUMENTS --json` | `--milestone M01 [--reason "…"] [--trials n] [--workspace …] [--no-continue] [--review-plan \| --accept-suggested]` |
-| `devloops-status` | `{{DEVLOOPS}} status $ARGUMENTS --json` | `[<loop>] [--workspace …]` |
-| `devloops-dashboard` | `{{DEVLOOPS}} dashboard $ARGUMENTS --json` (never `--serve`, which runs until stopped: the skill tells the user to run it in a terminal) | `[--workspace …] [--export [--out …]]` |
+> **Revised after specs/005-dashboard-redesign**: the `devloops-approve`, `devloops-replan`,
+> `devloops-retry`, and `devloops-dashboard` skills are removed (`init --upgrade` removes an
+> unchanged installed copy of each). `devloops-run` asks the user for the decision when the run
+> waits for one and runs that command itself; it never starts a dashboard server. The table, the
+> template shape, and the rules below are revised to match. This repository no longer installs
+> the skills.
+
+| Skill | Runs | Arguments (`$ARGUMENTS`, passed unchanged) |
+|-------|------|---------------------------------------------|
+| `devloops-run` | `{{DEVLOOPS}} run $ARGUMENTS --json`; then, only after asking the user, `{{DEVLOOPS}} approve --json` or `{{DEVLOOPS}} replan --json` (exit 10), or `{{DEVLOOPS}} retry --milestone <id> [--reason …] [--trials n] --json` (exit 20 on a milestone), repeated while the run waits again | `[--workspace …] [--requirements … \| --speckit-feature [dir]] [--story-id …] [--target-root …] [--backend-target …] [--frontend-target …] [--max-trials n] [--review-plan \| --accept-suggested] …` |
+| `devloops-status` | exactly `{{DEVLOOPS}} status $ARGUMENTS --json` | `[<loop>] [--workspace …]` |
 
 ## Template shape
 
-Revised by specs/003-single-run-command (the run skill's description, hint, and summary).
+The templates are `loops/shared/skills/<name>/SKILL.md`; the run skill's text is its contract in
+full (what it summarizes, which stops it decides, and how it asks). Their frontmatter:
 
 ```markdown
 ---
 name: "devloops-run"
-description: "Start or resume the devloops run in this project (backend-dev, then frontend-dev, as the project configures), then summarize its status."
-argument-hint: "[--workspace <ws>] [--speckit-feature [dir] | --requirements <file>] [--story-id <id>] [--target-root <dir>] [--backend-target <dir>] [--frontend-target <dir>] [--max-trials <n>] [--review-plan | --accept-suggested] [other run options]"
+description: "Start or resume the devloops run in this project (backend-dev, then frontend-dev, as the project configures), then summarize its status; when it waits for a decision, ask the user and carry it out."
+argument-hint: "[--workspace <ws>] [--speckit-feature [dir] | --requirements <file>] … [--review-plan | --accept-suggested] [other run options]"
 user-invocable: true
-allowed-tools: Bash({{DEVLOOPS}} *)
+allowed-tools: Bash({{DEVLOOPS}} *), Read
 ---
-
-## User Input
-
-```text
-$ARGUMENTS
-```
-
-Run exactly one command through Bash from the project root, passing the user's arguments unchanged:
-
-    {{DEVLOOPS}} run $ARGUMENTS --json
-
-Summarize: exit_code, message, the run's status (`run.status`), and for each loop in `loops` its
-status, status_reason, next milestone and trials used, last failure, and artifacts; then the
-dashboard and full-dashboard paths, and any warnings. When the setup stops before anything runs
-(exit 30 with only `status_reason`: no loop, or a frontend without a backend), report
-`status_reason.message`, which says how to fix it. On a usage error (exit 2) the result is
-`{error, exit_code}`: report `error`. Explain what the exit code asks of the user (10: review the
-waiting loop's outputs/ and answer open-questions.md, then approve or replan, which continue the
-run; 20/30/40/50: the stop reason and the README's recovery step).
-
-Do not approve, replan, retry, edit files, or re-run anything unless the user asks. On a usage
-error, report it and do not guess missing arguments. This skill holds no loop logic.
 ```
 
 ## Rules (FR-021)
 
-- One devloops command per invocation. Never a second command, a retry, or a file edit.
-- The arguments are passed unchanged. `--json` is always appended.
-- `allowed-tools` pre-approves only `Bash({{DEVLOOPS}} *)`.
+- `devloops-status` runs one devloops command per invocation, and edits no file.
+- `devloops-run` runs one `run` command; then, only for a decision the user chose when asked
+  (AskUserQuestion), `approve`, `replan`, or `retry`, and it repeats that while the run waits
+  again. It decides nothing itself, starts no dashboard server, and edits no file except writing
+  the user's own answers into `open-questions.md`.
+- The user's arguments are passed unchanged. `--json` is always appended.
+- `allowed-tools` pre-approves `Bash({{DEVLOOPS}} *)`, and `Read` for the run skill (the plan it
+  shows); an edit of `open-questions.md` is asked for.
