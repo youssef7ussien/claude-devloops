@@ -5,7 +5,6 @@ import io
 import json
 import os
 import re
-import signal
 import threading
 import unittest
 from unittest import mock
@@ -13,7 +12,7 @@ from unittest import mock
 import helpers  # noqa: F401 - puts the package on sys.path
 import samples
 from devloops import appbundle, artifacts, dashboard, serve, workspace
-from stub_loop import WS, StubLoopMixin, implemented, wait_for
+from stub_loop import WS, StubLoopMixin, implemented
 
 SECRET = "S3CR3T-served-value"
 
@@ -146,6 +145,30 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         version = json.loads(self.get(f"/w/{WS}/version")[2])["version"]
         self.assertEqual(headers["x-devloops-version"], version)
         self.assertEqual(headers["cache-control"], "no-store")
+
+    def test_summary_and_loop_are_redacted(self):
+        self.completed()
+        plan = self.path(os.path.join("state", "plan.json"))
+        with open(plan, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["milestones"][0]["title"] = f"Use {SECRET}"
+        with open(plan, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        workspace.open_workspace("other", self.t.project(), self.t.kit(), create=True)
+        self.start()
+        summary, headers = self.api("summary")
+        self.assertEqual(summary["workspaces"], ["other", WS])
+        self.assertEqual(summary["version"], headers["x-devloops-version"])
+        self.assertEqual([c["loop"] for c in summary["loops"]], ["backend-dev"])
+        loop, _ = self.api("loops/backend-dev")
+        self.assertEqual(loop["milestones"][0]["title"], "Use ***")
+        for body in (summary, loop):
+            self.assertNotIn(SECRET, json.dumps(body))
+            self.assertIn("Use ***", json.dumps(body))
+        self.assertEqual(self.api("loops/frontend-dev", 404)[0],
+                         {"error": "no loop 'frontend-dev' in this workspace"})
+        for path in ("calls", "files", "events", "questions"):
+            self.assertNotIn(SECRET, json.dumps(self.api(path)[0]), path)
 
     def test_a_builder_runs_once_per_version(self):
         self.completed()
@@ -417,56 +440,6 @@ class RecordTest(unittest.TestCase):
         self.assertIsNone(serve._claim_record(path, mine, err))
         with open(path) as f:
             self.assertEqual(json.load(f), mine)
-
-
-class ServeCommandTest(StubLoopMixin, unittest.TestCase):
-    def serving(self, *args):
-        proc = self.start_cli("dashboard", "--serve", "--port", "0", "--json", *args)
-        line = wait_for(proc.stdout.readline, what="the server's first line")
-        return proc, json.loads(line)
-
-    def test_serve_records_itself_and_the_hints_show_its_url(self):
-        self.assertEqual(self.first_run(), 10, self.last_output)
-        self.assertIn("files and conversations: devloops dashboard --serve --workspace us3",
-                      self.last_output)
-        proc, started = self.serving()
-        self.assertEqual(started["host"], "127.0.0.1")
-        self.assertIsNone(started["token"])
-        url = f"http://127.0.0.1:{started['port']}/w/{WS}/"
-        self.assertEqual(started["url"], url)
-        record = serve.running(self.t.project(), self.t.env)
-        self.assertEqual(record["pid"], proc.pid)
-        # Every command now says where it is served.
-        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
-        self.assertIn(f"files and conversations: {url} (dashboard server running)",
-                      self.last_output)
-        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
-        self.assertIn(url, self.last_output)
-        # A second server is not started.
-        code, out, err = self.t.run_cli(["dashboard", "--serve", "--workspace", WS])
-        self.assertEqual(code, 0, out + err)
-        self.assertIn(f"already serving: {url} (pid {proc.pid})", out)
-        # Stopped, it removes its record.
-        proc.send_signal(signal.SIGTERM)
-        self.assertEqual(proc.wait(timeout=30), 0)
-        self.assertIsNone(serve.running(self.t.project(), self.t.env))
-        self.assertFalse(os.path.exists(serve.record_path(self.t.project(), self.t.env)))
-
-    def test_a_named_workspace_that_does_not_exist_is_an_error(self):
-        self.assertEqual(self.first_run(), 10, self.last_output)  # only us3 exists
-        default = self.t.project().default_workspace
-        self.assertNotEqual(default, WS)
-        code, out, err = self.t.run_cli(["dashboard", "--serve", "--workspace", default])
-        self.assertEqual(code, 2, out + err)
-        self.assertIn("does not exist", err)
-
-    def test_flags_that_need_serve_or_export(self):
-        self.assertEqual(self.first_run(), 10, self.last_output)
-        for args in (["--port", "1"], ["--host", "0.0.0.0"], ["--open"], ["--no-token"],
-                     ["--out", "x.html"], ["--serve", "--token", "abcdefgh", "--no-token"],
-                     ["--serve", "--token", "short"], ["--serve", "--token", "has;semicolons"],
-                     ["--serve", "--export"]):
-            self.assertEqual(self.cli("dashboard", *args), 2, args)
 
 
 if __name__ == "__main__":

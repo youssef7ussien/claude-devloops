@@ -35,6 +35,15 @@ def _positive_int(text):
     return value
 
 
+# Flags `devloops dashboard` no longer takes (specs/005 contracts/cli.md): what replaces each.
+REMOVED_DASHBOARD_FLAGS = {
+    "--serve": "`devloops dashboard` serves now (add --daemon to run it in the background)",
+    "--open": "the browser opens by default now (--no-open to not open it)",
+    "--light": "the summary page is gone; `devloops dashboard` serves the dashboard",
+    "--out": "give the path to --export: `devloops dashboard --export <path>`",
+}
+
+
 def _port(text):
     try:
         value = int(text)
@@ -145,28 +154,28 @@ def build_parser():
     export.add_argument("--csv", metavar="FILE", help="output file (default: standard output)")
 
     dash = sub.add_parser("dashboard", parents=[common],
-                          help="refresh <workspace>/dashboard.html; --serve shows files and "
-                               "conversations live, --export writes one shareable file")
+                          help="serve the dashboard (until Ctrl+C, or --daemon in the "
+                               "background); --stop stops it; --export writes one shareable file")
     how = dash.add_mutually_exclusive_group()
-    how.add_argument("--serve", action="store_true",
-                     help="serve the dashboards of every workspace, with each file and "
-                          "conversation, live, until Ctrl+C (read-only)")
-    how.add_argument("--export", action="store_true",
-                     help="write a self-contained full dashboard (every file and conversation "
+    how.add_argument("--daemon", action="store_true",
+                     help="serve in the background; print the address and the log's path")
+    how.add_argument("--stop", action="store_true", help="stop the project's dashboard server")
+    how.add_argument("--export", nargs="?", const=True, default=None, metavar="PATH",
+                     help="write a self-contained dashboard (every file and conversation "
                           "embedded) to share or keep")
-    how.add_argument("--light", action="store_true", help=argparse.SUPPRESS)  # the default now
-    dash.add_argument("--host", help="with --serve: the address to listen on (default: "
-                                     "127.0.0.1; 0.0.0.0 for every network, with a token)")
-    dash.add_argument("--port", type=_port, help=f"with --serve: the port (default: "
-                                                  f"{serve.DEFAULT_PORT}, or the next free one)")
-    dash.add_argument("--open", action="store_true", help="with --serve: open it in a browser")
-    dash.add_argument("--token", help="with --serve: the token to require (default: a random one "
-                                      "when listening beyond this machine)")
+    dash.add_argument("--host", help="the address to listen on (default: 127.0.0.1; 0.0.0.0 "
+                                     "for every network, with a token)")
+    dash.add_argument("--port", type=_port, help=f"the port (default: {serve.DEFAULT_PORT}, or "
+                                                  f"the next free one)")
+    dash.add_argument("--token", help="the token to require (default: a random one when "
+                                      "listening beyond this machine)")
     dash.add_argument("--no-token", action="store_true",
-                      help="with --serve: require no token, even beyond this machine")
-    dash.add_argument("--out", metavar="FILE",
-                      help="with --export: the file to write (default: a new file in the "
-                           "dashboards folder)")
+                      help="require no token, even beyond this machine")
+    dash.add_argument("--no-open", action="store_true", help="do not open a browser")
+    dash.add_argument("--daemon-log", help=argparse.SUPPRESS)  # set by --daemon for its child
+    for removed in REMOVED_DASHBOARD_FLAGS:  # a clear error rather than "unrecognized"
+        dash.add_argument(removed, nargs="?", const=True, default=None, help=argparse.SUPPRESS,
+                          dest="removed_" + removed.strip("-"))
 
     status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
     status.add_argument("loop", nargs="?", choices=LOOPS)
@@ -724,48 +733,62 @@ def _write_dashboard(ws, announce, light=False):
 
 
 def _dashboard(args, kit, project, env):
-    """`devloops dashboard [--serve | --export]` (contracts/cli.md)."""
+    """`devloops dashboard [--daemon | --stop | --export [<path>]]` (specs/005 contracts/cli.md)."""
+    for flag, why in REMOVED_DASHBOARD_FLAGS.items():
+        if getattr(args, "removed_" + flag.strip("-")) is not None:
+            raise state.UsageError(f"{flag} was removed: {why}")
+    serving = not (args.stop or args.export is not None)
     for flag, given in (("--host", args.host), ("--port", args.port is not None),
-                        ("--open", args.open), ("--token", args.token),
-                        ("--no-token", args.no_token)):
-        if given and not args.serve:
-            raise state.UsageError(f"{flag} goes with --serve")
-    if args.out and not args.export:
-        raise state.UsageError("--out goes with --export")
+                        ("--token", args.token is not None), ("--no-token", args.no_token),
+                        ("--no-open", args.no_open)):
+        if given and not serving:
+            raise state.UsageError(f"{flag} goes with serving, not with "
+                                   f"{'--stop' if args.stop else '--export'}")
     if args.token is not None and args.no_token:
         raise state.UsageError("--token and --no-token cannot go together")
     if args.token is not None and not re.fullmatch(r"[A-Za-z0-9._~-]{8,}", args.token):
         raise state.UsageError("--token must be at least 8 characters from A-Z a-z 0-9 . _ ~ -")
+    if args.stop:
+        return serve.stop(project, env, as_json=args.json)
     try:
         ws = workspace.open_workspace(args.workspace, project, kit, create=False)
     except state.UsageError:
         # A server covers every workspace: without --workspace it opens on any of them.
-        names = serve.Site(project, kit, env).workspaces() if args.serve else {}
+        names = serve.Site(project, kit, env).workspaces() if serving else {}
         if not names or args.workspace_given:
             raise
         ws = workspace.open_workspace(next(iter(names)), project, kit, create=False)
-    if args.serve:
-        return serve.serve(project, kit, ws, host=args.host or "127.0.0.1", port=args.port,
-                           token=args.token, use_token=False if args.no_token else None,
-                           open_browser=args.open, as_json=args.json, env=env)
-    if args.export:
-        full = _write_full_dashboard(ws, "dashboard command", env, out=args.out)
-        # The summary page links the exported dashboards (FR-036a): refresh it to list this one.
-        path = _write_dashboard(ws, announce=False, light=True)
+    if args.export is not None:
+        out = None if args.export is True else args.export
+        full = _write_full_dashboard(ws, "dashboard command", env, out=out)
+        _write_dashboard(ws, announce=False, light=True)  # it lists the full dashboards
         if args.json:
-            _dump(args, {"workspace": ws.name, "dashboard": path, "full_dashboard": full and {
+            _dump(args, {"workspace": ws.name, "export": full and {
                 k: full[k] for k in ("path", "bytes", "largest", "unavailable", "not_embedded")}})
         else:
             _print_full(full, largest=True)
         return 0 if full else 1
-    path = _write_dashboard(ws, announce=not args.json)
-    rec = serve.running(project, env)
-    if args.json:
-        _dump(args, {"workspace": ws.name, "dashboard": path,
-                     "serving": serve.url_for(rec, ws.name) if rec else None})
-    else:
-        print(_files_hint(args, ws))
-    return 0 if path else 1
+    host = args.host or "127.0.0.1"
+    if args.daemon:
+        token = serve.choose_token(host, args.token, False if args.no_token else None)
+        # The child opens the workspace again: by path when it lies outside the workspaces folder
+        # (its name would not find it there).
+        inside = os.path.dirname(os.path.realpath(ws.path)) == \
+            os.path.realpath(project.workspaces_dir)
+        argv = ["--workspace", ws.name if inside else ws.path, "--host", host]
+        if args.port is not None:
+            argv += ["--port", str(args.port)]
+        if not token:
+            argv.append("--no-token")
+        return serve.start_daemon(project, ws, argv, token=token, open_browser=not args.no_open,
+                                  as_json=args.json, env=env)
+    token = args.token
+    if args.daemon_log and token is None:  # a daemon's child: its token comes in the environment
+        token = env.get(serve.TOKEN_ENV) or None
+    return serve.serve(project, kit, ws, host=host, port=args.port, token=token,
+                       use_token=False if args.no_token else None,
+                       open_browser=not args.no_open, as_json=args.json, env=env,
+                       daemon_log=args.daemon_log)
 
 
 def _init(args, kit):

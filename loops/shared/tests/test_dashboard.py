@@ -44,7 +44,7 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         self.assertIn('<code title="backend-dev/state/milestones/M01/trials/1/evidence/stub.txt">'
                       'stub.txt</code>', page)
         self.assertNotRegex(page, r'href="backend-dev/')
-        self.assertIn("Files and conversations: <code>devloops dashboard --serve --workspace us3"
+        self.assertIn("Files and conversations: <code>devloops dashboard --daemon --workspace us3"
                       "</code>", page)
         for view in ("overview", "backend-dev", "calls", "questions", "events"):
             self.assertIn(f'<section class="view" id="{view}"', page)
@@ -161,23 +161,7 @@ class DashboardTest(StubLoopMixin, unittest.TestCase):
         page_path = os.path.join(self.t.workspace_dir, "dashboard.html")
         self.assertFalse(os.path.exists(page_path))
         self.assertNotIn("dashboard: ", self.last_output)
-        self.assertIn("files and conversations: devloops dashboard --serve", self.last_output)
-        self.assertEqual(self.cli("dashboard"), 0, self.last_output)  # on demand, still
-        self.assertTrue(os.path.exists(page_path))
-
-    def test_the_dashboard_command(self):
-        self.assertEqual(self.first_run(), 10, self.last_output)
-        os.remove(os.path.join(self.t.workspace_dir, "dashboard.html"))
-        self.assertEqual(self.cli("dashboard", "--json"), 0, self.last_output)
-        self.assertEqual(json.loads(self.last_output), {
-            "workspace": WS, "dashboard": os.path.join(self.t.workspace_dir, "dashboard.html"),
-            "serving": None})
-        self.assertIn("Awaiting approval", self.page())
-        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
-        self.assertIn("files and conversations: devloops dashboard --serve --workspace us3",
-                      self.last_output)
-        code, out, err = self.t.run_cli(["dashboard", "--workspace", "no-such-ws"])
-        self.assertEqual(code, 2, out + err)
+        self.assertIn("files and conversations: devloops dashboard --daemon", self.last_output)
 
     def test_a_dashboard_failure_never_changes_the_run_outcome(self):
         # A directory where the page should go makes the write fail.

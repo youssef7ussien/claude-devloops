@@ -77,14 +77,14 @@ That is the whole run. `devloops run` goes through these phases without stopping
 | 7 | Done | `final-report.md` per loop and the dashboards are written |
 
 Progress shows in the terminal and the [live dashboard](#dashboards)
-(`devloops dashboard --serve` in another terminal). If you stop it (`Ctrl C`, a crash, a reboot),
+(`devloops dashboard` in another terminal, or `devloops dashboard --daemon` in the background). If you stop it (`Ctrl C`, a crash, a reboot),
 `devloops run` again resumes where it stopped. A backend-only project skips phases 5 and 6; the
 handoff (phase 4) is still recorded, for a frontend added later.
 
 **Review afterwards.** Read `.devloops/workspaces/main/<loop>/outputs/final-report.md`. Its first
 sections, **Suggested answers accepted** and **Assumptions for review**, are the decisions the
 requirements left open. `open-questions.md` has every question with the answer used, and
-`devloops dashboard --serve` or `devloops status` show the rest.
+`devloops dashboard` or `devloops status` show the rest.
 
 **When it stops**, it prints the one command to run next. `retry`, `approve`, and `replan` record
 your decision and then continue the run in the same command, so `devloops run` is not needed again.
@@ -255,7 +255,7 @@ version is newer, install that version.
 | `retry --milestone <id> [--reason <text>] [--trials <n>]` | Give the loop stopped on failure more trials for that milestone (default `max_trials`), then continue the run. The reason, when given, is guidance passed to later fix prompts. Refused (exit 2, `no loop is stopped on failure (run: <status>)`) otherwise |
 | `status [<loop>]` | Show the run's status (`run: <status>`) and, for each loop it includes (or the one named), the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the exported dashboards. Read-only |
 | `export-sessions [--csv <file>]` | Write every Claude invocation as CSV (standard output by default) |
-| `dashboard [--serve \| --export]` | Refresh the summary page `<workspace>/dashboard.html`. `--serve` serves the live dashboard, with every file and conversation, until `Ctrl C`; `--export [--out <file>]` writes it as one self-contained file (see [Dashboards](#dashboards)) |
+| `dashboard [--daemon \| --stop \| --export [<path>]]` | Serve the live dashboard, with every file and conversation, until `Ctrl C` and open it in a browser (`--no-open` not to); `--daemon` serves it in the background and prints its address and log; `--stop` stops it; `--export [<path>]` writes it as one self-contained file (see [Dashboards](#dashboards)) |
 
 `devloops orchestrate` and `devloops run <loop>` were removed by
 [spec 003](../specs/003-single-run-command/spec.md): both are usage errors (exit 2).
@@ -270,11 +270,11 @@ version is newer, install that version.
 stderr. First, where to look while the command works:
 
 ```
-         files and conversations: devloops dashboard --serve
+         files and conversations: devloops dashboard --daemon
          log: /repo/.devloops/workspaces/main/backend-dev/state/run.log
 ```
 
-(with the URL instead when `devloops dashboard --serve` is running).
+(with the URL instead when a dashboard server is running).
 
 Then one line per step: each recorded event (a trial starting, passing, or failing, a plan stored,
 an approval, a question, a stop) and each Claude call, with the model it runs on, and when it
@@ -527,18 +527,20 @@ exit code.
 
 | View | What it is | How |
 |---|---|---|
-| **Live dashboard** | Everything about every workspace, with each file and conversation, following runs as they go | `devloops dashboard --serve` |
+| **Live dashboard** | Everything about every workspace, with each file and conversation, following runs as they go | `devloops dashboard` (`--daemon` in the background) |
 | **Summary page** | `<workspace>/dashboard.html`: one offline page with status, milestones, trials, failures, questions, and cost | Written when a command pauses, stops, or ends; `devloops dashboard` on demand |
 | **Exported dashboard** | One self-contained HTML file with every file and conversation embedded, to share or keep | `devloops dashboard --export` |
 
 ### The live dashboard
 
 ```
-devloops dashboard --serve [--port 8765] [--open]
+devloops dashboard [--port 8765] [--no-open] [--daemon]
+devloops dashboard --stop
 ```
 
 serves the dashboards of the project's workspaces at `http://127.0.0.1:8765/w/<workspace>/` until
-`Ctrl C`. It starts nothing else and writes nothing: open it while a run goes on, or afterwards.
+`Ctrl C` (with `--daemon`, in the background until `devloops dashboard --stop`), and opens it in a
+browser unless `--no-open`. It starts nothing else and writes nothing to the project: open it while a run goes on, or afterwards.
 The sidebar switches between workspaces.
 
 - **Overview**: status, milestones achieved, first-try pass rate, trials, Claude calls, cost,
@@ -578,7 +580,7 @@ stopped.
 
 While it runs, the other commands print its URL instead of the command
 (`files and conversations: http://127.0.0.1:8765/w/main/ (dashboard server running)`), and a second
-`--serve` prints `already serving` with that URL. It records itself in
+`devloops dashboard` prints that URL instead of starting another. It records itself in
 `$XDG_RUNTIME_DIR/devloops/` (or `~/.cache/devloops/`), outside the project.
 
 **It is safe by default.** It listens on `127.0.0.1` only, and there it answers only requests
@@ -591,7 +593,7 @@ replaced with `***` in every file and conversation it sends, as in the exported 
 beyond this machine:
 
 ```
-devloops dashboard --serve --host 0.0.0.0
+devloops dashboard --host 0.0.0.0
 devloops: warning: the dashboard is reachable from the network (0.0.0.0:8765). ...
 serving the dashboards of /repo (read-only; Ctrl+C to stop):
   http://192.168.1.20:8765/w/main/?token=3f9aQx...
@@ -617,17 +619,17 @@ HTTP: use it on a private network only. To reach it from elsewhere, use an SSH t
 ### The summary page
 
 `<workspace>/dashboard.html` is written when `run`, `approve`, `replan`, or `retry`
-pauses, stops, or ends, and by `devloops dashboard`. It is one offline file with the Overview, each
+pauses, stops, or ends. It is one offline file with the Overview, each
 loop's milestones and trials, Claude calls, Questions, Events, and links to the exported
 dashboards, so after a pause or a stop the state is one click away. It shows no file contents and
 no conversations: where they would be, it says `Files and conversations: devloops dashboard
---serve`. It does not change while a command runs; use the live dashboard for that. Set
+--daemon`. It does not change while a command runs; use the live dashboard for that. Set
 `dashboard.light` to `false` to stop commands writing it.
 
 ### Exported dashboards
 
 ```
-devloops dashboard --export [--out <file.html>]
+devloops dashboard --export [<file.html>]
 ```
 
 writes the live dashboard of one workspace as a single self-contained HTML file that opens
@@ -635,8 +637,8 @@ anywhere, offline, with no other file: every input, plan file, output, check, tr
 of evidence (images inline), prompt with the source of each of its parts, and the full Claude Code
 conversation of every call are embedded in it.
 
-- **Where**: `--out` names the file (replaced if it exists). The summary page is refreshed too, and
-  links it. Without `--out`,
+- **Where**: a path after `--export` names the file (replaced if it exists). The summary page is refreshed too, and
+  links it. Without a path,
   `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>.html` (UTC), `.devloops/dashboards/` by default;
   those are never replaced, so they **accumulate**: delete old ones when you no longer need them.
   `status` reports how many there are and their total size.

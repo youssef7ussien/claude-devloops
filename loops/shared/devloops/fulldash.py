@@ -512,7 +512,7 @@ def render_full(data, ws, embedder, env=None, trigger=None, serve=None):
 
     if serve:
         notice = (f'<p class="notice">{ui.icon("alert")}<span><strong>Served live by '
-                  f'<code>devloops dashboard --serve</code>, read-only.</strong> Configured secrets '
+                  f'<code>devloops dashboard</code>, read-only.</strong> Configured secrets '
                   f'are replaced with <code>***</code>; other sensitive text may remain. devloops '
                   f'{e(__version__)}</span></p>')
     else:

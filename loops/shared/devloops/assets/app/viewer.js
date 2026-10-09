@@ -315,6 +315,25 @@
   }
   function close() { if (dlg && dlg.open) dlg.close(); }
 
+  /* A link to a file that opens it in the viewer (with `list` to step through), or a "missing"
+     label for a file that cannot be read. Its address is the file's route, so it opens in a new
+     tab too. */
+  function link(ref, text, list) {
+    if (!ref || ref.missing || !ref.id) {
+      var m = DL.el('span', 'missing', text || (ref && ref.path) || 'missing');
+      m.title = 'Missing: ' + ((ref && ref.path) || '');
+      return m;
+    }
+    var a = DL.link(DL.router.href('file', { id: ref.id }), text || nameOf(ref));
+    a.title = ref.path || '';
+    a.addEventListener('click', function (ev) {
+      if (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+      ev.preventDefault();
+      open(ref, { list: list, opener: a });
+    });
+    return a;
+  }
+
   /* The workspace changed: reload the open file if its version did. */
   DL.bus.on('changed', function () {
     if (!dlg || !dlg.open || !current || !DL.api) return;
@@ -334,6 +353,7 @@
   DL.viewer = {
     open: open,
     close: close,
+    link: link,
     isOpen: function () { return !!(dlg && dlg.open); },
     current: function () { return current; },
     VIEWERS: VIEWERS

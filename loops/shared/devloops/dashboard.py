@@ -5,7 +5,7 @@ Everything is read from the workspace's state (`workspace.json`, each loop's `st
 views here (overview, loops, calls, questions, events) are shared with the full dashboard and the
 served one (fulldash.py, serve.py); the shell, styles, and script come from ui.py, so the page
 opens offline from disk. The summary links no workspace file: files and conversations are what
-`devloops dashboard --serve` shows. State is already redacted (FR-070); every value is
+`devloops dashboard` shows. State is already redacted (FR-070); every value is
 HTML-escaped here.
 """
 import html
@@ -15,6 +15,7 @@ import re
 import shlex
 import socket
 import threading
+import urllib.parse
 from datetime import datetime
 
 from . import __version__, artifacts, render, state, ui
@@ -186,7 +187,11 @@ def collect_loop(ws, loop):
             doc = (state.read_json(os.path.join(trial_dir, "trial.json")) or {}) if latest else {}
             calls = [r for r in by_milestone.get(mid, []) if r.get("trial") == n
                      and (not shared or _within(r, summary))]
+            attempt = sum(1 for earlier in summaries[:k] if earlier["n"] == n) + 1
             trials.append({
+                # `key` names the trial in addresses: `n`, or `n.k` for an earlier attempt of
+                # number n that was voided and re-run under the same number
+                "key": str(n) if latest else f"{n}.{attempt}", "attempt": attempt,
                 "n": n, "kind": doc.get("kind") or ("implement" if n == 1 else "fix"),
                 "status": summary["status"], "reason": summary.get("reason"),
                 "detail": (doc.get("failure") or {}).get("detail"),
@@ -357,12 +362,14 @@ class Context:
     first needed: the collected data, the file listing, and the redactor. The server keeps one
     per workspace version (serve.py); every builder is `builder(ctx, **path parameters) -> dict`.
 
-    `workspaces` are the names the page can switch to (served)."""
+    `workspaces` are the names the page can switch to (served); `version` is the workspace version
+    the answers are for (the server's digest), shown in the summary."""
 
-    def __init__(self, ws, env=None, workspaces=None):
+    def __init__(self, ws, env=None, workspaces=None, version=None):
         self.ws = ws
         self.env = os.environ if env is None else env
         self.workspaces = list(workspaces or [ws.name])
+        self.version = version
         self._lock = threading.RLock()  # `index` asks for `data` while making itself
         self._made = {}
 
@@ -386,6 +393,353 @@ class Context:
     @property
     def redactor(self):
         return self._once("redactor", lambda: artifacts.workspace_redactor(self.ws, self.env))
+
+
+    @property
+    def refs(self):
+        """`{workspace-relative path: FileRef}` of the listed files."""
+        def make():
+            out = {}
+
+            def walk(nodes):
+                for node in nodes:
+                    if node.get("file"):
+                        out.setdefault(node["file"]["path"], node["file"])
+                    walk(node.get("children") or [])
+            walk(self.index["trees"])
+            return out
+        return self._once("refs", make)
+
+    def file_ref(self, rel):
+        """The FileRef of a workspace-relative path, or `{id: None, path, missing: true}`."""
+        rel = os.path.normpath(rel).replace(os.sep, "/")
+        return self.refs.get(rel) or {"id": None, "path": rel, "missing": True}
+
+
+# Addresses in the app (assets/app/router.js ROUTES): what each item of the data links to.
+ROUTES = {"overview": "", "run": "run", "loop": "loop/{loop}", "plan": "loop/{loop}/plan",
+          "trial": "loop/{loop}/m/{milestone}/t/{key}", "calls": "calls",
+          "call": "call/{loop}/{seq}", "files": "files", "file": "file/{id}",
+          "questions": "questions", "events": "events"}
+
+
+def _quote(value):
+    return urllib.parse.quote(str(value), safe="!~*'()")  # as encodeURIComponent
+
+
+def route(view, query=None, **params):
+    """The app's address of a view: `route("trial", loop=…, milestone=…, key=…)` ->
+    `#/loop/…/m/…/t/…`; `query` adds `?k=v`."""
+    path = ROUTES[view].format(**{k: _quote(v) for k, v in params.items()})
+    q = "&".join(f"{_quote(k)}={_quote(v)}" for k, v in (query or {}).items()
+                 if v not in (None, ""))
+    return "#/" + path + (f"?{q}" if q else "")
+
+
+def next_action(loop, d):
+    """What the developer does next about a loop: `{text, route}` or None. In `text`, commands and
+    paths are between backticks; `route` is where the page shows what to look at."""
+    status = d["status"]
+    reason = d["status_reason"] or {}
+    code = reason.get("code")
+    if code == "interrupted":
+        return None  # the reason's message says what it cost and what to run
+    if status == "awaiting-approval":
+        return {"text": f"Review `{loop}/outputs/`, answer `open-questions.md` (an empty answer "
+                        f"accepts Claude's suggestion), then `devloops approve` or "
+                        f"`devloops replan`.", "route": route("plan", loop=loop)}
+    mid = reason.get("milestone_id")
+    if status == "stopped-on-failure" and code == "needs-input":
+        return {"text": f"Answer the new questions in `open-questions.md` (an empty answer accepts "
+                        f"Claude's suggestion), then `devloops retry --milestone {mid} "
+                        f"--reason \"…\"`.", "route": route("questions")}
+    if status == "stopped-on-failure" and code in ("trials-exhausted",):
+        trials = next((m["trials"] for m in d["milestones"] if m["id"] == mid), [])
+        return {"text": f"Read the last trial's validation and evidence, then `devloops retry "
+                        f"--milestone {mid} --reason \"…\"`.",
+                "route": (route("trial", loop=loop, milestone=mid, key=trials[-1]["key"])
+                          if trials else route("loop", loop=loop))}
+    if status == "stopped-on-service-error":
+        return {"text": "Fix the cause (log in, wait out a rate limit), then `devloops run`.",
+                "route": None}
+    if status in ("planning", "implementing"):
+        return {"text": "Run `devloops run` to continue.", "route": None}
+    return None
+
+
+TONE_ORDER = {"critical": 0, "warning": 1, "info": 2}
+
+
+def attention_items(data, file_route=None, records=False):
+    """What a reader should look at first, most urgent first: `[{kind, tone, loop, message,
+    route, ...}]` (specs/005 data-model AttentionItem). `file_route(rel)` links a file.
+
+    Kinds: `loop` (stopped, paused, or interrupted; `status`, `reason`, `action`),
+    `failing-criteria` (on a milestone's latest trial; `milestone`, `trial`, `criteria`),
+    `passed-after` (a milestone achieved after failed or voided trials; `failed`, `voided`,
+    `reasons`), `auto-accepted`, `unanswered`, and `suggested` questions (`questions`, while the
+    loop is not done for the last two), `failed-call` (`call`, `step`, `failure`), and
+    `large-evidence` (`files: [{path, bytes, route}]`, over 1 MB). With `records`, a failed call
+    also carries its invocation `record` (the summary page links it)."""
+    items = []
+    for loop, d in data["loops"].items():
+        status = d["status"]
+        reason = d["status_reason"] or {}
+        if status.startswith("stopped") or status == "awaiting-approval" \
+                or reason.get("code") == "interrupted":
+            label = RUN_STATUS.get(status, (status,))[0]
+            items.append({"kind": "loop", "tone": "critical" if status.startswith("stopped")
+                          else "warning", "loop": loop, "status": status,
+                          "reason": reason.get("message") or "",
+                          "message": f"{loop} is {label.lower()}" + (
+                              f": {reason['message']}" if reason.get("message") else ""),
+                          "action": next_action(loop, d), "route": route("loop", loop=loop)})
+        for m in d["milestones"]:
+            last = m["trials"][-1] if m["trials"] else None
+            failing = [c["criterion_id"] for c in ((last or {}).get("validation") or {})
+                       .get("criteria", []) if not c.get("passed")]
+            if failing and m["status"] != "achieved":
+                items.append({"kind": "failing-criteria", "tone": "critical", "loop": loop,
+                              "milestone": m["id"], "trial": last["key"], "criteria": failing,
+                              "message": f"{loop} {m['id']}: {', '.join(failing)} failing on "
+                                         f"trial {last['n']}",
+                              "route": route("trial", loop=loop, milestone=m["id"],
+                                             key=last["key"])})
+            bad = [t for t in m["trials"] if t["status"] in ("failed", "void")]
+            if m["status"] == "achieved" and bad:
+                failed = sum(1 for t in bad if t["status"] == "failed")
+                voided = len(bad) - failed
+                kinds = ", ".join(f"{n} {word}" for n, word in ((failed, "failed"),
+                                                                (voided, "voided")) if n)
+                reasons = sorted({t["reason"] for t in bad if t.get("reason")})
+                items.append({"kind": "passed-after", "tone": "info", "loop": loop,
+                              "milestone": m["id"], "failed": failed, "voided": voided,
+                              "reasons": reasons,
+                              "message": f"{loop} {m['id']} passed after {kinds} trial(s)"
+                                         + (f" ({', '.join(reasons)})" if reasons else ""),
+                              "route": route("loop", {"m": m["id"]}, loop=loop)})
+        sources = {qid: question_answer(d, qid)[1][1] for qid in question_ids(d)}
+        auto = [qid for qid, src in sources.items()
+                if src == "accepted" and "automatically" in d["questions"][qid]["source"]]
+        groups = [("auto-accepted", "warning", auto,
+                   "suggested answer(s) accepted automatically", "review them like assumptions")]
+        if status != "completed":
+            groups += [("unanswered", "warning",
+                        [qid for qid, src in sources.items() if src is None],
+                        "unanswered question(s)", ""),
+                       ("suggested", "info",
+                        [qid for qid, src in sources.items() if src == "suggested"],
+                        "suggested answer(s) not yet accepted",
+                        "an empty answer accepts the suggestion")]
+        for kind, tone_, ids, what, note in groups:
+            if ids:
+                items.append({"kind": kind, "tone": tone_, "loop": loop, "questions": ids,
+                              "what": what, "note": note,
+                              "message": f"{loop}: {len(ids)} {what} ({', '.join(ids)})"
+                                         + (f"; {note}" if note else ""),
+                              "route": route("questions")})
+        for r in d["invocations"]:
+            failure = r.get("failure_class")
+            if failure not in (None, "none"):
+                items.append({"kind": "failed-call", "tone": "warning", "loop": loop,
+                              "call": r.get("seq"), "step": r.get("step"), "failure": failure,
+                              "message": f"{loop} call #{r.get('seq')} {r.get('step')} failed "
+                                         f"({failure})",
+                              "route": route("call", loop=loop, seq=r.get("seq")),
+                              **({"record": r} if records else {})})
+    if data["large_evidence"]:
+        files = [dict(i, route=file_route(i["path"]) if file_route else None)
+                 for i in data["large_evidence"]]
+        items.append({"kind": "large-evidence", "tone": "warning", "files": files,
+                      "message": "Evidence files over 1 MB, the likeliest place for a secret to "
+                                 "hide; review before committing",
+                      "route": route("files")})
+    return sorted(items, key=lambda item: TONE_ORDER[item["tone"]])
+
+
+def _trial_summary(loop, mid, t):
+    return {"key": t["key"], "n": t["n"], "attempt": t["attempt"], "kind": t["kind"],
+            "status": t["status"], "reason": t["reason"], "detail": t["detail"],
+            "started_at": t["started_at"], "ended_at": t["ended_at"], "seconds": t["seconds"],
+            "totals": t["totals"], "route": route("trial", loop=loop, milestone=mid, key=t["key"])}
+
+
+def _card(loop, d):
+    s = d["stats"]
+    return {"loop": loop, "status": d["status"], "status_reason": d["status_reason"],
+            "next_action": next_action(loop, d),
+            "milestones": {"total": s["milestones"], "achieved": s["achieved"]},
+            "trials": s["trials"], "first_try": s["first_try"], "seconds": s["seconds"],
+            "totals": d["totals"], "route": route("loop", loop=loop)}
+
+
+def summary(ctx):
+    """`api/summary` (data-model Workspace summary): the workspace's status and totals, a card per
+    loop, what needs attention, the run, the charts' rows, and the counts of the navigation. It
+    does not list the files (the overview must open fast in a large workspace, SC-001)."""
+    data = ctx.data
+    t = data["totals"]
+
+    def file_route(rel):  # the explorer filtered to the file: listing every file takes long
+        return route("files", {"q": rel.replace(os.sep, "/")})
+    timeline_rows, milestone_rows, steps = [], [], {}
+    for loop, d in data["loops"].items():
+        timeline_rows.append({"label": f"{loop} · Planning", "trials": [
+            dict(tr, label=f"Planning trial {tr['n']} ({tr.get('kind')})", route=None)
+            for tr in d["planning"]]})
+        milestone_rows.append({"loop": loop, "id": None, "title": "Planning",
+                               "totals": d["planning_totals"], "trials": len(d["planning"])})
+        for m in d["milestones"]:
+            timeline_rows.append({"label": f"{loop} · {m['id']}", "trials": [
+                dict(_trial_summary(loop, m["id"], tr),
+                     label=f"{m['id']} trial {tr['n']} ({tr['kind']})") for tr in m["trials"]]})
+            milestone_rows.append({"loop": loop, "id": m["id"], "title": m["title"],
+                                   "totals": m["totals"], "trials": len(m["trials"]),
+                                   "route": route("loop", {"m": m["id"]}, loop=loop)})
+        for name, step in d["by_step"].items():
+            steps.setdefault(name, []).append(step["totals"])
+    return {
+        "workspace": data["workspace"], "generated_at": data["generated_at"],
+        "version": ctx.version, "requirements": data["requirements"], "targets": data["targets"],
+        "status": _overall_status(data),
+        "totals": dict(t["usage"], milestones=t["milestones"], achieved=t["achieved"],
+                       trials=t["trials"], first_try=t["first_try"], elapsed=t["seconds"]),
+        "loops": [_card(loop, d) for loop, d in data["loops"].items()],
+        "run": data["run"], "running": data["running"],
+        "attention": attention_items(data, file_route),
+        "large_evidence": data["large_evidence"],
+        "workspaces": ctx.workspaces,
+        "timeline": timeline_rows, "cost_by_milestone": milestone_rows,
+        "by_step": sorted(({"step": name, "totals": add(*levels)} for name, levels in steps.items()),
+                          key=lambda row: -row["totals"]["cost"]),
+        "counts": {"calls": t["calls"],
+                   "questions": sum(len(question_ids(d)) for d in data["loops"].values()),
+                   "events": sum(len(d["events"]) for d in data["loops"].values())},
+    }
+
+
+def _loop_data(ctx, loop):
+    d = ctx.data["loops"].get(loop)
+    if d is None:
+        raise NotFound(f"no loop {loop!r} in this workspace")
+    return d
+
+
+def loop(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>; `loop` is its parameter
+    """`api/loops/<loop>` (data-model Loop): status, next action, totals with their breakdown,
+    planning, milestones with their trials and acceptance criteria, cost by step, and outputs."""
+    d = _loop_data(ctx, loop)
+    milestones = []
+    for m in d["milestones"]:
+        last = m["trials"][-1] if m["trials"] else None
+        results = {c["criterion_id"]: c for c in ((last or {}).get("validation") or {})
+                   .get("criteria", [])}
+        criteria = []
+        for c in m["criteria"]:
+            r = results.get(c["id"])
+            evidence = [ctx.file_ref(os.path.join(os.path.dirname(last["evidence_dir"]), item))
+                        for item in (r or {}).get("evidence") or []] if last else []
+            criteria.append({"id": c["id"], "text": c["text"],
+                             "requirement_refs": c.get("requirement_refs") or [],
+                             "result": None if r is None else ("passed" if r.get("passed")
+                                                               else "failed"),
+                             "observed": (r or {}).get("observed"), "evidence": evidence})
+        milestones.append({
+            "id": m["id"], "title": m["title"], "goal": m["goal"], "status": m["status"],
+            "depends_on": m["depends_on"], "tasks": m["tasks"], "criteria": criteria,
+            "criteria_trial": last["key"] if last else None,
+            "trials": [_trial_summary(loop, m["id"], t) for t in m["trials"]],
+            "totals": m["totals"], "seconds": m["seconds"]})
+    outputs = [(f"{loop}/progress.md", "Progress"),
+               (f"{loop}/outputs/plan-summary.md", "Plan summary"),
+               (f"{loop}/outputs/final-report.md", "Final report")]
+    if d["openapi_artifact"]:
+        outputs.append((f"{loop}/{d['openapi_artifact']['path']}", "OpenAPI document"))
+    plan = d["plan"] or {}
+    return {
+        "loop": loop, "status": d["status"], "status_reason": d["status_reason"],
+        "next_action": next_action(loop, d), "approval": d["approval"], "grants": d["grants"],
+        "inputs": d["inputs"], "ui_url": d["ui_url"], "openapi_artifact": d["openapi_artifact"],
+        "target_dir": d["target_dir"], "stack": plan.get("stack"), "runtime": plan.get("runtime"),
+        "totals": dict(d["totals"], **d["extras"]),
+        "stats": {k: d["stats"][k] for k in ("milestones", "achieved", "trials", "first_try",
+                                              "calls", "seconds")},
+        "planning": {"trials": [dict(t, route=None) for t in d["planning"]],
+                     "totals": d["planning_totals"]},
+        "milestones": milestones,
+        "by_step": {name: step["totals"] for name, step in d["by_step"].items()},
+        "outputs": [dict(ref, label=label) for ref, label in
+                    ((ctx.file_ref(path), label) for path, label in outputs)
+                    if not ref.get("missing")],
+    }
+
+
+def _model_name(r):
+    # A call from before models were recorded has no `model` key at all.
+    return r.get("model") or ("(Claude Code default)" if "model" in r else "(not recorded)")
+
+
+def call_ref(loop, r):
+    """data-model CallRef of one invocation record."""
+    if r.get("conversation_path"):
+        conversation = "copied"
+    elif r.get("conversation") == "unavailable":
+        conversation = "unavailable"
+    else:
+        conversation = "history"
+    return {"loop": loop, "seq": r.get("seq"), "step": r.get("step"),
+            "milestone_id": r.get("milestone_id"), "trial": r.get("trial"),
+            "model": r.get("model"), "session_id": r.get("session_id"),
+            "started_at": r.get("started_at"), "duration_ms": r.get("duration_ms"),
+            "totals": totals([r]), "failure_class": r.get("failure_class"),
+            "conversation": conversation, "route": route("call", loop=loop, seq=r.get("seq"))}
+
+
+def calls(ctx):
+    """`api/calls`: `{calls: [CallRef], by_model: [{model, calls, cost}], loops}`, calls by loop
+    then sequence, models by cost."""
+    rows, by_model = [], {}
+    for loop, d in ctx.data["loops"].items():
+        for r in sorted(d["invocations"], key=lambda r: r.get("seq") or 0):
+            rows.append(call_ref(loop, r))
+            entry = by_model.setdefault(_model_name(r), {"model": _model_name(r), "calls": 0,
+                                                         "cost": 0.0})
+            entry["calls"] += 1
+            entry["cost"] += r.get("cost_usd") or 0
+    return {"calls": rows, "loops": list(ctx.data["loops"]),
+            "by_model": sorted(by_model.values(), key=lambda m: -m["cost"])}
+
+
+def files(ctx):
+    """`api/files`: `{trees, count}` (artifacts.file_index)."""
+    return {"trees": ctx.index["trees"], "count": ctx.index["count"]}
+
+
+def events(ctx):
+    """`api/events`: every loop's events, oldest first, each with its `loop`."""
+    found = [dict(ev, loop=loop) for loop, d in ctx.data["loops"].items() for ev in d["events"]]
+    return {"events": sorted(found, key=lambda ev: ev.get("at") or "")}
+
+
+def questions(ctx):
+    """`api/questions`: the loops' open questions with their answers and where each came from
+    (`status`: developer, accepted, suggested, or none), the planning assumptions, and the
+    retries granted."""
+    found, assumptions, grants = [], [], []
+    for loop, d in ctx.data["loops"].items():
+        planned = {q["id"]: q for q in (d["plan"] or {}).get("open_questions") or []}
+        for qid in question_ids(d):
+            question, (answer, source), q = question_answer(d, qid)
+            p = planned.get(qid, {})
+            found.append({"loop": loop, "id": qid, "question": question,
+                          "context": q.get("context") or p.get("context") or "",
+                          "affects": p.get("affects") or q.get("affects") or "",
+                          "suggested_answer": q.get("suggested") or p.get("suggested_answer") or "",
+                          "reason": q.get("reason") or "", "answer": answer,
+                          "status": source or "none", "source": q.get("source") or ""})
+        assumptions += [dict(a, loop=loop) for a in (d["plan"] or {}).get("assumptions") or []]
+        grants += [dict(g, loop=loop) for g in d["grants"]]
+    return {"questions": found, "assumptions": assumptions, "grants": grants}
 
 
 # --- formatting -------------------------------------------------------------------------------------
@@ -464,7 +818,7 @@ FILE_LINKS = FileLinks()
 
 
 class SummaryLinks(FileLinks):
-    """The summary page's: a file is named, not linked (`devloops dashboard --serve` opens it)."""
+    """The summary page's: a file is named, not linked (`devloops dashboard` opens it)."""
 
     def path(self, relpath, text=None):
         return f'<code title="{e(relpath)}">{e(text or relpath)}</code>'
@@ -480,12 +834,12 @@ SUMMARY_LINKS = SummaryLinks()
 
 
 def serve_command(ws):
-    """`devloops dashboard --serve`, with `--workspace` when `ws` is not the default."""
+    """`devloops dashboard --daemon`, with `--workspace` when `ws` is not the default."""
     project = getattr(ws, "project", None)
     if project is None or ws.name == project.default_workspace:
-        return "devloops dashboard --serve"
+        return "devloops dashboard --daemon"
     elsewhere = os.path.dirname(os.path.realpath(ws.path)) != os.path.realpath(project.workspaces_dir)
-    return f"devloops dashboard --serve --workspace {shlex.quote(ws.path if elsewhere else ws.name)}"
+    return f"devloops dashboard --daemon --workspace {shlex.quote(ws.path if elsewhere else ws.name)}"
 
 
 def serve_hint(command):
@@ -628,31 +982,14 @@ def kpi_row(data):
     ]) + "</section>"
 
 
+def _ticks(text):
+    """Text with `commands` in backticks as HTML with <code>."""
+    return re.sub(r"`([^`]*)`", r"<code>\1</code>", e(text))
+
+
 def _next_action(loop, d):
-    status = d["status"]
-    reason = (d["status_reason"] or {})
-    code = reason.get("code")
-    if code == "interrupted":
-        return None  # the reason's message says what it cost and what to run
-    if status == "awaiting-approval":
-        return (f"Review <code>{e(loop)}/outputs/</code>, answer "
-                f"<code>open-questions.md</code> (an empty answer accepts Claude's suggestion), "
-                f"then <code>devloops approve</code> "
-                f"or <code>devloops replan</code>.")
-    if status == "stopped-on-failure" and code == "needs-input":
-        return (f"Answer the new questions in <code>open-questions.md</code> (an empty answer "
-                f"accepts Claude's suggestion), then "
-                f"<code>devloops retry --milestone {e(reason.get('milestone_id'))} "
-                f"--reason \"…\"</code>.")
-    if status == "stopped-on-failure" and code in ("trials-exhausted",):
-        return (f"Read the last trial's validation and evidence below, then "
-                f"<code>devloops retry --milestone {e(reason.get('milestone_id'))} "
-                f"--reason \"…\"</code>.")
-    if status == "stopped-on-service-error":
-        return "Fix the cause (log in, wait out a rate limit), then <code>devloops run</code>."
-    if status in ("planning", "implementing"):
-        return "Run <code>devloops run</code> to continue."
-    return None
+    action = next_action(loop, d)
+    return _ticks(action["text"]) if action else None
 
 
 ATTENTION = {"critical": ("✕", "Needs action"), "warning": ("!", "Check"),
@@ -660,72 +997,40 @@ ATTENTION = {"critical": ("✕", "Needs action"), "warning": ("!", "Check"),
 
 
 def attention(data, links=FILE_LINKS, call_href=None):
-    """What a reader should look at first: `[(tone, html)]`, most urgent first.
-
-    Stopped or paused loops and their next action; acceptance criteria failing on a milestone's
-    latest trial; suggested answers accepted automatically; unanswered questions and suggestions
-    not accepted yet while a loop is not done; failed calls; large evidence
-    files; and milestones that passed only after failed or voided trials. `call_href(loop,
-    record)` links a call (the full dashboard); otherwise calls link to the calls view.
-    """
-    items = []
-    for loop, d in data["loops"].items():
-        status = d["status"]
-        interrupted = (d["status_reason"] or {}).get("code") == "interrupted"
-        if status.startswith("stopped") or status == "awaiting-approval" or interrupted:
-            reason = d["status_reason"] or {}
-            text = f'<a href="#{e(loop)}"><strong>{e(loop)}</strong></a> is {pill(status, RUN_STATUS)}'
-            if reason.get("message"):
-                text += f' {e(reason["message"])}'
-            action = _next_action(loop, d)
-            items.append(("critical" if status.startswith("stopped") else "warning",
-                          text + (f'<div class="small">→ {action}</div>' if action else "")))
-        for m in d["milestones"]:
-            last = m["trials"][-1] if m["trials"] else None
-            failing = [c["criterion_id"] for c in ((last or {}).get("validation") or {})
-                       .get("criteria", []) if not c.get("passed")]
-            where = f'<a href="#ms-{e(loop)}-{e(m["id"])}">{e(loop)} {e(m["id"])}</a>'
-            if failing and m["status"] != "achieved":
-                items.append(("critical", f'{where}: {e(", ".join(failing))} failing on trial '
-                                          f'{e(last["n"])}'))
-            bad = [t for t in m["trials"] if t["status"] in ("failed", "void")]
-            if m["status"] == "achieved" and bad:
-                kinds = ", ".join(f'{sum(1 for t in bad if t["status"] == s)} {word}'
-                                  for s, word in (("failed", "failed"), ("void", "voided"))
-                                  if any(t["status"] == s for t in bad))
-                reasons = sorted({t["reason"] for t in bad if t.get("reason")})
-                items.append(("info", f'{where} passed after {e(kinds)} trial(s)'
-                              + (f' ({e(", ".join(reasons))})' if reasons else "")))
-        sources = {qid: question_answer(d, qid)[1][1] for qid in question_ids(d)}
-        auto = [qid for qid, src in sources.items()
-                if src == "accepted" and "automatically" in d["questions"][qid]["source"]]
-        if auto:
-            items.append(("warning", f'<a href="#questions">{e(loop)}: {len(auto)} suggested '
-                                     f'answer(s) accepted automatically</a> ({e(", ".join(auto))});'
-                                     ' review them like assumptions'))
-        if status != "completed":
-            open_ = [qid for qid, src in sources.items() if src is None]
-            if open_:
-                items.append(("warning", f'<a href="#questions">{e(loop)}: {len(open_)} unanswered '
-                                         f'question(s)</a> ({e(", ".join(open_))})'))
-            pending = [qid for qid, src in sources.items() if src == "suggested"]
-            if pending:
-                items.append(("info", f'<a href="#questions">{e(loop)}: {len(pending)} suggested '
-                                      f'answer(s) not yet accepted</a> ({e(", ".join(pending))});'
-                                      ' an empty answer accepts the suggestion'))
-        for r in d["invocations"]:
-            failure = r.get("failure_class")
-            if failure not in (None, "none"):
-                href = call_href(loop, r) if call_href else "calls"
-                items.append(("warning", f'<a href="#{e(href)}">{e(loop)} call #{e(r.get("seq"))} '
-                                         f'{e(r.get("step"))}</a> failed ({e(failure)})'))
-    if data["large_evidence"]:
-        items.append(("warning", "Evidence files over 1 MB, the likeliest place for a secret to "
-                                 "hide; review before committing: " + ", ".join(
-                                     links.path(i["path"]) + f" ({number(i['bytes'])}B)"
-                                     for i in data["large_evidence"])))
-    order = {"critical": 0, "warning": 1, "info": 2}
-    return sorted(items, key=lambda item: order[item[0]])
+    """`attention_items` as `[(tone, html)]` for the summary page. `call_href(loop, record)` links
+    a call (the full dashboard); otherwise calls link to the calls view."""
+    out = []
+    for item in attention_items(data, records=True):
+        kind, loop = item["kind"], item.get("loop")
+        where = (f'<a href="#ms-{e(loop)}-{e(item.get("milestone"))}">{e(loop)} '
+                 f'{e(item.get("milestone"))}</a>')
+        if kind == "loop":
+            text = (f'<a href="#{e(loop)}"><strong>{e(loop)}</strong></a> is '
+                    f'{pill(item["status"], RUN_STATUS)}'
+                    + (f' {e(item["reason"])}' if item["reason"] else ""))
+            if item["action"]:
+                text += f'<div class="small">→ {_ticks(item["action"]["text"])}</div>'
+        elif kind == "failing-criteria":
+            text = (f'{where}: {e(", ".join(item["criteria"]))} failing on trial '
+                    f'{e(item["trial"].split(".")[0])}')
+        elif kind == "passed-after":
+            kinds = ", ".join(f"{n} {word}" for n, word in ((item["failed"], "failed"),
+                                                            (item["voided"], "voided")) if n)
+            text = (f'{where} passed after {e(kinds)} trial(s)'
+                    + (f' ({e(", ".join(item["reasons"]))})' if item["reasons"] else ""))
+        elif kind in ("auto-accepted", "unanswered", "suggested"):
+            ids = item["questions"]
+            text = (f'<a href="#questions">{e(loop)}: {len(ids)} {e(item["what"])}</a> '
+                    f'({e(", ".join(ids))})' + (f'; {e(item["note"])}' if item["note"] else ""))
+        elif kind == "failed-call":
+            href = call_href(loop, item["record"]) if call_href else "calls"
+            text = (f'<a href="#{e(href)}">{e(loop)} call #{e(item["call"])} {e(item["step"])}'
+                    f'</a> failed ({e(item["failure"])})')
+        else:  # large-evidence
+            text = (e(item["message"]) + ": " + ", ".join(
+                links.path(i["path"]) + f" ({number(i['bytes'])}B)" for i in item["files"]))
+        out.append((item["tone"], text))
+    return out
 
 
 def attention_panel(items):
@@ -1130,7 +1435,7 @@ def detail_links(data, files=None):
     return links
 
 
-def render_page(data, ws_path, command="devloops dashboard --serve"):
+def render_page(data, ws_path, command="devloops dashboard --daemon"):
     """The summary page: status, milestones, trials, failures, questions, and cost. Each place
     that would link a file or a conversation says how to see them instead (`command`)."""
     hint = serve_hint(command)

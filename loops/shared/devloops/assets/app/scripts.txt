@@ -7,4 +7,11 @@ md.js
 highlight.js
 viewer.js
 charts.js
+views/overview.js
+views/run.js
+views/loop.js
+views/calls.js
+views/questions.js
+views/events.js
+views/files.js
 main.js

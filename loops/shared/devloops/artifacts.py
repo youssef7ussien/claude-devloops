@@ -120,6 +120,13 @@ def _classify(parts):
     return "state", {}
 
 
+def relative(path, start):
+    """`os.path.relpath(path, start)` for a path `_walk(start)` (or a folder in it) gave: cut, not
+    worked out, since listing a large workspace asks for thousands."""
+    prefix = start.rstrip(os.sep) + os.sep
+    return path[len(prefix):] if path.startswith(prefix) else os.path.relpath(path, start)
+
+
 def _walk(top):
     for dirpath, dirnames, names in os.walk(top):
         dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
@@ -143,11 +150,11 @@ def collect_artifacts(ws, loop):
             items.append({"rel": _label(ws, path), "abs": path, "section": "inputs",
                           "input": name})
     for path in _walk(loop_dir):
-        parts = os.path.relpath(path, loop_dir).split(os.sep)
+        parts = relative(path, loop_dir).split(os.sep)
         if parts == ["state", "lock"]:
             continue
         section, details = _classify(parts)
-        items.append(dict(details, rel=os.path.relpath(path, ws.path), abs=path, section=section))
+        items.append(dict(details, rel=relative(path, ws.path), abs=path, section=section))
     return items
 
 
@@ -390,7 +397,7 @@ def file_index(ws, data):
         for item in items:
             ids(item["rel"], key(item))
     for path in paths:
-        ids(os.path.relpath(path, ws.path))
+        ids(relative(path, ws.path))
 
     def ref(item):
         rel = item["rel"]
@@ -440,7 +447,7 @@ def file_index(ws, data):
         trees.append(top)
     orch, own = _Dir("run"), _Dir("workspace")
     for path in paths:
-        rel = os.path.relpath(path, ws.path)
+        rel = relative(path, ws.path)
         first = rel.split(os.sep)[0]
         if first in dashboard.LOOPS or rel == dashboard.FILENAME:
             continue

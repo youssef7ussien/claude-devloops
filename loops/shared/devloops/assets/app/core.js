@@ -210,6 +210,114 @@
       }
       return n + ' bytes';
     },
-    plural: function (n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+    plural: function (n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); },
+    /* a Totals' tokens, spelled out: "input 1.2k · output 300 · cache write 5.0k · cache read 20.0k" */
+    tokenParts: function (t) {
+      t = t || {};
+      return 'input ' + fmt.number(t.input || 0) + ' · output ' + fmt.number(t.output || 0) +
+        ' · cache write ' + fmt.number(t.cache_creation || 0) + ' · cache read ' + fmt.number(t.cache_read || 0);
+    }
+  };
+
+  /* --- view building blocks ------------------------------------------------------------------ */
+  /* Text whose `commands` and paths are between backticks: text and <code> nodes. */
+  DL.ticks = function (text) {
+    var frag = document.createDocumentFragment();
+    String(text == null ? '' : text).split('`').forEach(function (part, i) {
+      if (part) frag.appendChild(i % 2 ? DL.el('code', null, part) : document.createTextNode(part));
+    });
+    return frag;
+  };
+  /* A view's heading: its title, a badge (an element), and a line under it (text or element). */
+  DL.head = function (title, badge, sub) {
+    var head = DL.el('div', 'view-head'), box = DL.el('div', 'title'), h = DL.el('h2', null, title);
+    if (badge) DL.add(h, ' ', badge);
+    DL.add(box, h, sub ? DL.add(DL.el('div', 'sub'), sub) : null);
+    head.appendChild(box);
+    return head;
+  };
+  /* One figure of a KPI row: value is text or an element; `tip` a tooltip. */
+  DL.kpi = function (label, value, sub, tip) {
+    var t = DL.el('div', 'tile'), v = DL.el('div', 'tile-value');
+    DL.add(v, value);
+    if (tip) { v.setAttribute('data-tip', tip); v.tabIndex = 0; }
+    DL.add(t, DL.el('div', 'tile-label', label), v, sub ? DL.el('div', 'tile-sub', sub) : null);
+    return t;
+  };
+  DL.kpis = function (tiles, compact, label) {
+    var s = DL.el('section', 'kpis' + (compact ? ' compact' : ''));
+    if (label) s.setAttribute('aria-label', label);
+    return DL.add(s, tiles);
+  };
+  /* A Totals' token count: the total, its parts in a tooltip, and "partial" when some call did
+     not record its usage (the sums are then a lower bound). */
+  DL.tokens = function (totals) {
+    var t = (totals && totals.tokens) || {}, span = DL.el('span', 'tok', DL.fmt.tokens(t.total || 0));
+    span.setAttribute('data-tip', DL.fmt.tokenParts(t) + (totals && totals.partial ? ' · partial: some calls did not record usage' : ''));
+    span.tabIndex = 0;
+    if (totals && totals.partial) DL.add(span, ' ', DL.el('span', 'partial', 'partial'));
+    return span;
+  };
+  /* A table cell; content is text, an element, or a list of them. */
+  DL.td = function (content, cls) { return DL.add(DL.el('td', cls || null), content); };
+  /* A bordered table: head `[[label, numeric]]`, rows `<tr>` elements; `opts.empty` is said
+     instead when there are no rows, `opts.cls` classes the table. */
+  DL.table = function (head, rows, opts) {
+    opts = opts || {};
+    if (!rows.length && opts.empty) return DL.el('p', 'muted', opts.empty);
+    var wrap = DL.el('div', 'table-wrap'), t = DL.el('table', opts.cls || null), tr = DL.el('tr');
+    head.forEach(function (h) { tr.appendChild(DL.el('th', h[1] ? 'num' : null, h[0])); });
+    DL.add(t, DL.add(DL.el('thead'), tr), DL.add(DL.el('tbody'), rows));
+    return DL.add(wrap, t);
+  };
+  /* A row that opens `href` when selected (click, Enter, or Space). */
+  DL.rowLink = function (tr, href) {
+    tr.classList.add('row-link');
+    tr.tabIndex = 0;
+    tr.addEventListener('click', function (ev) { if (!ev.target.closest('a, button')) location.hash = href; });
+    tr.addEventListener('keydown', function (ev) {
+      if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === tr) { ev.preventDefault(); location.hash = href; }
+    });
+    return tr;
+  };
+  /* A filter over `rows`: a search box and, with `chips` ([[value, label]]), chips selecting
+     the rows whose `data-<attr>` is that value (at most one pressed). Returns the toolbar. */
+  DL.filter = function (rows, opts) {
+    opts = opts || {};
+    var bar = DL.el('div', 'toolbar'), input = DL.el('input', 'input'), chosen = null;
+    input.type = 'search';
+    input.placeholder = opts.placeholder || 'Filter…';
+    input.setAttribute('aria-label', opts.placeholder || 'Filter');
+    function apply() {
+      var q = input.value.toLowerCase().trim();
+      rows.forEach(function (r) {
+        var ok = (!q || r.textContent.toLowerCase().indexOf(q) >= 0) &&
+          (chosen === null || r.getAttribute('data-' + opts.attr) === chosen);
+        r.classList.toggle('hidden-by-filter', !ok);
+      });
+    }
+    input.addEventListener('input', apply);
+    bar.appendChild(input);
+    if (opts.chips && opts.chips.length > 1) {
+      var group = DL.el('div', 'chips'), buttons = [];
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-label', opts.chipsLabel || 'Filter');
+      opts.chips.forEach(function (c) {
+        var b = DL.el('button', 'chip', c[1]);
+        b.type = 'button';
+        b.dataset.chip = c[0];
+        b.setAttribute('aria-pressed', 'false');
+        b.addEventListener('click', function () {
+          chosen = chosen === c[0] ? null : c[0];
+          buttons.forEach(function (x) { x.setAttribute('aria-pressed', String(x.dataset.chip === chosen)); });
+          apply();
+        });
+        buttons.push(b);
+        group.appendChild(b);
+      });
+      bar.appendChild(group);
+    }
+    bar.filterInput = input;
+    return bar;
   };
 })(window.DL = window.DL || {});

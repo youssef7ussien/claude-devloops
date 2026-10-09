@@ -1,4 +1,4 @@
-"""`devloops dashboard --serve`: the dashboard app, served live from the workspaces with its data
+"""`devloops dashboard`: the dashboard app, served live from the workspaces with its data
 (specs/005-dashboard-redesign contracts/api.md; 002 FR-042a).
 
 A local HTTP server (the standard library's). `/w/<name>/` is a small page (assets/app/index.html)
@@ -33,6 +33,7 @@ import re
 import secrets
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -63,7 +64,14 @@ ASSETS = {"app.js": ("text/javascript; charset=utf-8", appbundle.script),
 # function of dashboard.py (or a function), called as `builder(ctx, **named groups)` with the
 # workspace version's `dashboard.Context`; it returns plain data, or raises `dashboard.NotFound`.
 # `files/<id>` (a file's content) and `search` are answered by the server itself.
-API = []
+API = [(re.compile(pattern), builder) for pattern, builder in (
+    (r"^summary$", "summary"),
+    (r"^loops/(?P<loop>[^/]+)$", "loop"),
+    (r"^calls$", "calls"),
+    (r"^files$", "files"),
+    (r"^events$", "events"),
+    (r"^questions$", "questions"),
+)]
 
 
 # --- the record of a running server -----------------------------------------------------------------
@@ -188,7 +196,7 @@ class Site:
             return version
         h = hashlib.sha1()
         for path in artifacts._walk(ws.path):
-            rel = os.path.relpath(path, ws.path)
+            rel = artifacts.relative(path, ws.path)
             if rel == dashboard.FILENAME:
                 continue
             try:
@@ -219,7 +227,8 @@ class Site:
             entry = self._cache.get(ws.name)
             if entry is None or entry["version"] != version:
                 entry = {"version": version, "answers": {},
-                         "ctx": dashboard.Context(ws, self.env, list(self.workspaces()))}
+                         "ctx": dashboard.Context(ws, self.env, list(self.workspaces()),
+                                                version)}
                 self._cache[ws.name] = entry
         return version, entry
 
@@ -460,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
         morsel = jar.get(self.server.cookie)
         if morsel and hmac.compare_digest(morsel.value.encode(), token.encode()):
             return True
-        self._send(403, "devloops: open the URL with the token that `devloops dashboard --serve` "
+        self._send(403, "devloops: open the URL with the token that `devloops dashboard` "
                         "printed\n", head=head)
         return False
 
@@ -650,31 +659,216 @@ def _base(host, port):
     return f"http://{f'[{host}]' if ':' in host else host}:{port}"
 
 
-def _already(rec, ws, as_json, out):
-    url = url_for(rec, ws.name)
+TOKEN_ENV = "DEVLOOPS_DASHBOARD_TOKEN"  # how --daemon hands its child the token (not in argv)
+
+
+def choose_token(host, token=None, use_token=None):
+    """The token a server requires, or None. Required when `use_token` is true, and by default
+    when `token` is given or `host` is not a loopback address; `token` sets it (else a random
+    one)."""
+    if use_token is None:
+        use_token = bool(token) or not _is_loopback(host)
+    return (token or secrets.token_urlsafe(18)) if use_token else None
+
+
+def browser_allowed(env=None):
+    """False when the environment sets DEVLOOPS_NO_BROWSER=1 (the tests do): no browser opens."""
+    return (os.environ if env is None else env).get("DEVLOOPS_NO_BROWSER") != "1"
+
+
+def _open(url, env):
+    if browser_allowed(env):
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+
+
+def _report(rec, ws, as_json, out, url=None):
+    """Print where the server is: `serving: <url>` (and its log for a daemon), or one JSON object
+    (contracts/cli.md)."""
+    url = url or url_for(rec, ws.name)
     if as_json:
-        print(json.dumps({"already_serving": True, "url": url, "pid": rec["pid"]}), file=out)
+        obj = {"serving": url, "workspace": ws.name, "token": bool(rec.get("token")),
+               "pid": rec["pid"], "daemon": bool(rec.get("daemon"))}
+        if rec.get("log"):
+            obj["log"] = rec["log"]
+        print(json.dumps(obj), file=out, flush=True)
     else:
-        print(f"already serving: {url} (pid {rec['pid']}); stop it (Ctrl+C in its terminal, or "
-              f"kill {rec['pid']}) to start another", file=out)
+        print(f"serving: {url}", file=out)
+        if rec.get("log"):
+            print(f"log: {rec['log']}", file=out)
+        out.flush()
+
+
+def _already(rec, ws, as_json, out, open_browser, env):
+    """A server already runs for the project: say where, and open it (a token it requires is
+    in its own terminal or log, not here)."""
+    _report(rec, ws, as_json, out)
+    if not as_json:
+        how = ("devloops dashboard --stop" if rec.get("daemon")
+               else "Ctrl+C in its terminal, or devloops dashboard --stop")
+        print(f"already running (pid {rec['pid']}); stop it with {how}", file=out)
+    if open_browser:
+        _open(url_for(rec, ws.name), env)
+    return 0
+
+
+def log_path(project, env=None):
+    """`serve-<project hash>.log` beside the record: what a daemon prints."""
+    return os.path.splitext(record_path(project, env))[0] + ".log"
+
+
+def start_daemon(project, ws, argv, token=None, open_browser=True, as_json=False, env=None,
+                 out=None, err=None, wait=10.0):
+    """`devloops dashboard --daemon` (research R-11): start the server in the background, wait
+    until it answers, and say where it is; return the exit code. `argv` are the serving options
+    to pass on (`--workspace`, `--host`, `--port`, `--no-token`); `token` is the one it requires
+    (None: none), handed over in the environment so other users cannot read it in the process
+    list, and known here so its URL can be printed. The log is readable by this user only: the
+    server prints its URL, with the token, there."""
+    out, err = out or sys.stdout, err or sys.stderr
+    env = dict(os.environ if env is None else env)
+    current = running(project, env)
+    if current:
+        return _already(current, ws, as_json, out, open_browser, env)
+    log = log_path(project, env)
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # holds devloops/
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, env.get("PYTHONPATH")) if p)
+    env.pop(TOKEN_ENV, None)
+    if token:
+        env[TOKEN_ENV] = token
+    command = [sys.executable, "-m", "devloops.cli", "dashboard", *argv, "--no-open",
+               "--daemon-log", log]
+    start = os.path.getsize(log) if os.path.exists(log) else 0
+    fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.fchmod(fd, 0o600)  # also a log left by an earlier version
+    with os.fdopen(fd, "a", encoding="utf-8") as f, open(os.devnull, "rb") as devnull:
+        f.write(f"--- {state.now_iso()} devloops dashboard --daemon\n")
+        f.flush()
+        child = subprocess.Popen(command, stdin=devnull, stdout=f, stderr=subprocess.STDOUT,
+                                 env=env, cwd=os.getcwd(), start_new_session=True)
+    deadline = time.monotonic() + wait
+    rec = None
+    while time.monotonic() < deadline and child.poll() is None:
+        rec = running(project, env)
+        if rec and rec.get("pid") == child.pid and _answers(rec):
+            break
+        rec = None
+        time.sleep(0.1)
+    if rec is None:
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+        try:
+            with open(log, encoding="utf-8", errors="replace") as f:
+                f.seek(start)
+                lines = f.read().splitlines()[-20:]
+        except OSError:
+            lines = []
+        print(f"devloops: the dashboard server did not start (log: {log})", file=err)
+        for line in lines:
+            print(f"  {line}", file=err)
+        return 1
+    url = url_for(rec, ws.name) + (f"?token={token}" if token else "")
+    _report(rec, ws, as_json, out, url)
+    if open_browser:
+        _open(url, env)
+    return 0
+
+
+def _answers(rec):
+    """Whether the server of `rec` answers HTTP at all (any status: a token may be required)."""
+    import http.client
+    parts = urllib.parse.urlsplit(rec["local_url"])
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=2)
+    try:
+        conn.request("GET", "/favicon.ico")
+        conn.getresponse().read()
+        return True
+    except OSError:
+        return False
+    finally:
+        conn.close()
+
+
+def _command_line(pid):
+    """The arguments process `pid` was started with, or None when they cannot be read."""
+    try:
+        with open(f"/proc/{int(pid)}/cmdline", "rb") as f:
+            return [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
+    except (OSError, ValueError):
+        pass
+    try:  # no /proc (macOS): ask ps
+        line = subprocess.run(["ps", "-o", "command=", "-p", str(int(pid))], capture_output=True,
+                              text=True, timeout=5).stdout.strip()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return line.split() or None
+
+
+def _is_dashboard(pid):
+    """Whether process `pid` is a devloops dashboard server: a record left by a crash may name a
+    pid the system has since given to an unrelated process, which must not be stopped."""
+    args = _command_line(pid)
+    return bool(args) and "dashboard" in args and any("devloops" in a for a in args)
+
+
+def stop(project, env=None, as_json=False, out=None, wait=5.0):
+    """`devloops dashboard --stop`: stop the project's server on this host, however it was
+    started, and remove its record; return 0 (`stopped` or `not running`).
+
+    Only a devloops dashboard is stopped: a record whose pid now belongs to another process is
+    stale, and removed. A record of a server on another host (a shared home folder) is kept."""
+    out = out or sys.stdout
+    path = record_path(project, env)
+    rec = state.read_json(path)
+    stopped, elsewhere = False, None
+    if isinstance(rec, dict) and rec.get("hostname") != socket.gethostname() \
+            and rec.get("hostname"):
+        elsewhere = rec["hostname"]
+    elif isinstance(rec, dict) and _alive(rec.get("pid")) and _is_dashboard(rec.get("pid")):
+        pid = int(rec["pid"])
+        try:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline and _alive(pid):
+                time.sleep(0.1)
+            if _alive(pid):
+                os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stopped = True
+    if rec is not None and elsewhere is None:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+    if as_json:
+        print(json.dumps(dict({"stopped": stopped}, **({"host": elsewhere} if elsewhere else {}))),
+              file=out)
+    elif elsewhere:
+        print(f"not running here: the server runs on {elsewhere} (pid {rec.get('pid')}); stop it "
+              f"there", file=out)
+    else:
+        print("stopped" if stopped else "not running", file=out)
     return 0
 
 
 def serve(project, kit, ws, host="127.0.0.1", port=None, token=None, use_token=None,
-          open_browser=False, as_json=False, env=None, out=None, err=None, ready=None):
+          open_browser=True, as_json=False, env=None, out=None, err=None, ready=None,
+          daemon_log=None):
     """Serve until interrupted (Ctrl+C or SIGTERM); return the exit code.
 
     `ws` is the workspace the root URL opens. A token is required when `use_token` is true, and
     by default when `host` is not a loopback address; `token` sets it (else a random one).
+    The browser opens unless `open_browser` is false or DEVLOOPS_NO_BROWSER=1. `daemon_log`:
+    this server was started by `--daemon`, printing to that log (kept in its record).
     `ready(server)` is called once listening (tests)."""
     out, err = out or sys.stdout, err or sys.stderr
     env = os.environ if env is None else env
     current = running(project, env)
     if current:
-        return _already(current, ws, as_json, out)
-    if use_token is None:
-        use_token = bool(token) or not _is_loopback(host)
-    token = (token or secrets.token_urlsafe(18)) if use_token else None
+        return _already(current, ws, as_json, out, open_browser, env)
+    token = choose_token(host, token, use_token)
     workspaces_dir = os.path.realpath(project.workspaces_dir)
     extra = ({} if os.path.dirname(os.path.realpath(ws.path)) == workspaces_dir
              else {ws.name: ws.path})
@@ -690,13 +884,15 @@ def serve(project, kit, ws, host="127.0.0.1", port=None, token=None, use_token=N
     held = _claim_record(rec_path, {"pid": os.getpid(), "hostname": socket.gethostname(),
                                     "host": host, "port": port, "local_url": local,
                                     "token": bool(token), "project": project.root,
-                                    "started_at": state.now_iso()}, err)
+                                    "started_at": state.now_iso(), "daemon": bool(daemon_log),
+                                    **({"log": daemon_log} if daemon_log else {})}, err)
     if held:  # another server started in the meantime
         server.server_close()
-        return _already(held, ws, as_json, out)
+        return _already(held, ws, as_json, out, open_browser, env)
     if as_json:
-        print(json.dumps({"urls": urls, "url": urls[0], "host": host, "port": port,
-                          "pid": os.getpid(), "token": token}), file=out, flush=True)
+        print(json.dumps({"serving": urls[0], "urls": urls, "workspace": ws.name,
+                          "token": bool(token), "pid": os.getpid(),
+                          "daemon": bool(daemon_log)}), file=out, flush=True)
     else:
         if not _is_loopback(host):
             who = ("anyone with the token in the URL" if token else
@@ -710,8 +906,7 @@ def serve(project, kit, ws, host="127.0.0.1", port=None, token=None, use_token=N
             print(f"  {url}", file=out)
         out.flush()
     if open_browser:
-        threading.Thread(target=webbrowser.open, args=(urls[-1] if token else urls[0],),
-                         daemon=True).start()
+        _open(urls[-1] if token else urls[0], env)
 
     def stop(signum, frame):
         raise KeyboardInterrupt

@@ -16,6 +16,10 @@ FAKE_CLAUDE = os.path.join(TESTS_DIR, "fake_claude.py")
 if SHARED_DIR not in sys.path:
     sys.path.insert(0, SHARED_DIR)
 
+# No test opens a browser: the dashboard server reads this (serve.browser_allowed), both when a
+# test calls serve.serve itself and in every CLI the tests run (TempEnv.env copies os.environ).
+os.environ["DEVLOOPS_NO_BROWSER"] = "1"
+
 _COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
 
 
@@ -157,6 +161,7 @@ class TempEnv:
         self.env["CLAUDE_CONFIG_DIR"] = os.path.join(self.base, "claude-config")
         # Where a dashboard server records itself (serve.record_path): this test's own.
         self.env["XDG_RUNTIME_DIR"] = os.path.join(self.base, "runtime")
+        self.env["DEVLOOPS_NO_BROWSER"] = "1"
         return self
 
     def __exit__(self, *exc):

@@ -46,3 +46,9 @@ test('status tables carry a label, an icon, and a tone', () => {
   assert.deepEqual(load.plain(DL.status('completed', 'run')), ['Completed', '✓', 'good']);
   assert.deepEqual(load.plain(DL.status('weird', 'run')), ['weird', '•', 'muted']);
 });
+
+test('tokens spelled out', () => {
+  assert.equal(DL.fmt.tokenParts({ input: 1200, output: 300, cache_creation: 5000, cache_read: 20000 }),
+    'input 1.2k · output 300 · cache write 5.0k · cache read 20.0k');
+  assert.equal(DL.fmt.tokenParts(null), 'input 0 · output 0 · cache write 0 · cache read 0');
+});

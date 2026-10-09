@@ -1,7 +1,9 @@
 /* router.js: one address per view and item (research R-4), and each view's life.
 
-   A view is registered once: `DL.router.register(name, {title(params, data), data(params) ->
-   [api paths], render(data, params, el)})`. Mounting a route asks for the view's paths only,
+   A view is registered once: `DL.router.register(name, {title(params, data), data(params, query)
+   -> [api paths], render(data, params, el, query, refresh)})`; `refresh` is true when the same
+   address is drawn again after a change, so what the address asks for (a filter, a file to open)
+   is applied the first time only and the reader's own changes stay. Mounting a route asks for the view's paths only,
    renders into a new element, and swaps it in once its data arrived, so the old view stays until
    then. When the workspace changes (DL.bus 'changed'), only the mounted view is loaded again,
    keeping the reader's place: open sections, typed filters, pressed chips, scroll, and focus. */
@@ -162,7 +164,7 @@
       return;
     }
     var el = DL.el('section', 'view view-' + route.view);
-    def.render(loaded.data, route.params, el, route.query);
+    def.render(loaded.data, route.params, el, route.query, !!refresh);
     swap(el, refresh);
     var title = def.title ? def.title(route.params, loaded.data) : route.view;
     DL.bus.emit('route', { route: route, title: title });

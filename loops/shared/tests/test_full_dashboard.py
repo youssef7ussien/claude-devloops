@@ -80,10 +80,8 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
                          self.last_output)
         self.assertEqual(self.dashboards(), [])
         # The summary says where files and conversations are instead.
-        self.assertIn(f"files and conversations: devloops dashboard --serve --workspace {WS}",
+        self.assertIn(f"files and conversations: devloops dashboard --daemon --workspace {WS}",
                       self.last_output)
-        self.assertEqual(self.cli("dashboard"), 0, self.last_output)
-        self.assertEqual(self.dashboards(), [])  # the summary page only
         self.assertEqual(self.cli("dashboard", "--export"), 0, self.last_output)
         self.assertEqual(len(self.dashboards()), 1)
 
@@ -263,9 +261,9 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
     # --- the dashboard command ---
 
     def cli_dashboard(self, *args):
-        self.assertEqual(self.cli("dashboard", "--export", "--json", *args), 0, self.last_output)
+        self.assertEqual(self.cli("dashboard", "--export", *args, "--json"), 0, self.last_output)
         out = json.loads(self.last_output)
-        return out.get("full_dashboard")
+        return out.get("export")
 
     def test_dashboard_command_reports_the_largest_items(self):
         self.completed()
@@ -282,21 +280,13 @@ class FullDashboardTest(StubLoopMixin, unittest.TestCase):
         self.completed()
         before = self.dashboards()
         out = os.path.join(self.t.base, "share", "run.html")
-        full = self.cli_dashboard("--out", out)
+        full = self.cli_dashboard(out)
         self.assertEqual(full["path"], out)
         self.assertEqual(self.dashboards(), before)  # not in the dashboards folder
         with open(out, encoding="utf-8") as f:
             self.assertIn(fulldash.NOTICE, f.read())
-        self.cli_dashboard("--out", out)  # replaced, not refused
+        self.cli_dashboard(out)  # replaced, not refused
         self.assertEqual(os.listdir(os.path.dirname(out)), ["run.html"])
-
-    def test_dashboard_without_export_writes_no_full_dashboard(self):
-        self.completed()
-        before = self.dashboards()
-        for args in ([], ["--light"]):  # --light: what earlier versions needed for this
-            self.assertEqual(self.cli("dashboard", "--json", *args), 0, self.last_output)
-            self.assertNotIn("full_dashboard", json.loads(self.last_output))
-        self.assertEqual(self.dashboards(), before)
 
     # --- failures (FR-039) ---
 

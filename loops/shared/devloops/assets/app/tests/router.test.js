@@ -89,6 +89,6 @@ test('a view that is not registered is shown as not available, not an error', as
   const { DL } = fake({});
   const shown = [];
   DL.router._show = (loaded) => shown.push(loaded.def);
-  await DL.router.mount(DL.router.parse('#/run'));
+  await DL.router.mount({ view: 'not-a-view', params: {}, query: {} });
   assert.deepEqual(shown, [null]);
 });
