@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"{{attrs}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+{{styles}}
+</head>
+<body>
+{{icons}}
+<div class="app">
+<aside class="sidebar" aria-label="Dashboard">
+<div class="brand">
+<span class="name"><span class="logo" aria-hidden="true">d</span>devloops</span>
+<span class="ws">workspace <strong data-workspace-name></strong></span>
+<label class="ws-switch" hidden><span class="sr-only">Workspace</span><select class="input" data-action="workspace"></select></label>
+</div>
+<button class="search" type="button" data-action="palette"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>Go to…<kbd>Ctrl K</kbd></button>
+<nav class="nav" aria-label="Sections"></nav>
+<div class="foot">
+<span data-generated></span>
+<a class="gh" href="{{project_url}}" target="_blank" rel="noopener noreferrer"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg><span>devloops {{version}} · by {{owner}}</span></a>
+</div>
+</aside>
+<main class="content">
+<header class="topbar">
+<button class="btn icon ghost menu-btn" type="button" data-action="menu" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
+<div class="crumbs"><span data-workspace-name></span> <span aria-hidden="true">/</span> <strong data-crumb>Overview</strong></div>
+<span class="spacer"></span>
+<span class="snapshot small muted" data-snapshot hidden></span>
+<button class="btn live" type="button" data-action="live" aria-pressed="true" title="This page follows the run as it goes. Select to pause."><span class="pulse" aria-hidden="true"></span><span data-live-label>Live</span></button>
+<span data-status></span>
+<button class="btn icon" type="button" data-action="palette" aria-label="Go to (Ctrl K)" title="Go to (Ctrl K)"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></button>
+<button class="btn icon" type="button" data-action="theme" aria-label="Toggle theme" title="Toggle theme"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></button>
+</header>
+<p class="notice" data-notice hidden></p>
+<section id="now" class="now" aria-label="Now" hidden></section>
+<div id="view" class="view-host"></div>
+</main>
+</div>
+<dialog class="viewer" id="viewer" aria-label="Viewer"><div class="v-head"><div class="v-title"><div class="v-path"></div><div class="v-meta"></div></div><div class="v-nav"><button class="btn icon ghost" type="button" data-step="-1" aria-label="Previous" title="Previous ([)"><svg class="ic" aria-hidden="true"><use href="#i-prev"/></svg></button><span class="pos small muted"></span><button class="btn icon ghost" type="button" data-step="1" aria-label="Next" title="Next (])"><svg class="ic" aria-hidden="true"><use href="#i-next"/></svg></button></div><button class="btn icon ghost" type="button" data-action="max" aria-label="Maximize" title="Maximize (f)" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-max"/></svg></button><button class="btn icon ghost" type="button" data-action="close" aria-label="Close" title="Close (Esc)"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button></div><div class="tabs" hidden></div><div class="v-tools"></div><div class="v-body" tabindex="-1"></div><div class="v-status" role="status" aria-live="polite"></div></dialog>
+<dialog class="palette" id="palette" aria-label="Go to"><input type="text" placeholder="Go to a file, call, or view…" aria-label="Go to" autocomplete="off"><ul role="listbox" aria-label="Results"></ul></dialog>
+<div id="tip" role="tooltip"></div>
+<noscript><p class="noscript">The devloops dashboard needs JavaScript. Allow scripts for this page, or read the workspace's files directly.</p></noscript>
+{{scripts}}
+</body>
+</html>

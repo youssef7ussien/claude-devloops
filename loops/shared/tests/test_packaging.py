@@ -59,7 +59,10 @@ class PackagingTest(unittest.TestCase):
                       "devloops_kit/backend-dev/loop.json",
                       "devloops/cli.py",
                       "devloops/assets/dashboard.js",
-                      "devloops/assets/dashboard.css"):
+                      "devloops/assets/dashboard.css",
+                      "devloops/assets/app/scripts.txt",
+                      "devloops/assets/app/index.html",
+                      "devloops/assets/app/core.js"):
             self.assertIn(asset, names)
         self.assertFalse([n for n in names if "/tests/" in n or n.startswith("tests/")])
 

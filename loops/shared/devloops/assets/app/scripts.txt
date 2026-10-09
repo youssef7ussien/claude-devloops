@@ -1,0 +1,10 @@
+# The app's scripts, joined in this order into one script (appbundle.py). One path per line,
+# relative to this folder; `#` starts a comment. A new .js file must be listed (test_app_js).
+core.js
+api.js
+router.js
+md.js
+highlight.js
+viewer.js
+charts.js
+main.js

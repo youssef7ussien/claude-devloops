@@ -9,9 +9,13 @@ import hashlib
 import html
 import os
 
+from . import appbundle
+from .artifacts import (  # noqa: F401 - the file kinds moved there; still reached as ui.<name>
+    FILTERS, IMAGE_TYPES, KINDS, kind_of, looks_like_json)
+
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
-PROJECT_URL = "https://github.com/youssef7ussien/claude-devloops"
-OWNER = "youssef7ussien"
+PROJECT_URL = appbundle.PROJECT_URL
+OWNER = appbundle.OWNER
 
 
 def e(value):
@@ -23,103 +27,15 @@ def asset(name):
         return f.read()
 
 
-# --- icons: one inline sprite; each icon is a <use> of it ------------------------------------------
-
-ICONS = {
-    "grid": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" '
-            'rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" '
-            'height="7" rx="1.5"/>',
-    "flow": '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h4a3 3 0 0 1 3 3v6"/>',
-    "loop": '<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/>'
-            '<path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
-    "chat": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-    "folder": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-    "file": '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
-    "md": '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'
-          '<path d="M9 13h6M9 17h4"/>',
-    "json": '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/>'
-            '<path d="M16 21h1a2 2 0 0 0 2-2v-5a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>',
-    "image": '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/>'
-             '<path d="M21 15l-5-5L5 21"/>',
-    "code": '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>',
-    "log": '<path d="M4 6h16M4 10h16M4 14h10M4 18h7"/>',
-    "search": '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
-    "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4'
-           'M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-    "menu": '<path d="M4 6h16M4 12h16M4 18h16"/>',
-    "x": '<path d="M18 6L6 18M6 6l12 12"/>',
-    "max": '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
-    "prev": '<path d="M15 18l-6-6 6-6"/>',
-    "next": '<path d="M9 18l6-6-6-6"/>',
-    "chev": '<path d="M9 18l6-6-6-6"/>',
-    "copy": '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 '
-            '2-2h9a2 2 0 0 1 2 2v1"/>',
-    "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
-    "wrap": '<path d="M3 6h18M3 12h15a3 3 0 0 1 0 6h-4M16 16l-2 2 2 2M3 18h7"/>',
-    "hash": '<path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/>',
-    "help": '<circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
-    "list": '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
-    "alert": '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
-             '<path d="M12 9v4M12 17h.01"/>',
-    "github": '<path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.9a3.4 3.4 0 0 0-.9-2.6c3.1-.4 6.4-1.5 6.4-6.9a5.4 '
-              '5.4 0 0 0-1.5-3.7 5 5 0 0 0-.1-3.8s-1.2-.4-3.9 1.5a13.4 13.4 0 0 0-7 0C6.3.7 5.1 1.1 5.1 '
-              '1.1a5 5 0 0 0-.1 3.8A5.4 5.4 0 0 0 3.5 8.6c0 5.4 3.3 6.5 6.4 6.9a3.4 3.4 0 0 0-.9 2.6V22"/>',
-    "history": '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
-}
-
+# --- icons: the app's sprite (assets/app/icons.svg); each icon is a <use> of it ------------------
 
 def sprite():
-    return ('<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>'
-            + "".join(f'<symbol id="i-{k}" viewBox="0 0 24 24">{v}</symbol>' for k, v in ICONS.items())
-            + "</defs></svg>")
+    # The summary page allows inline styles; the app hides the sprite with its `sprite` class.
+    return appbundle.icons().replace('class="sprite"', 'style="position:absolute"', 1)
 
 
 def icon(name, cls=""):
     return f'<svg class="ic{" " + cls if cls else ""}" aria-hidden="true"><use href="#i-{name}"/></svg>'
-
-
-# --- file kinds: which viewer opens a file. Add a type here, and a viewer in dashboard.js ----------
-
-KINDS = {  # extension: (kind, language, icon)
-    ".md": ("markdown", "", "md"), ".json": ("json", "", "json"), ".jsonl": ("jsonl", "", "json"),
-    ".py": ("code", "python", "code"), ".js": ("code", "js", "code"), ".mjs": ("code", "js", "code"),
-    ".ts": ("code", "ts", "code"), ".sh": ("code", "shell", "code"),
-    ".command": ("code", "shell", "code"), ".yml": ("code", "yaml", "code"),
-    ".yaml": ("code", "yaml", "code"), ".html": ("code", "html", "code"),
-    ".css": ("code", "css", "code"), ".diff": ("code", "diff", "code"),
-    ".headers": ("code", "http", "log"), ".log": ("log", "", "log"), ".txt": ("text", "", "log"),
-}
-IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
-               ".webp": "image/webp"}
-FILTERS = (("markdown", "Markdown"), ("json", "JSON"), ("code", "Code"), ("log", "Logs"),
-           ("text", "Text"), ("image", "Images"))
-
-
-def looks_like_json(text):
-    stripped = (text or "").lstrip()
-    if stripped[:1] not in ("{", "["):
-        return False
-    try:
-        import json
-        json.loads(text)
-        return True
-    except ValueError:
-        return False
-
-
-def kind_of(path, text):
-    """`(kind, language, icon)` for a file: by extension, else JSON when it parses, else text.
-    `text` is None for a file that is not UTF-8 text."""
-    ext = os.path.splitext(path)[1].lower()
-    if ext in IMAGE_TYPES:
-        return "image", "", "image"
-    if text is None:
-        return "binary", "", "file"
-    if ext in KINDS:
-        return KINDS[ext]
-    if looks_like_json(text):
-        return "json", "", "json"
-    return "text", "", "log"
 
 
 # --- the file tree ---------------------------------------------------------------------------------

@@ -16,8 +16,9 @@ Files are written to `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>[-n].html`,
 exclusively, so a generation never replaces an earlier one (or to the file `--export --out`
 names).
 
-`devloops dashboard --serve` (serve.py) renders the same page with a `LazyEmbedder`: files and
-conversations are listed with the URL the page loads them from, not embedded.
+The served variant (`LazyEmbedder`, `render_full(serve=...)`) is no longer used by serve.py, which
+now sends the dashboard app and its data (specs/005-dashboard-redesign); it goes with the rest of
+this module when the export replaces it.
 """
 import base64
 import json
@@ -25,165 +26,28 @@ import os
 import re
 from datetime import datetime, timezone
 
-from . import __version__, claude, dashboard, state, ui
+from . import __version__, dashboard, ui
 from .dashboard import e, money, number, duration
-from .redact import Redactor
+from .artifacts import (  # noqa: F401 - moved there; still reached as fulldash.<name>
+    CALL_FILE, EDIT_TOOLS, IMAGE_TYPES, MAX_EMBED_BYTES, PLAN_OUTPUTS, SNIFF_BYTES, WHOLE_BYTES,
+    _classify, _json_text, _label, _sniff, _walk, call_id, collect_artifacts, human_bytes,
+    read_conversation, sniff, viewer_text, workspace_redactor)
 
 LOOPS = dashboard.LOOPS
 NOTICE = "Contains full Claude Code conversations — review before sharing"
 FINAL_STATUSES = ("completed", "stopped-on-failure", "stopped-on-input-error",
                   "stopped-on-service-error")
 COLLAPSE_LINES = 40
-# A file larger than this is listed with its size and path but not embedded, so one big log or
-# recording cannot swell the page. Conversations are always embedded whole.
-MAX_EMBED_BYTES = 5 * 1024 * 1024
-IMAGE_TYPES = ui.IMAGE_TYPES
-EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
-CALL_FILE = re.compile(r"^(\d{4,})-([a-z-]+?)(\.settings\.json|\.md|\.jsonl)$")
-PLAN_OUTPUTS = re.compile(r"^(plan-summary\.md|open-questions\.md|milestone-.*\.md)$")
 # Files that are not artifacts: the lightweight page itself, and a run's lock.
 SKIPPED = {dashboard.FILENAME}
 
 
-# --- collecting -------------------------------------------------------------------------------------
-
-def workspace_redactor(ws, env=None):
-    """A `Redactor` for the secrets of every loop's frozen configuration.
-
-    Each loop's own secrets are a subset, so every string still passes through each loop's
-    redactor (FR-041); the union also covers workspace-level files shared by both loops.
-    """
-    names, literals = set(), set()
-    for loop in LOOPS:
-        rs = state.read_json(os.path.join(ws.loop_dir(loop), "state", "run.json")) or {}
-        secrets = (rs.get("effective_config") or {}).get("secrets") or {}
-        names.update(secrets.get("env") or [])
-        literals.update(secrets.get("literals") or [])
-    return Redactor({"secrets": {"env": sorted(names), "literals": sorted(literals)}},
-                    environ=os.environ if env is None else env)
-
-
-def _classify(parts):
-    """`(section, details)` for a file at loop-relative path `parts` (contracts/full-dashboard.md)."""
-    path = "/".join(parts)
-    if parts[:2] in (["state", "prompts"], ["state", "conversations"]) and len(parts) == 3:
-        match = CALL_FILE.match(parts[2])
-        if match:
-            return "calls", {"seq": int(match.group(1)), "step": match.group(2)}
-    if parts[:2] == ["state", "milestones"] and len(parts) >= 4:
-        details = {"milestone": parts[2]}
-        if parts[3] == "trials" and len(parts) >= 6 and parts[4].isdigit():
-            details["trial"] = int(parts[4])
-        return "milestones", details
-    if path in ("state/plan.json",) or (parts[0] == "outputs" and len(parts) == 2
-                                        and PLAN_OUTPUTS.match(parts[1])):
-        return "plan", {}
-    if path in ("task.md", "state/api-spec.json"):
-        return "inputs", {}
-    if parts[0] == "outputs":
-        return "outputs", {}
-    if path == "progress.md":
-        return "progress", {}
-    return "state", {}
-
-
-def _walk(top):
-    for dirpath, dirnames, names in os.walk(top):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
-        for name in sorted(names):
-            if not name.startswith("."):
-                yield os.path.join(dirpath, name)
-
-
-def collect_artifacts(ws, loop):
-    """Every file of one loop, plus its recorded inputs: `[{rel, abs, section, ...}]`.
-
-    `rel` is relative to the workspace (an input outside it keeps its recorded path). Items carry
-    `milestone`, `trial`, `seq`, and `step` where they apply.
-    """
-    loop_dir = ws.loop_dir(loop)
-    items = []
-    rs = state.read_json(os.path.join(loop_dir, "state", "run.json")) or {}
-    for name, value in (rs.get("inputs") or {}).items():
-        if isinstance(value, dict) and value.get("path"):
-            path = value["path"]
-            items.append({"rel": _label(ws, path), "abs": path, "section": "inputs",
-                          "input": name})
-    for path in _walk(loop_dir):
-        parts = os.path.relpath(path, loop_dir).split(os.sep)
-        if parts == ["state", "lock"]:
-            continue
-        section, details = _classify(parts)
-        items.append(dict(details, rel=os.path.relpath(path, ws.path), abs=path, section=section))
-    return items
-
-
-def _label(ws, path):
-    """How an input file outside the workspace is named: project-relative when inside it."""
-    try:
-        return ws.project.relative_or_absolute(path)
-    except AttributeError:
-        return path
-
-
-def read_conversation(ws, loop, record, target_dir=None, env=None):
-    """`(text, source, reason)` for one invocation record's conversation.
-
-    `source` is `copied` (the workspace copy), `history` (Claude Code's history, for records made
-    before conversations were copied), or None with a `reason` when it is unavailable.
-    """
-    rel = record.get("conversation_path")
-    if rel:
-        path = os.path.join(ws.loop_dir(loop), rel)
-        try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                return f.read(), "copied", None
-        except OSError:
-            return None, None, f"missing: {os.path.relpath(path, ws.path)}"
-    if record.get("conversation") == "unavailable":
-        return None, None, record.get("conversation_reason") or "not-found"
-    source = claude.find_transcript(record.get("session_id"), target_dir, env)
-    if source is None:
-        return None, None, "not-found"
-    try:
-        with open(source, encoding="utf-8", errors="replace") as f:
-            return f.read(), "history", None
-    except OSError:
-        return None, None, "unreadable"
-
-
 # --- embedding --------------------------------------------------------------------------------------
-
-def human_bytes(size):
-    if size is None:
-        return "–"
-    for limit, unit in ((1 << 30, "GB"), (1 << 20, "MB"), (1 << 10, "KB")):
-        if size >= limit:
-            return f"{size / limit:.1f} {unit}"
-    return f"{size} bytes"
-
 
 def _pre(text, lang=None, markdown=False):
     """Escaped preformatted text. The script highlights `lang`, or renders it as Markdown."""
     attr = ' data-md=""' if markdown else (f' data-lang="{e(lang)}"' if lang else "")
     return f"<pre{attr}>{e(text)}</pre>"
-
-
-def _json_text(text, redactor):
-    """Pretty JSON (or JSON lines) with every value redacted; None if `text` is not JSON."""
-    try:
-        return json.dumps(redactor.redact_obj(json.loads(text))[0], indent=2, ensure_ascii=False)
-    except ValueError:
-        pass
-    lines = []
-    for line in text.split("\n"):
-        if not line.strip():
-            continue
-        try:
-            lines.append(json.dumps(redactor.redact_obj(json.loads(line))[0], ensure_ascii=False))
-        except ValueError:
-            return None
-    return "\n".join(lines) if lines else None
 
 
 def embed(path, redactor, max_bytes=MAX_EMBED_BYTES):
@@ -220,50 +84,6 @@ def embed(path, redactor, max_bytes=MAX_EMBED_BYTES):
         return (kind, lang, ic, f'<div class="inline"><a download="{e(name)}" href="{uri}">download '
                 f'{e(name)} ({e(human_bytes(len(data)))})</a></div>', len(data))
     return kind, lang, ic, f'<pre class="src">{e(viewer_text(kind, text, redactor))}</pre>', len(data)
-
-
-def viewer_text(kind, text, redactor):
-    """A text file as the viewer shows it: JSON indented, and every secret replaced."""
-    if kind in ("json", "jsonl"):
-        text = _json_text(text, redactor) or text
-    return redactor.redact(text)[0]
-
-
-SNIFF_BYTES = 64 * 1024
-WHOLE_BYTES = 1024 * 1024  # a file this small is read whole to tell its kind
-
-
-_SNIFFED = {}  # (path, size, mtime_ns) -> (kind, lang, icon): a served page lists files often
-_SNIFFED_MAX = 50000
-
-
-def sniff(path, size, mtime_ns=None):
-    """`(kind, lang, icon)` of a file from its first bytes (the whole file when small), so a large
-    file is not read just to be listed. With `mtime_ns`, remembered until the file changes."""
-    key = (path, size, mtime_ns)
-    if mtime_ns is not None and key in _SNIFFED:
-        return _SNIFFED[key]
-    found = _sniff(path, size)
-    if mtime_ns is not None:
-        if len(_SNIFFED) >= _SNIFFED_MAX:
-            _SNIFFED.clear()
-        _SNIFFED[key] = found
-    return found
-
-
-def _sniff(path, size):
-    with open(path, "rb") as f:
-        data = f.read(size if size <= WHOLE_BYTES else SNIFF_BYTES)
-    text = None
-    if os.path.splitext(path)[1].lower() not in IMAGE_TYPES:
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError as err:
-            if len(data) < size and err.start >= len(data) - 3:  # cut inside a character
-                text = data[:err.start].decode("utf-8", errors="replace")
-        if text is not None and "\x00" in text:
-            text = None
-    return ui.kind_of(path, text)
 
 
 class Embedder:
@@ -586,10 +406,6 @@ def _model(text):
 
 
 # --- calls ------------------------------------------------------------------------------------------
-
-def call_id(loop, seq):
-    return f"call-{loop}-{seq}"
-
 
 def _prompt_sources(sources):
     """The parts the prompt was composed from, and where each came from (002 FR-031)."""

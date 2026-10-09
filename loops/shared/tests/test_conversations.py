@@ -1,12 +1,14 @@
 """Each call's Claude Code conversation is copied, redacted, into the workspace (002 FR-040 to
-FR-042, research P-9)."""
+FR-042, research P-9), and parsed into records for the dashboard: redacted, with failed tool results
+and the files the call changed (artifacts.parse_conversation; specs/005-dashboard-redesign R-7)."""
 import json
 import os
 import unittest
 
 import helpers  # noqa: F401 - puts the package on sys.path
 import samples
-from devloops import state
+from devloops import artifacts, state
+from devloops.redact import Redactor
 from stub_loop import StubLoopMixin
 
 SECRET = "S3CR3T-conversation-value"
@@ -102,6 +104,69 @@ class ConversationCopyTest(StubLoopMixin, unittest.TestCase):
             self.assertEqual(record["conversation_path"], os.path.join(
                 "state", "conversations", f"{record['seq']:04d}-{record['step']}.jsonl"))
             self.assertTrue(os.path.isfile(self.path(record["conversation_path"])))
+
+
+# --- parsing for the dashboard ----------------------------------------------------------------
+
+def lines(*records):
+    return "\n".join(r if isinstance(r, str) else json.dumps(r) for r in records) + "\n"
+
+
+def tool_use(name, **data):
+    return {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t", "name": name, "input": data}]}}
+
+
+def result(text, error=False):
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t", "content": text, "is_error": error}]}}
+
+
+class ParseConversationTest(unittest.TestCase):
+    def setUp(self):
+        self.redactor = Redactor({"secrets": {"env": [], "literals": [SECRET]}}, environ={})
+
+    def parse(self, text):
+        return artifacts.parse_conversation(text, self.redactor)
+
+    def test_records_are_parsed_and_redacted(self):
+        parsed = self.parse(lines({"type": "system", "subtype": "init"}, "",
+                                  {"type": "assistant", "message": {"content": [
+                                      {"type": "text", "text": f"the key is {SECRET}"}]}}))
+        self.assertEqual(len(parsed["records"]), 2)  # the blank line is not a record
+        self.assertEqual(parsed["records"][1]["message"]["content"][0]["text"], "the key is ***")
+        self.assertNotIn(SECRET, json.dumps(parsed))
+        self.assertEqual((parsed["errors"], parsed["files_changed"]), ([], []))
+
+    def test_a_line_that_is_not_json_is_kept_raw(self):
+        parsed = self.parse(lines({"type": "system"}, f"not json {SECRET}"))
+        self.assertEqual(parsed["records"][1], {"raw": "not json ***"})
+
+    def test_a_line_separator_inside_a_string_does_not_split_a_record(self):
+        text = json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "one two"}]}}, ensure_ascii=False)
+        parsed = self.parse(text + "\n")
+        self.assertEqual(len(parsed["records"]), 1)
+        self.assertEqual(parsed["records"][0]["message"]["content"][0]["text"], "one two")
+
+    def test_failed_tool_results_are_listed(self):
+        parsed = self.parse(lines(tool_use("Bash", command="ls"), result("ok"),
+                                  tool_use("Bash", command="false"), result("exit 1", error=True)))
+        self.assertEqual(parsed["errors"], [3])
+
+    def test_files_changed_keep_the_last_change_of_each_path(self):
+        parsed = self.parse(lines(
+            tool_use("Write", file_path="/t/a.py", content="x"),
+            tool_use("Edit", file_path="/t/b.py", old_string="a", new_string="b"),
+            tool_use("Read", file_path="/t/c.py"),
+            tool_use("Edit", file_path="/t/a.py", old_string="x", new_string="y"),
+            tool_use("MultiEdit", file_path="/t/d.py", edits=[]),
+            tool_use("NotebookEdit", notebook_path="/t/e.ipynb", new_source="")))
+        self.assertEqual(parsed["files_changed"], [
+            {"path": "/t/b.py", "tool": "Edit", "block": 1},
+            {"path": "/t/a.py", "tool": "Edit", "block": 3},
+            {"path": "/t/d.py", "tool": "MultiEdit", "block": 4},
+            {"path": "/t/e.ipynb", "tool": "NotebookEdit", "block": 5}])
 
 
 if __name__ == "__main__":

@@ -1,10 +1,11 @@
-"""`devloops dashboard --serve`: the full dashboard, served live from the workspaces (002 FR-042a).
+"""`devloops dashboard --serve`: the dashboard app, served live from the workspaces with its data
+(specs/005-dashboard-redesign contracts/api.md; 002 FR-042a).
 
-A local HTTP server (the standard library's) that renders the same page as the full dashboard
-(fulldash.py), but loads each file and conversation when it is opened: nothing is embedded up
-front, so there is no size limit. While a run goes on, the page asks for its workspace's version
-every few seconds and, when it changed, replaces only the views that did, keeping the reader's
-place (assets/dashboard.js).
+A local HTTP server (the standard library's). `/w/<name>/` is a small page (assets/app/index.html)
+that loads one script and one stylesheet; the app then asks `/w/<name>/api/...` for the data of
+the view it shows, as JSON built by dashboard.py, and each file's content when it is opened. Every
+answer is kept until the workspace changes: the page asks for the workspace's `version` every few
+seconds and, when it changed, loads the open view's data again (assets/app/api.js).
 
 Safe by default:
 - it listens on 127.0.0.1 unless `--host` says otherwise; on a loopback address it answers only
@@ -12,16 +13,19 @@ Safe by default:
 - on any other address it requires a token (in the printed URL, then kept in a cookie), unless
   `--no-token`;
 - it is read-only: GET and HEAD only, and it never writes to the project;
-- it sends only the files the page lists, named by their anchor, never a path from the request,
-  and a listed file must lie inside the workspace (or be a recorded input);
-- every text it sends goes through the workspace's redactor, as the full dashboard's does.
+- it sends only the files the workspace's listing holds (artifacts.file_index), named by their id,
+  never a path from the request, and a listed file must lie inside the workspace (or be a
+  recorded input);
+- every text it sends goes through the workspace's redactor;
+- the page runs only the server's own script and style (its Content-Security-Policy).
 
-One server covers the project's workspaces: `/w/<name>/` is one workspace's page, and its sidebar
-switches between them. While it runs, `serve-<project>.json` in the user's runtime folder records
-its URL and pid, so other commands print the URL instead of the command (`running`).
+One server covers the project's workspaces, and the page switches between them. While it runs,
+`serve-<project>.json` in the user's runtime folder records its URL and pid, so other commands
+print the URL instead of the command (`running`).
 """
 import hashlib
 import hmac
+import inspect
 import ipaddress
 import json
 import os
@@ -37,7 +41,7 @@ import webbrowser
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import dashboard, fulldash, state, workspace
+from . import appbundle, artifacts, dashboard, state, workspace
 from .state import DevloopsError
 
 DEFAULT_PORT = 8765
@@ -49,10 +53,17 @@ STREAM_BYTES = 16 * 1024 * 1024      # larger text files are streamed, not read 
 STREAM_BLOCK = 1024 * 1024
 VERSION_TTL = 1.0                    # seconds a computed version serves every page
 ANCHOR = re.compile(r"^f-[a-z0-9-]+$")
-PAGE_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-            "img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; "
-            "frame-ancestors 'none'")
+PAGE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+            "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 FILE_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
+ASSETS = {"app.js": ("text/javascript; charset=utf-8", appbundle.script),
+          "app.css": ("text/css; charset=utf-8", appbundle.stylesheet)}
+
+# The data API: `(pattern of the path after /w/<ws>/api/, builder)`. A builder is the name of a
+# function of dashboard.py (or a function), called as `builder(ctx, **named groups)` with the
+# workspace version's `dashboard.Context`; it returns plain data, or raises `dashboard.NotFound`.
+# `files/<id>` (a file's content) and `search` are answered by the server itself.
+API = []
 
 
 # --- the record of a running server -----------------------------------------------------------------
@@ -130,16 +141,15 @@ def _remove_record(path):
 # --- what is served ---------------------------------------------------------------------------------
 
 class Site:
-    """The project's workspaces, and what the server knows of each: the files its page lists."""
+    """The project's workspaces, and what the server knows of each version of one: its answers."""
 
     def __init__(self, project, kit, env=None, extra=None):
         self.project, self.kit = project, kit
         self.env = os.environ if env is None else env
         self.extra = dict(extra or {})  # workspaces outside the workspaces folder: name -> path
         self._lock = threading.Lock()
-        # workspace name -> the last render: {version, html, files (anchor -> path), inputs
-        # (anchors allowed outside the workspace), anchors (path -> anchor)}
-        self._pages = {}
+        # workspace name -> {version, ctx (dashboard.Context), answers: {path: (status, body)}}
+        self._cache = {}
         self._versions = {}  # workspace name -> (when, version): one walk serves every tab
 
     def workspaces(self):
@@ -167,20 +177,17 @@ class Site:
         except DevloopsError:
             return None
 
-    def redactor(self, ws):
-        return fulldash.workspace_redactor(ws, self.env)
-
     def version(self, ws):
-        """A digest of everything the page shows: each file's size and time, the full dashboards
-        written, and the workspaces to switch to. Computed at most once a second per workspace,
-        however many pages ask."""
+        """A digest of everything the dashboard shows: each file's size and time, the full
+        dashboards written, and the workspaces to switch to. Computed at most once a second per
+        workspace, however many pages ask."""
         now = time.monotonic()
         with self._lock:
             when, version = self._versions.get(ws.name, (None, None))
         if when is not None and now - when < VERSION_TTL:
             return version
         h = hashlib.sha1()
-        for path in fulldash._walk(ws.path):
+        for path in artifacts._walk(ws.path):
             rel = os.path.relpath(path, ws.path)
             if rel == dashboard.FILENAME:
                 continue
@@ -194,60 +201,71 @@ class Site:
         h.update("\0".join(self.workspaces()).encode("utf-8"))
         version = h.hexdigest()[:16]
         with self._lock:
-            self._versions[ws.name] = (now, version)
+            # Of two walks at once, the one that started last saw the newer workspace: an older
+            # one finishing later must not bring its version back.
+            when, latest = self._versions.get(ws.name, (None, None))
+            if when is None or now >= when:
+                self._versions[ws.name] = (now, version)
+            else:
+                version = latest
         return version
 
-    def rendered(self, ws):
-        """The workspace's page as of its current version: rendered again only when the version
-        changed, so polling pages, file requests, and unknown anchors cost a walk, not a render."""
-        version = self.version(ws)
+    def current(self, ws):
+        """`(version, entry)`: the workspace's cache entry for its current version, emptied when
+        the version changed (FR-007)."""
+        self.version(ws)
         with self._lock:
-            cached = self._pages.get(ws.name)
-        if cached and cached["version"] == version:
-            return cached
-        embedder = fulldash.LazyEmbedder(ws, self.redactor(ws))
-        serve = {"workspaces": list(self.workspaces()),
-                 "attrs": {"serve": POLL_SECONDS, "version": version}}
-        html, _ = fulldash.render_full(dashboard.collect(ws), ws, embedder, self.env, serve=serve)
-        page = {"version": version, "html": html, "files": embedder.files,
-                "inputs": embedder.inputs, "anchors": dict(embedder.anchors)}
+            version = self._versions[ws.name][1]  # the newest, whatever this thread computed
+            entry = self._cache.get(ws.name)
+            if entry is None or entry["version"] != version:
+                entry = {"version": version, "answers": {},
+                         "ctx": dashboard.Context(ws, self.env, list(self.workspaces()))}
+                self._cache[ws.name] = entry
+        return version, entry
+
+    def answer(self, ws, path, query=""):
+        """`(status, JSON text, version)` of API path `path` with query string `query`: built by
+        its builder once per version, redacted. A builder that takes `query` gets the query's
+        values (`{name: value}`); for one that does not, the query does not change the answer.
+        An unknown path, or a builder's `NotFound`, is a 404."""
+        version, entry = self.current(ws)
+        ctx = entry["ctx"]
+        for pattern, builder in API:
+            match = pattern.match(path)
+            if match:
+                break
+        else:
+            return 404, json.dumps({"error": "not found"}), version
+        build = getattr(dashboard, builder) if isinstance(builder, str) else builder
+        args = match.groupdict()
+        params = {}
+        if _takes_query(build):
+            params = {k: v[-1] for k, v in sorted(urllib.parse.parse_qs(query).items())}
+            args["query"] = params
+        key = (path, tuple(params.items()))
         with self._lock:
-            self._pages[ws.name] = page
-        return page
+            hit = entry["answers"].get(key)
+        if hit:
+            return hit + (version,)
+        try:
+            status, data = 200, build(ctx, **args)
+        except dashboard.NotFound as e:
+            status, data = 404, {"error": str(e)}
+        body = json.dumps(ctx.redactor.redact_obj(data)[0], ensure_ascii=False)
+        with self._lock:
+            entry["answers"][key] = (status, body)
+        return status, body, version
 
-    def page(self, ws):
-        return self.rendered(ws)["html"]
+    def redactor(self, ws):
+        return self.current(ws)[1]["ctx"].redactor
 
-    def file(self, ws, anchor):
-        """The real path of a file the page lists, or None. A file listed since the page was
-        rendered is found once the version shows the change. The real path is what is opened,
-        so a link swapped in after this check is not followed."""
-        if not ANCHOR.match(anchor):
+    def file(self, ws, file_id):
+        """The real path of a file the workspace's listing holds, or None. A file written since
+        the last listing is found once the version shows the change. The real path is what is
+        opened, so a link swapped in after this check is not followed."""
+        if not ANCHOR.match(file_id):
             return None
-        page = self.rendered(ws)
-        path = page["files"].get(anchor)
-        if path is None:
-            return None
-        real, root = os.path.realpath(path), os.path.realpath(ws.path)
-        inside = real == root or real.startswith(root.rstrip(os.sep) + os.sep)
-        return real if inside or anchor in page["inputs"] else None
-
-    def call(self, ws, loop, seq):
-        """The conversation fragment of call `seq` of `loop`, or None if there is no such call."""
-        if loop not in dashboard.LOOPS:
-            return None
-        loop_dir = ws.loop_dir(loop)
-        records = state.read_jsonl(os.path.join(loop_dir, "state", "invocations.jsonl"))
-        record = next((r for r in records if str(r.get("seq")) == seq), None)
-        if record is None:
-            return None
-        run = state.read_json(os.path.join(loop_dir, "state", "run.json")) or {}
-        redactor = self.redactor(ws)
-        anchors = self.rendered(ws)["anchors"]  # the page's, so the fragment's ids match it
-        body, _, _ = fulldash.conversation_body(
-            ws, loop, record, run.get("target_dir"), redactor,
-            lambda rel: anchors.get(os.path.normpath(rel)), self.env)
-        return redactor.redact(body)[0]
+        return _sendable(self.current(ws)[1]["ctx"].index, os.path.realpath(ws.path), file_id)
 
     def search(self, ws, query):
         """Where `query` appears in the listed text files, then in the conversations: `[{id, kind,
@@ -255,38 +273,57 @@ class Site:
         needle = query.lower()
         if len(needle) < 2:
             return []
-        files = self.rendered(ws)["files"]
-        redactor, found = self.redactor(ws), []
-        for anchor in list(files):
+        ctx = self.current(ws)[1]["ctx"]  # one listing for the whole search
+        index, root = ctx.index, os.path.realpath(ws.path)
+        redactor, found = ctx.redactor, []
+        for file_id in list(index["by_id"]):
             if len(found) >= SEARCH_LIMIT:
                 return found
-            path = self.file(ws, anchor)
+            path = _sendable(index, root, file_id)
             try:
                 st = os.stat(path) if path else None
                 if st is None or st.st_size > SEARCH_MAX_BYTES:
                     continue
-                kind, _, _ = fulldash.sniff(path, st.st_size, st.st_mtime_ns)
+                kind, _, _ = artifacts.sniff(path, st.st_size, st.st_mtime_ns)
                 if kind in ("image", "binary"):
                     continue
                 with open(path, encoding="utf-8", errors="replace") as f:
-                    text = fulldash.viewer_text(kind, f.read(), redactor)
+                    text = artifacts.viewer_text(kind, f.read(), redactor)
             except OSError:
                 continue
             hit = _hit(text, needle)
             if hit:
-                found.append(dict(hit, id=anchor, kind="file"))
+                found.append(dict(hit, id=file_id, kind="file"))
         for loop in dashboard.LOOPS:
             loop_dir = ws.loop_dir(loop)
             run = state.read_json(os.path.join(loop_dir, "state", "run.json")) or {}
             for r in state.read_jsonl(os.path.join(loop_dir, "state", "invocations.jsonl")):
                 if len(found) >= SEARCH_LIMIT:
                     return found
-                text, _, _ = fulldash.read_conversation(ws, loop, r, run.get("target_dir"),
-                                                        self.env)
+                text, _, _ = artifacts.read_conversation(ws, loop, r, run.get("target_dir"),
+                                                         self.env)
                 hit = _conversation_hit(text, needle, redactor) if text else None
                 if hit:
-                    found.append(dict(hit, id=fulldash.call_id(loop, r.get("seq")), kind="call"))
+                    found.append(dict(hit, id=artifacts.call_id(loop, r.get("seq")), kind="call"))
         return found
+
+
+def _sendable(index, root, file_id):
+    """The real path of a listed file that may be sent: inside the workspace `root`, or a
+    recorded input; else None."""
+    path = index["by_id"].get(file_id)
+    if path is None:
+        return None
+    real = os.path.realpath(path)
+    inside = real == root or real.startswith(root.rstrip(os.sep) + os.sep)
+    return real if inside or file_id in index["inputs"] else None
+
+
+def _takes_query(fn):
+    try:
+        return "query" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def _hit(text, needle):
@@ -359,13 +396,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- responses ---
 
-    def _send(self, code, body, ctype="text/plain; charset=utf-8", headers=None, head=False):
+    def _send(self, code, body, ctype="text/plain; charset=utf-8", headers=None, head=False,
+              cache="no-store"):
         if isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
@@ -380,9 +418,10 @@ class Handler(BaseHTTPRequestHandler):
     def _redirect(self, location, headers=None, head=False):
         self._send(303, "", headers=dict(headers or {}, Location=location), head=head)
 
-    def _json(self, obj, head=False):
-        self._send(200, json.dumps(obj, ensure_ascii=False), "application/json; charset=utf-8",
-                   head=head)
+    def _json(self, obj, head=False, code=200, version=None):
+        body = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
+        headers = {"X-Devloops-Version": version} if version else None
+        self._send(code, body, "application/json; charset=utf-8", headers=headers, head=head)
 
     # --- checks ---
 
@@ -455,6 +494,9 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/favicon.ico":
             self._send(204, "", head=head)
             return
+        if len(parts) == 2 and parts[0] == "assets":
+            self._asset(parts[1], url, head)
+            return
         if len(parts) < 2 or parts[0] != "w":
             self._send(404, "devloops: not found\n", head=head)
             return
@@ -466,51 +508,68 @@ class Handler(BaseHTTPRequestHandler):
         if not rest:
             self._redirect(f"/w/{urllib.parse.quote(ws.name)}/", head=head)
         elif rest == [""]:
-            self._send(200, site.page(ws), "text/html; charset=utf-8", head=head)
+            attrs = {"source": "api", "poll": POLL_SECONDS, "workspace": ws.name,
+                     "version": site.version(ws)}
+            self._send(200, appbundle.shell(f"devloops · {ws.name}", attrs),
+                       "text/html; charset=utf-8", head=head)
         elif rest == ["version"]:
             self._json({"version": site.version(ws)}, head)
-        elif len(rest) == 2 and rest[0] == "file":
-            self._file(ws, rest[1], head)
-        elif len(rest) == 3 and rest[0] == "call":
-            fragment = site.call(ws, rest[1], rest[2])
-            if fragment is None:
-                self._send(404, "devloops: no such call\n", head=head)
-            else:
-                self._send(200, fragment, "text/html; charset=utf-8", head=head)
-        elif rest == ["search"]:
-            query = (urllib.parse.parse_qs(url.query).get("q") or [""])[0]
-            self._json({"results": site.search(ws, query)}, head)
+        elif rest[0] == "api" and len(rest) > 1:
+            self._api(ws, rest[1:], url, head)
         else:
             self._send(404, "devloops: not found\n", head=head)
 
-    def _file(self, ws, anchor, head):
+    def _asset(self, name, url, head):
+        """The app's script or stylesheet. Its URL carries the assets' version, so a browser
+        keeps it until devloops changes."""
+        if name not in ASSETS:
+            self._send(404, "devloops: not found\n", head=head)
+            return
+        ctype, read = ASSETS[name]
+        given = (urllib.parse.parse_qs(url.query).get("v") or [None])[0]
+        cache = ("max-age=31536000, immutable" if given == appbundle.assets_version()
+                 else "no-store")
+        self._send(200, read(), ctype, head=head, cache=cache)
+
+    def _api(self, ws, rest, url, head):
         site = self.server.site
-        path = site.file(ws, anchor)
+        if len(rest) == 2 and rest[0] == "files":
+            self._file(ws, rest[1], head)
+        elif rest == ["search"]:
+            query = (urllib.parse.parse_qs(url.query).get("q") or [""])[0]
+            self._json({"results": site.search(ws, query)}, head, version=site.version(ws))
+        else:
+            code, body, version = site.answer(ws, "/".join(rest), url.query)
+            self._json(body, head, code, version)
+
+    def _file(self, ws, file_id, head):
+        site = self.server.site
+        path = site.file(ws, file_id)
         if path is None:
-            self._send(404, "devloops: not a file of this dashboard\n", head=head)
+            self._json({"error": "not a file of this workspace"}, head, 404)
             return
         try:
             fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         except OSError:
-            self._send(404, "devloops: missing\n", head=head)
+            self._json({"error": "missing"}, head, 404)
             return
         with os.fdopen(fd, "rb") as f:
             st = os.fstat(fd)
-            kind, _, _ = fulldash.sniff(path, st.st_size, st.st_mtime_ns)
+            kind, _, _ = artifacts.sniff(path, st.st_size, st.st_mtime_ns)
             if kind not in ("image", "binary") and st.st_size > STREAM_BYTES:
                 self._stream_text(f, site.redactor(ws), head)
                 return
             data = f.read()
         name = os.path.basename(path)
         if kind == "image":
-            ctype = fulldash.IMAGE_TYPES[os.path.splitext(path)[1].lower()]
+            ctype = artifacts.IMAGE_TYPES[os.path.splitext(path)[1].lower()]
             self._send(200, data, ctype, head=head)
         elif kind == "binary":
             self._send(200, data, "application/octet-stream", head=head, headers={
                 "Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}"})
         else:
-            text = fulldash.viewer_text(kind, data.decode("utf-8", errors="replace"),
-                                        site.redactor(ws))
+            text = artifacts.viewer_text(kind, data.decode("utf-8", errors="replace"),
+                                         site.redactor(ws))
             self._send(200, text, head=head)
 
     def _stream_text(self, f, redactor, head):

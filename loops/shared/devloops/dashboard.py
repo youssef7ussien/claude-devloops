@@ -14,9 +14,10 @@ import os
 import re
 import shlex
 import socket
+import threading
 from datetime import datetime
 
-from . import __version__, render, state, ui
+from . import __version__, artifacts, render, state, ui
 
 LOOPS = ("backend-dev", "frontend-dev")
 FILENAME = "dashboard.html"
@@ -73,8 +74,11 @@ def _within(record, trial):
     return start <= at and (end is None or at <= end)
 
 
+TOKEN_KEYS = ("input", "output", "cache_creation", "cache_read")
+
+
 def _tokens(records):
-    total = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+    total = {k: 0 for k in TOKEN_KEYS}
     for r in records:
         for k in total:
             total[k] += (r.get("tokens") or {}).get(k) or 0
@@ -83,6 +87,71 @@ def _tokens(records):
 
 def _cost(records):
     return sum(r.get("cost_usd") or 0 for r in records)
+
+
+def _empty_tokens():
+    return dict({k: 0 for k in TOKEN_KEYS}, total=0)
+
+
+def totals(records):
+    """The usage of some invocation records (specs/005 data-model, Totals): `{calls, cost, tokens:
+    {input, output, cache_creation, cache_read, total}, partial, seconds}`.
+
+    `partial` is true when a record lacks `tokens` or `cost_usd`, so its sums are a lower bound.
+    `seconds` is the wall time from the earliest `started_at` to the latest `ended_at` (None when
+    either is unknown)."""
+    tokens, cost, partial = _empty_tokens(), 0.0, False
+    for r in records:
+        used = r.get("tokens")
+        if not isinstance(used, dict) or r.get("cost_usd") is None:
+            partial = True
+        for k in TOKEN_KEYS:
+            tokens[k] += (used if isinstance(used, dict) else {}).get(k) or 0
+        cost += r.get("cost_usd") or 0
+    tokens["total"] = sum(tokens[k] for k in TOKEN_KEYS)
+    starts = [t for t in (_parse_time(r.get("started_at")) for r in records) if t]
+    ends = [t for t in (_parse_time(r.get("ended_at")) for r in records) if t]
+    seconds = (max(ends) - min(starts)).total_seconds() if starts and ends else None
+    return {"calls": len(records), "cost": cost, "tokens": tokens, "partial": partial,
+            "seconds": seconds}
+
+
+def add(*levels):
+    """The sum of several totals: calls, cost, and tokens add up; `partial` when any is.
+
+    `seconds` is the sum of the parts' known seconds (None when none is known): the time spent
+    in them, not the wall time spanning them, since parts may be far apart."""
+    out = {"calls": 0, "cost": 0.0, "tokens": _empty_tokens(), "partial": False, "seconds": None}
+    for t in levels:
+        out["calls"] += t["calls"]
+        out["cost"] += t["cost"]
+        for k in out["tokens"]:
+            out["tokens"][k] += t["tokens"][k]
+        out["partial"] = out["partial"] or t["partial"]
+        if t.get("seconds") is not None:
+            out["seconds"] = (out["seconds"] or 0) + t["seconds"]
+    return out
+
+
+def loop_extras(level, achieved):
+    """`{cache_hit_rate, cost_per_achieved}` of a loop's totals: cache reads over all input
+    tokens, and cost over milestones achieved (None when there is nothing to divide by)."""
+    t = level["tokens"]
+    read = t["input"] + t["cache_creation"] + t["cache_read"]
+    return {"cache_hit_rate": t["cache_read"] / read if read else None,
+            "cost_per_achieved": level["cost"] / achieved if achieved else None}
+
+
+def _steps(calls):
+    """A trial's calls grouped by step, in the order the calls ran: `[{step, totals, calls}]`."""
+    steps = []
+    for r in sorted(calls, key=lambda r: r.get("seq") or 0):
+        name = r.get("step") or "?"
+        if not steps or steps[-1]["step"] != name:
+            steps.append({"step": name, "records": []})
+        steps[-1]["records"].append(r)
+    return [{"step": s["step"], "totals": totals(s["records"]),
+             "calls": [r.get("seq") for r in s["records"]]} for s in steps]
 
 
 def collect_loop(ws, loop):
@@ -124,6 +193,7 @@ def collect_loop(ws, loop):
                 "started_at": summary.get("started_at"), "ended_at": summary.get("ended_at"),
                 "seconds": _seconds(summary.get("started_at"), summary.get("ended_at")),
                 "cost": _cost(calls), "tokens": _tokens(calls),
+                "totals": totals(calls), "steps": _steps(calls),
                 "sessions": [r.get("session_id") for r in calls],
                 "validation": (state.read_json(os.path.join(trial_dir, "validation.json"))
                                if latest else None),
@@ -141,6 +211,7 @@ def collect_loop(ws, loop):
             "checks": (state.read_json(os.path.join(state_dir, "milestones", mid, "checks.json"))
                        or {}).get("checks", []),
             "cost": _cost(calls), "tokens": _tokens(calls), "calls": len(calls),
+            "totals": totals(calls),
             "seconds": _seconds(ms.get("started_at"), ms.get("ended_at")),
         })
 
@@ -150,19 +221,23 @@ def collect_loop(ws, loop):
     times = [_parse_time(e.get("at")) for e in events] + \
         [_parse_time(r.get(k)) for r in invocations for k in ("started_at", "ended_at")]
     times = [t for t in times if t]
-    by_step = {}
+    step_records = {}
     for rec in invocations:
-        step = by_step.setdefault(rec.get("step") or "?", {"calls": 0, "cost": 0.0, "tokens": 0})
-        step["calls"] += 1
-        step["cost"] += rec.get("cost_usd") or 0
-        step["tokens"] += sum((rec.get("tokens") or {}).get(k) or 0
-                              for k in ("input", "output", "cache_creation", "cache_read"))
+        step_records.setdefault(rec.get("step") or "?", []).append(rec)
+    by_step = {}
+    for name, records in step_records.items():
+        t = totals(records)  # `calls`, `cost`, and `tokens` are the summary page's names
+        by_step[name] = {"calls": t["calls"], "cost": t["cost"], "tokens": t["tokens"]["total"],
+                         "totals": t}
     counted = [t for m in milestones for t in m["trials"] if t["status"] != "void"]
     achieved = [m for m in milestones if m["status"] == "achieved"]
+    loop_totals = totals(invocations)
     return {
         "loop": loop, "status": run.get("status"), "status_reason": run.get("status_reason"),
         "plan": plan, "milestones": milestones, "planning": planning,
         "planning_cost": _cost(planning_calls), "planning_tokens": _tokens(planning_calls),
+        "planning_totals": totals(planning_calls),
+        "totals": loop_totals, "extras": loop_extras(loop_totals, len(achieved)),
         "invocations": invocations, "events": events, "questions": questions,
         "grants": run.get("grants") or [], "approval": run.get("approval"),
         "ui_url": run.get("ui_url"), "openapi_artifact": run.get("openapi_artifact"),
@@ -266,8 +341,51 @@ def collect(ws):
             "cost": sum(s["cost"] for s in stats),
             "tokens": sum(sum(s["tokens"].values()) for s in stats),
             "seconds": _seconds(min(starts), max(ends)) if starts and ends else None,
+            "usage": add(*(d["totals"] for d in loops.values())),
         },
     }
+
+
+# --- view data for the API (specs/005-dashboard-redesign contracts/api.md) --------------------------
+
+class NotFound(LookupError):
+    """An API path that names no such loop, milestone, trial, call, or file (a 404)."""
+
+
+class Context:
+    """What the API's answers for one version of a workspace share, each worked out once when
+    first needed: the collected data, the file listing, and the redactor. The server keeps one
+    per workspace version (serve.py); every builder is `builder(ctx, **path parameters) -> dict`.
+
+    `workspaces` are the names the page can switch to (served)."""
+
+    def __init__(self, ws, env=None, workspaces=None):
+        self.ws = ws
+        self.env = os.environ if env is None else env
+        self.workspaces = list(workspaces or [ws.name])
+        self._lock = threading.RLock()  # `index` asks for `data` while making itself
+        self._made = {}
+
+    def _once(self, name, make):
+        """`make()`, worked out by the first thread that asks; the others wait for it (the
+        server answers a page's requests in parallel)."""
+        with self._lock:
+            if name not in self._made:
+                self._made[name] = make()
+            return self._made[name]
+
+    @property
+    def data(self):
+        return self._once("data", lambda: collect(self.ws))
+
+    @property
+    def index(self):
+        """`artifacts.file_index`: `{trees, count, by_id, inputs}`."""
+        return self._once("index", lambda: artifacts.file_index(self.ws, self.data))
+
+    @property
+    def redactor(self):
+        return self._once("redactor", lambda: artifacts.workspace_redactor(self.ws, self.env))
 
 
 # --- formatting -------------------------------------------------------------------------------------
@@ -312,8 +430,7 @@ def tone(status, table):
 
 
 def tokens_of(record):
-    return sum((record.get("tokens") or {}).get(k) or 0
-               for k in ("input", "output", "cache_creation", "cache_read"))
+    return sum((record.get("tokens") or {}).get(k) or 0 for k in TOKEN_KEYS)
 
 
 def _path_link(relpath, text=None):
