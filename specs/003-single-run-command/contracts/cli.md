@@ -43,6 +43,9 @@ that loop.
   - **frontend-dev without backend-dev:** exit **30**; `status_reason.code`
     `frontend-needs-backend`. Message: `frontend-dev needs backend-dev in the same run: set
     targets.backend-dev in .devloops/devloops.json (frontend-only runs are not supported yet)`.
+    When the frontend came from `--frontend-target`: `frontend-dev needs backend-dev in the same
+    run: set targets.backend-dev in .devloops/devloops.json or pass --backend-target
+    (frontend-only runs are not supported yet)`.
   - `--json` prints only `{"exit_code": 30, "status_reason": {"code", "message"}}`.
 - Then, as before, the tools of every included loop with work left are checked (`missing-tool`,
   exit 30, nothing recorded).

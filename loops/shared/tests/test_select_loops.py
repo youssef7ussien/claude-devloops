@@ -135,6 +135,11 @@ class SelectLoopsTest(unittest.TestCase):
                          ("frontend-needs-backend", 30))
         self.assertIn("frontend-only runs are not supported yet", cm.exception.message)
 
+    def test_a_frontend_from_the_flag_also_names_the_backend_flag(self):
+        with self.assertRaises(state.StopRun) as cm:
+            check_selection({"frontend-dev": self.path("web")}, frontend_flag=True)
+        self.assertIn("or pass --backend-target", cm.exception.message)
+
     def test_valid_selections_pass(self):
         check_selection({"backend-dev": self.path("api")})
         check_selection({"backend-dev": self.path("api"), "frontend-dev": self.path("web")})

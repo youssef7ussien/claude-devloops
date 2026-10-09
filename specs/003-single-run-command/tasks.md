@@ -252,7 +252,7 @@ call.
 
 ### Tests for User Story 3
 
-- [ ] T028 [P] [US3] Add tests to `loops/shared/tests/test_run_command.py` (FR-006, SC-003):
+- [X] T028 [P] [US3] Add tests to `loops/shared/tests/test_run_command.py` (FR-006, SC-003):
   - **Both `null`:** `devloops run --json` exits 30, prints exactly `{"exit_code": 30, "status_reason": {"code": "no-loop", "message": …}}`, creates no workspace folder, and makes no fake-Claude calls (the fake log is empty).
   - **Missing `targets`:** the same.
   - **Frontend only:** code `frontend-needs-backend`.
@@ -262,7 +262,7 @@ call.
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] T014 owns the exit-30 handling. This task only closes the gaps the T028 tests reveal in `loops/shared/devloops/cli.py`:
+- [X] T029 [US3] (No gaps found: T014 already covers every point; no code change.) T014 owns the exit-30 handling. This task only closes the gaps the T028 tests reveal in `loops/shared/devloops/cli.py`:
   - the `StopRun` from `orchestrator.check_selection` arrives before `workspace.open_workspace(create=True)` or any lock;
   - text mode prints `devloops: <message>` on stderr;
   - `--json` prints only the FR-006 object.

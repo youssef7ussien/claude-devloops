@@ -507,7 +507,8 @@ def _run(args, kit, project, env, action=None, selected=None):
             project, ws, getattr(args, "backend_target", None),
             getattr(args, "frontend_target", None), getattr(args, "target_root", None))
     try:  # also for a decision's selection: the same loops, the same checks
-        orchestrator.check_selection(selected)  # FR-006: before anything is created
+        orchestrator.check_selection(  # FR-006: before anything is created
+            selected, frontend_flag=bool(getattr(args, "frontend_target", None)))
     except state.StopRun as e:
         if not args.json:
             raise

@@ -12,6 +12,7 @@ import io
 import json
 import os
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -387,6 +388,96 @@ class RunCommandTest(unittest.TestCase):
         run = self.orch_state()
         self.assertEqual((run["status"], run["loops"]), ("completed", ["backend-dev",
                                                                        "frontend-dev"]))
+
+    # --- a wrong setup stops before anything runs (003 US3, FR-006, SC-003) -------------------------
+
+    # The messages are part of the contract (contracts/cli.md, "Before anything is written"), so
+    # they are pinned here word for word rather than read from the code.
+    NO_LOOP = ("no loop to run: set targets.backend-dev or targets.frontend-dev in "
+               ".devloops/devloops.json (or run devloops init)")
+    FRONTEND_ONLY = ("frontend-dev needs backend-dev in the same run: set targets.backend-dev in "
+                     ".devloops/devloops.json (frontend-only runs are not supported yet)")
+    FRONTEND_FLAG_ONLY = ("frontend-dev needs backend-dev in the same run: set "
+                          "targets.backend-dev in .devloops/devloops.json or pass "
+                          "--backend-target (frontend-only runs are not supported yet)")
+
+    def stopped_setup(self, *extra, json_output=True):
+        """Run `devloops run`, check that it stopped with exit 30 before anything (no workspace,
+        no Claude call), and return (stdout, stderr)."""
+        code, out, err = self.t.run_cli(["run", "--workspace", WS, "--requirements", self.prd,
+                                         *extra, *(["--json"] if json_output else [])])
+        self.assertEqual(code, 30, out + err)
+        self.assertFalse(os.path.exists(self.t.workspace_dir))
+        self.assertEqual(self.t.fake_calls(), [])
+        return out, err
+
+    def test_both_targets_null_is_no_loop(self):
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces", "targets": {
+            "backend-dev": None, "frontend-dev": None}})
+        out, _ = self.stopped_setup()
+        self.assertEqual(json.loads(out), {"exit_code": 30, "status_reason": {
+            "code": "no-loop", "message": self.NO_LOOP}})
+
+    def test_missing_targets_is_no_loop(self):
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces"})
+        out, _ = self.stopped_setup()
+        self.assertEqual(json.loads(out)["status_reason"]["code"], "no-loop")
+        # --target-root never adds a loop the project leaves out.
+        out, _ = self.stopped_setup("--target-root", self.target_root)
+        self.assertEqual(json.loads(out)["status_reason"]["code"], "no-loop")
+        self.assertFalse(os.path.exists(self.target_root))
+
+    def test_a_frontend_without_a_backend_is_refused(self):
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces", "targets": {
+            "backend-dev": None, "frontend-dev": "frontend"}})
+        out, _ = self.stopped_setup()
+        self.assertEqual(json.loads(out), {"exit_code": 30, "status_reason": {
+            "code": "frontend-needs-backend", "message": self.FRONTEND_ONLY}})
+        self.assertFalse(os.path.exists(os.path.join(self.t.root, "frontend")))
+
+    def test_text_mode_prints_the_message(self):
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces"})
+        out, err = self.stopped_setup(json_output=False)
+        self.assertEqual((out, err), ("", f"devloops: {self.NO_LOOP}\n"))
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces", "targets": {
+            "frontend-dev": "frontend"}})
+        out, err = self.stopped_setup(json_output=False)
+        self.assertEqual((out, err), ("", f"devloops: {self.FRONTEND_ONLY}\n"))
+
+    def test_an_explicit_frontend_target_alone_needs_a_backend(self):
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces"})
+        out, _ = self.stopped_setup("--frontend-target", self.frontend_target)
+        self.assertEqual(json.loads(out)["status_reason"], {
+            "code": "frontend-needs-backend", "message": self.FRONTEND_FLAG_ONLY})
+        self.assertFalse(os.path.exists(self.frontend_target))
+
+    def test_an_existing_workspace_with_only_a_frontend_is_refused_unchanged(self):
+        # A workspace that recorded frontend-dev alone (frontend-only runs of an earlier
+        # devloops), in a project with no backend: the recorded loop stays included (FR-005).
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces"})
+        from devloops import workspace
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit())
+        ws.set_target("frontend-dev", self.frontend_target)
+        ws_json = os.path.join(self.t.workspace_dir, "workspace.json")
+        before = state.read_json(ws_json)
+        code, out, err = self.t.run_cli(["run", "--workspace", WS, "--json"])
+        self.assertEqual(code, 30, out + err)
+        self.assertEqual(json.loads(out)["status_reason"]["code"], "frontend-needs-backend")
+        self.assertEqual(state.read_json(ws_json), before)
+        # No run/, no lock, no loop state, no Claude call.
+        self.assertEqual(sorted(os.listdir(self.t.workspace_dir)), ["workspace.json"])
+        self.assertEqual(self.t.fake_calls(), [])
+
+    def test_the_stop_takes_under_a_second(self):
+        # SC-003, in-process: the selection and its check, without starting an interpreter.
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces"})
+        started = time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main(["run", "--workspace", WS, "--json"], kit=self.t.kit(),
+                            project=self.t.project(), env=dict(self.t.env))
+        self.assertEqual(code, 30)
+        self.assertLess(time.monotonic() - started, 1.0)
 
     def test_both_loops_run_through_the_engine(self):
         # In-process, so `engine.Engine` can be spied on. The stub validator lives in the temp

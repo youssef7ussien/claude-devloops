@@ -59,16 +59,20 @@ def select_loops(project, ws=None, backend_target=None, frontend_target=None, ta
     return selected
 
 
-def check_selection(selected):
-    """Stop before anything is written when the selection cannot run (003 FR-006, R-3)."""
+def check_selection(selected, frontend_flag=False):
+    """Stop before anything is written when the selection cannot run (003 FR-006, R-3).
+    `frontend_flag`: the frontend came from `--frontend-target`, so `--backend-target` fixes it
+    too."""
     if not selected:
         raise StopRun("stopped-on-input-error", "no-loop",
                       "no loop to run: set targets.backend-dev or targets.frontend-dev in "
                       ".devloops/devloops.json (or run devloops init)")
     if "frontend-dev" in selected and "backend-dev" not in selected:
+        flag = " or pass --backend-target" if frontend_flag else ""
         raise StopRun("stopped-on-input-error", "frontend-needs-backend",
                       "frontend-dev needs backend-dev in the same run: set targets.backend-dev "
-                      "in .devloops/devloops.json (frontend-only runs are not supported yet)")
+                      f"in .devloops/devloops.json{flag} (frontend-only runs are not supported "
+                      "yet)")
 
 
 @dataclass

@@ -52,7 +52,7 @@ before the workspace is created, the lock is taken, or `run/state.json` is writt
 | Selection | `status_reason.code` | Message (first line) |
 |-----------|---------------------|----------------------|
 | empty | `no-loop` | `no loop to run: set targets.backend-dev or targets.frontend-dev in .devloops/devloops.json (or run devloops init)` |
-| frontend-dev only | `frontend-needs-backend` | `frontend-dev needs backend-dev in the same run: set targets.backend-dev in .devloops/devloops.json (frontend-only runs are not supported yet)` |
+| frontend-dev only | `frontend-needs-backend` | `frontend-dev needs backend-dev in the same run: set targets.backend-dev in .devloops/devloops.json (frontend-only runs are not supported yet)`; from `--frontend-target`, `… in .devloops/devloops.json or pass --backend-target (…)` (added after code review) |
 
 The code names are **[open detail]**. They follow the existing kebab-case `status_reason.code`
 style.

@@ -104,6 +104,8 @@ Code review of the US1 implementation:
 - Q: What does `check` report for a project with no loop? → A: A `missing` `loops` item (exit 30),
   as `devloops run` stops there (FR-015 revised).
 - Q: Does `unused` also replace an item that is ready? → A: Yes, as in the contract's example.
+- Q: What does the `frontend-needs-backend` message advise when the frontend came from
+  `--frontend-target`? → A: Also `--backend-target` (FR-006 revised).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -284,7 +286,8 @@ commands, without loop names.
   - none: the message MUST say there is no loop to run and name `targets.backend-dev` /
     `targets.frontend-dev` in `devloops.json` (or `devloops init`);
   - frontend-dev without backend-dev: the message MUST say the frontend needs the backend in the
-    same run and that frontend-only runs are not supported yet.
+    same run and that frontend-only runs are not supported yet. When the frontend came from
+    `--frontend-target`, it MUST also name `--backend-target` as a fix.
 
   No workspace MUST be created. With `--json`, the output MUST be `{"exit_code": 30,
   "status_reason": {"code", "message"}}` with no `run` or `loops` key. The codes are `no-loop` and
