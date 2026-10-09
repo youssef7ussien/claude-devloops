@@ -10,8 +10,7 @@ import helpers
 from devloops import kit
 
 TEMPLATES = os.path.join(helpers.REPO_ROOT, "loops", "shared", "skills")
-COMMANDS = {"devloops-run": "run", "devloops-orchestrate": "orchestrate",
-            "devloops-approve": "approve", "devloops-replan": "replan",
+COMMANDS = {"devloops-run": "run", "devloops-approve": "approve", "devloops-replan": "replan",
             "devloops-retry": "retry", "devloops-status": "status",
             "devloops-dashboard": "dashboard"}
 SETTINGS = os.path.join(".claude", "settings.json")
@@ -39,6 +38,30 @@ class SkillTemplatesTest(unittest.TestCase):
                 self.assertIn("allowed-tools: Bash({{DEVLOOPS}} *)\n", frontmatter)
                 self.assertIn("user-invocable: true\n", frontmatter)
                 self.assertIn(f'name: "{name}"', frontmatter)
+
+    def argument_hint(self, text):
+        return re.search(r'(?m)^argument-hint: "(.*)"$', text.split("---", 2)[1]).group(1)
+
+    def test_no_skill_passes_a_loop_name(self):
+        # One run command, and decisions find the waiting loop (003 FR-001, FR-009, FR-017).
+        for name, text in self.templates():
+            if name == "devloops-status":  # status keeps its optional loop (003 FR-012)
+                continue
+            with self.subTest(skill=name):
+                self.assertNotIn("<backend-dev|frontend-dev>", self.argument_hint(text))
+                self.assertNotIn("<loop>", self.argument_hint(text))
+                self.assertNotIn("orchestrate", text)
+
+    def test_the_run_skill_describes_the_whole_run(self):
+        templates = dict(self.templates())
+        self.assertIn("Start or resume the devloops run in this project (backend-dev, then "
+                      "frontend-dev, as the project configures), then summarize its status",
+                      templates["devloops-run"])
+        for name in ("devloops-approve", "devloops-replan"):
+            self.assertIn("the waiting loop", templates[name], name)
+        self.assertIn("the loop stopped on failure", templates["devloops-retry"])
+        for name in ("devloops-run", "devloops-approve", "devloops-replan", "devloops-retry"):
+            self.assertIn("`{error, exit_code}`: report `error`", templates[name], name)
 
 
 class AllowSkillsTest(unittest.TestCase):

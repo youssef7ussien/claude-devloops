@@ -12,7 +12,7 @@ import unittest
 
 import helpers
 
-SKILLS = ("approve", "dashboard", "orchestrate", "replan", "retry", "run", "status")
+SKILLS = ("approve", "dashboard", "replan", "retry", "run", "status")
 INSTALLED = sorted([".devloops/prompts/README.md"]
                    + [f".claude/skills/devloops-{name}/SKILL.md" for name in SKILLS])
 CREATED = sorted(INSTALLED + [".devloops/devloops.json", ".devloops/manifest.json", ".gitignore"])

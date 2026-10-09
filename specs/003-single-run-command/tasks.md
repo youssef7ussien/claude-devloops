@@ -282,24 +282,24 @@ call.
 
 ### Tests for User Story 4
 
-- [ ] T030 [P] [US4] Update `loops/shared/tests/test_skills.py` and `loops/shared/tests/test_repo_skills.py`:
+- [X] T030 [P] [US4] Update `loops/shared/tests/test_skills.py` and `loops/shared/tests/test_repo_skills.py`:
   - the expected skill set no longer contains `devloops-orchestrate`;
   - `devloops-run`'s argument hint has no `<backend-dev|frontend-dev>`;
   - approve, replan, and retry argument hints have no `<loop>`.
 
-  Add a test to `loops/shared/tests/test_upgrade.py`: an unchanged installed `devloops-orchestrate/SKILL.md` is removed by `init --upgrade`, and a changed one is reported as "no longer part of devloops" (FR-017).
+  Add a test to `loops/shared/tests/test_upgrade.py`: an unchanged installed `devloops-orchestrate/SKILL.md` is removed by `init --upgrade`, and a changed one is reported as "no longer part of devloops" (FR-017). (Dropped after code review: devloops is in development, so no migration is tested; the generic removal test covers the mechanism.)
 
 ### Implementation for User Story 4
 
-- [ ] T031 [US4] Delete `loops/shared/skills/devloops-orchestrate/`. Rewrite `loops/shared/skills/devloops-run/SKILL.md` per contracts/skills.md:
+- [X] T031 [US4] Delete `loops/shared/skills/devloops-orchestrate/`. Rewrite `loops/shared/skills/devloops-run/SKILL.md` per contracts/skills.md:
   - description: "Start or resume the devloops run in this project (backend-dev, then frontend-dev, as the project configures), then summarize its status";
   - argument hint without a loop;
   - body that runs `{{DEVLOOPS}} run $ARGUMENTS --json` and summarizes the `run` and `loops` keys.
-- [ ] T032 [P] [US4] Update `loops/shared/skills/devloops-approve/SKILL.md`, `loops/shared/skills/devloops-replan/SKILL.md`, and `loops/shared/skills/devloops-retry/SKILL.md`:
+- [X] T032 [P] [US4] Update `loops/shared/skills/devloops-approve/SKILL.md`, `loops/shared/skills/devloops-replan/SKILL.md`, and `loops/shared/skills/devloops-retry/SKILL.md`:
   - descriptions say "the waiting loop";
   - argument hints and bodies pass no loop name (contracts/skills.md);
   - no prose asks the user for a loop.
-- [ ] T033 [US4] Run `VISUAL=true EDITOR=true bin/devloops init --upgrade` at the repository root to re-render `.claude/skills/` and `.devloops/manifest.json`. Confirm `.claude/skills/devloops-orchestrate/` is removed. If it is reported as changed, delete it by hand and say so.
+- [X] T033 [US4] Run `VISUAL=true EDITOR=true bin/devloops init --upgrade` at the repository root to re-render `.claude/skills/` and `.devloops/manifest.json`. Confirm `.claude/skills/devloops-orchestrate/` is removed. If it is reported as changed, delete it by hand and say so.
 
 **Checkpoint**: Claude Code drives the single command.
 

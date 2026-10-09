@@ -13,8 +13,11 @@ class RepoSkillsTest(unittest.TestCase):
     def setUp(self):
         self.rendered = initcmd.render_skills(kit.Kit.resolve(), helpers.REPO_ROOT)
 
-    def test_seven_skills_are_rendered(self):
-        self.assertEqual(len(self.rendered), 7)
+    def test_six_skills_are_rendered(self):
+        self.assertEqual(len(self.rendered), 6)
+
+    def test_the_orchestrate_skill_is_gone(self):  # 003 FR-017
+        self.assertFalse(os.path.exists(os.path.join(SKILLS_DIR, "devloops-orchestrate")))
 
     def test_repository_skills_equal_the_rendered_templates(self):
         for rel, text in self.rendered.items():
