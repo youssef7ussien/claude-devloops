@@ -8,6 +8,7 @@ It also keeps the run safe to leave unattended (US3): interrupted trials fail an
 service failures void the trial and stop resumably (T052), `needs_input` stops the milestone at
 once (T053), and `retry` grants a failed milestone more trials (T056).
 """
+import contextlib
 import importlib
 import os
 import re
@@ -129,6 +130,7 @@ class Engine:
         self.review_plan = False
         # The command that resumes this run, for the messages (003 FR-011).
         self.resume_command = "devloops run"
+        self.workspace_flag = ""  # ` --workspace <ws>` in printed commands, when not the default
         # Set once `approve`, `replan`, or `retry` has saved its decision: an error after that is
         # not a refusal (the orchestrator keeps its record of the run).
         self.decided = False
@@ -434,6 +436,8 @@ class Engine:
             inputs.freeze_api_spec(self.rs["inputs"]["api_spec"], self.state_dir)
         self._restore_after_service_error()
         self._recover_interrupted()
+        if (self.rs.get("status_reason") or {}).get("code") == "interrupted":
+            self.rs["status_reason"] = None  # resuming is what it asked for
         self._event("run-started", f"resumed in status {self.rs['status']}")
         self._check_prompt_sources()
         self._use_config(self._resolved_config())
@@ -540,8 +544,11 @@ class Engine:
         """Fail every trial left `in-progress` by a driver that died mid-trial (FR-030a, R-4).
 
         It becomes `failed` with reason `interrupted` and counts toward the limit, so the next
-        trial of the milestone is a fix with the interruption as its previous failure.
+        trial of the milestone is a fix with the interruption as its previous failure. Return the
+        trials failed, as `(milestone_id or None for planning, n)`. A trial already recorded as
+        interrupted (by a Ctrl+C whose run.json write did not happen) gets no second event.
         """
+        failed = []
         now = state.now_iso()
         detail = "the driver stopped before the trial finished (interrupted or killed)"
         for trial in (self.rs.get("planning") or {}).get("trials", []):
@@ -550,19 +557,27 @@ class Engine:
                              ended_at=now)
                 self._event("validation-failed", f"planning trial {trial['n']} failed: "
                                                  f"interrupted: {detail}", trial=trial["n"])
+                failed.append((None, trial["n"]))
         for mid, ms in (self.rs.get("milestones") or {}).items():
             for summary in ms.get("trials", []):
                 if summary["status"] != "in-progress":
                     continue
                 path = os.path.join(self._trial_dir(mid, summary["n"]), "trial.json")
                 doc = state.read_json(path, default={"n": summary["n"]})
-                doc.update(status="failed", failure={"reason": "interrupted", "detail": detail},
-                           ended_at=now)
-                state.write_json_atomic(path, doc)
-                summary.update(status="failed", reason="interrupted", ended_at=now)
-                ms["ended_at"] = now
-                self._event("validation-failed", f"trial {summary['n']} failed: interrupted: "
-                                                 f"{detail}", milestone=mid, trial=summary["n"])
+                recorded = doc.get("status") == "failed" and \
+                    (doc.get("failure") or {}).get("reason") == "interrupted"
+                if not recorded:
+                    doc.update(status="failed", failure={"reason": "interrupted",
+                                                         "detail": detail}, ended_at=now)
+                    state.write_json_atomic(path, doc)
+                summary.update(status="failed", reason="interrupted",
+                               ended_at=doc.get("ended_at") or now)
+                ms["ended_at"] = summary["ended_at"]
+                if not recorded:
+                    self._event("validation-failed", f"trial {summary['n']} failed: interrupted: "
+                                f"{detail}", milestone=mid, trial=summary["n"])
+                failed.append((mid, summary["n"]))
+        return failed
 
     # --- state machine ----------------------------------------------------------------------------------
 
@@ -1150,9 +1165,60 @@ class Engine:
 
     # --- helpers -----------------------------------------------------------------------------------------------
 
+    @contextlib.contextmanager
     def _lock(self):
+        """Hold the loop's lock. On Ctrl+C, record the interruption before releasing it."""
         from .workspace import locked
-        return locked(self.loop_dir, self.opts.force_unlock)
+        with locked(self.loop_dir, self.opts.force_unlock):
+            try:
+                yield
+            except KeyboardInterrupt:
+                self._record_interrupt()
+                raise
+
+    def _record_interrupt(self):
+        """Ctrl+C: record now what the next start would (FR-030a), so `status` and the
+        dashboards say what happened: the trial in progress fails as `interrupted` and counts,
+        and a planning or implementing run says what to run next. The status stays resumable.
+
+        Best effort, from the last saved `run.json` (the one in memory may be half-updated): a
+        second Ctrl+C, or a write that fails, leaves the rest to the next start's recovery.
+        """
+        try:
+            self._load_run()
+            if self.rs is None:
+                return
+            failed = self._recover_interrupted()
+            working = self.rs["status"] in ("planning", "implementing")
+            if not failed and not working:
+                return  # e.g. a decision interrupted before it was recorded: nothing changed
+            if working:
+                self.rs["status_reason"] = {"code": "interrupted",
+                                            "message": self._interrupted_message(failed)}
+            self._save()
+        except Exception:  # noqa: BLE001 - the next start recovers what is not recorded here
+            pass
+
+    def _interrupted_message(self, failed):
+        """What the interruption cost and what to run next. `failed`: the trials it failed, as
+        `(milestone_id or None for planning, n)`."""
+        run = f"`{self.resume_command}{self.workspace_flag}`"
+        text = "the command was interrupted (Ctrl+C)"
+        if not failed:
+            return f"{text}; no trial was running; run {run} to resume"
+        mid, n = failed[-1]
+        if mid is None:
+            text += f"; planning trial {n} failed as interrupted and counts"
+            if len(self._counted_planning_trials()) >= self.rs["effective_config"]["max_trials"]:
+                return (f"{text}; no planning trial is left, so {run} stops the run "
+                        "(planning-trials-exhausted)")
+            return f"{text}; run {run} to resume"
+        text += f"; trial {n} of {mid} failed as interrupted and counts"
+        used = len(selector.counted_trials(self.rs["milestones"][mid]))
+        if used >= selector.trial_limit(self.rs, mid):
+            return (f"{text}; {mid} has no trials left: {run} stops it (trials-exhausted), "
+                    f"then `devloops retry --milestone {mid}{self.workspace_flag}` grants more")
+        return f"{text}; run {run} to resume"
 
     def _adapter(self):
         name = self.loop_def.get("validator", "")

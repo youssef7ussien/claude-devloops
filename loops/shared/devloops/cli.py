@@ -525,6 +525,7 @@ def _run(args, kit, project, env, action=None, selected=None):
         questions=_questions_override(args), max_trials=getattr(args, "max_trials", None),
         selected=selected), kit=kit, env=env)
     orch.progress = progress_mod.from_args(args, env)
+    orch.workspace_flag = getattr(args, "workspace_flag", "")
     loops = list(selected)
     _start_hint(orch.progress, args, ws, loops)
     error = full = None
@@ -533,6 +534,7 @@ def _run(args, kit, project, env, action=None, selected=None):
         code = orch.run(action)
     except BaseException as e:
         error = e
+        args.decision_recorded = action is None or not orch.deciding  # for the Ctrl+C hint
         raise
     finally:
         # Once, at the end, covering every loop, when the loop this command ran last ended in a
@@ -685,12 +687,14 @@ def _decide(args, kit, project, env):
     eng = engine.Engine(loop, ws, options, kit=kit, project=project, env=env)
     eng.progress = progress_mod.from_args(args, env)
     eng.resume_command = "devloops run"
+    eng.workspace_flag = getattr(args, "workspace_flag", "")
     error = full = None
     before = _event_marks(ws, [loop])
     try:
         code = decide(eng)
     except BaseException as e:
         error = e
+        args.decision_recorded = eng.decided  # for the Ctrl+C hint
         raise
     finally:
         if _ends_final(error, engine.status_object(ws, loop)["status"]) \
@@ -924,8 +928,19 @@ def main(argv=None, kit=None, project=None, env=None):
             print(f"devloops: {e.message}", file=sys.stderr)
         return e.exit_code
     except KeyboardInterrupt:
-        print("devloops: interrupted", file=sys.stderr)
+        print(f"devloops: {_interrupted_hint(args)}", file=sys.stderr)
         return 130
+
+
+def _interrupted_hint(args):
+    """What Ctrl+C left, and what to run next (`devloops status` has the details)."""
+    flag = getattr(args, "workspace_flag", "")
+    if args.command not in ("run", "approve", "replan", "retry"):
+        return "interrupted"
+    if args.command != "run" and not getattr(args, "decision_recorded", False):
+        return (f"interrupted before the {args.command} was recorded; nothing changed: run "
+                "the same command again")
+    return f"interrupted; `devloops status{flag}` shows what it cost and what to run next"
 
 
 def entry():

@@ -4,9 +4,12 @@ Written before T051 (interrupted trials) and T056 (`retry`), so most of this mod
 then. The refusal tests also check the message, so an unknown `retry` command (argparse's own
 exit 2) cannot pass them by accident.
 """
+import json
+import os
 import signal
 import unittest
 
+import helpers  # noqa: F401 - first: it puts the devloops package on the path
 from devloops import schema
 from stub_loop import StubLoopMixin, implemented
 
@@ -24,12 +27,46 @@ class InterruptedTrialTest(StubLoopMixin, unittest.TestCase):
         call = self.wait_for_call("implement", count=2)  # M01 is achieved; M02 is mid-call
         self.addCleanup(self.kill_fake, call)
         driver.send_signal(sig)
-        driver.communicate(timeout=30)
+        _, err = driver.communicate(timeout=30)
         self.kill_fake(call)
-        self.assertEqual(self.trial("M02", 1)["status"], "in-progress")  # nothing closed it
+        if sig == signal.SIGKILL:
+            self.assertEqual(self.trial("M02", 1)["status"], "in-progress")  # nothing closed it
+        else:
+            self.assert_interrupt_recorded(driver.returncode, err)
 
         self.assertEqual(self.cli("run", *resume_flags), 0, self.last_output)
-        return self.run_state()
+        rs = self.run_state()
+        self.assertIsNone(rs["status_reason"])
+        # Recorded once, whether at the interruption or at this start.
+        failed = [e for e in self.events("validation-failed") if "interrupted" in e["message"]]
+        self.assertEqual(len(failed), 1, failed)
+        return rs
+
+    def assert_interrupt_recorded(self, returncode, err):
+        """Ctrl+C records at once what the next start would: the trial fails as interrupted,
+        the run stays resumable and says how, and the run's own record is stopped."""
+        self.assertEqual(returncode, 130, err)
+        self.assertIn("devloops: interrupted; `devloops status --workspace us3` shows what it "
+                      "cost and what to run next", err)
+        trial = self.trial("M02", 1)
+        self.assertEqual((trial["status"], trial["failure"]["reason"]), ("failed", "interrupted"))
+        rs = self.run_state()
+        self.assertEqual(rs["status"], "implementing")
+        self.assertEqual(rs["status_reason"], {
+            "code": "interrupted",
+            "message": "the command was interrupted (Ctrl+C); trial 1 of M02 failed as "
+                       "interrupted and counts; run `devloops run --workspace us3` to resume"})
+        self.assertEqual(schema.validate(rs, "run-state.schema.json"), [])
+        with open(os.path.join(self.loop_dir, "..", "run", "state.json"), encoding="utf-8") as f:
+            run = json.load(f)
+        self.assertEqual(run["status"], "stopped")
+        self.assertEqual([(s["loop"], s["reason"]) for s in run["steps"]],
+                         [("backend-dev", "interrupted")])
+        # The summary page, written as the command ends, says so once.
+        with open(os.path.join(self.loop_dir, "..", "dashboard.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn("trial 1 of M02 failed as interrupted and counts", page)
+        self.assertNotIn("→ Run", page)
 
     def assert_recovered(self, rs):
         m2 = rs["milestones"]["M02"]
@@ -50,6 +87,22 @@ class InterruptedTrialTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual((context["milestone"]["id"], context["trial"]), ("M02", 2))
         self.assertEqual([t["id"] for t in context["milestone"]["tasks"]], ["M02-T01"])
         self.assertEqual(context["previous_failure"]["reason"], "interrupted")
+
+    def test_ctrl_c_on_a_milestones_last_trial_says_to_retry(self):
+        self.approved("--max-trials", "1")
+        self.scenario({"implement": [implemented("M01-T01"),
+                                     dict(implemented("M02-T01"), sleep_seconds=60)]})
+        driver = self.start_cli("run")
+        call = self.wait_for_call("implement", count=2)
+        self.addCleanup(self.kill_fake, call)
+        driver.send_signal(signal.SIGINT)
+        driver.communicate(timeout=30)
+        self.kill_fake(call)
+        message = self.run_state()["status_reason"]["message"]
+        self.assertIn("trial 1 of M02 failed as interrupted and counts; M02 has no trials left: "
+                      "`devloops run --workspace us3` stops it (trials-exhausted), then "
+                      "`devloops retry --milestone M02 --workspace us3` grants more", message)
+        self.assertEqual(self.cli("run"), 20, self.last_output)
 
     def test_sigint_mid_trial_fails_it_as_interrupted_and_the_next_trial_starts(self):
         self.assert_recovered(self.interrupt_during_implement(signal.SIGINT))

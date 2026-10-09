@@ -108,6 +108,7 @@ class Orchestrator:
         self.deciding = False
         self.on_progress = None  # passed to each loop's engine (Engine.on_progress)
         self.progress = None  # likewise (Engine.progress)
+        self.workspace_flag = ""  # likewise (Engine.workspace_flag)
 
     def run(self, action=None):
         """Run or resume the selected loops in order; return the exit code of the loop that
@@ -154,6 +155,26 @@ class Orchestrator:
         self.state["project_root"] = self.ws.project.root
         self.state["status"] = "running"
         self._save()
+        try:
+            return self._run_selected(action)
+        except KeyboardInterrupt:
+            self._record_interrupt()
+            raise
+
+    def _record_interrupt(self):
+        """Ctrl+C anywhere in the run: the run is stopped, and a step left running says why.
+        Each loop's engine records its own side. Nothing while a decision is not recorded
+        (`_save` writes nothing then); best effort, as `devloops run` brings it up to date."""
+        try:
+            for step in self.state["steps"]:
+                if step["status"] == "running":
+                    self._finish_step(step, step["loop"], "interrupted")
+            self.state["status"] = "stopped"
+            self._save()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _run_selected(self, action):
         code = EXIT_CODES["completed"]
         for loop in self.selected:
             if not self.ws.target(loop):  # a decision's later loop: recorded once decided
@@ -229,6 +250,7 @@ class Orchestrator:
             eng.on_progress = self.on_progress
             eng.progress = self.progress
             eng.resume_command = "devloops run"
+            eng.workspace_flag = self.workspace_flag
             eng.tools_checked = loop in self.tools_checked  # by _check_tools, this command
             if fn:
                 eng.on_decided = self._decided

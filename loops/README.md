@@ -744,7 +744,7 @@ never the checks.
 | `timeout` | The call ran longer than `invocation_timeout_seconds` | Yes |
 | `invalid-output` | The call's structured result did not match its schema, or `author-checks` returned unusable checks | Yes |
 | `runtime-start-failed` | The application did not start, or `ready_url` did not answer within `runtime.ready_timeout_seconds` | Yes |
-| `interrupted` | The driver itself was stopped mid-trial (`Ctrl C`, a crash); found on the next start | Yes |
+| `interrupted` | The driver itself was stopped mid-trial: recorded at once on `Ctrl C`, or found on the next start after a crash or a kill | Yes |
 | a service error | Rate limit, outage, or expired login (`rate-limited`, `service-unavailable`, `auth-failed`). The trial is **void** and the run stops with exit 50 | **No**: the same trial number runs again on the next start |
 
 When the last trial fails, the run stops with `trials-exhausted` (exit 20). `retry` grants more
@@ -890,7 +890,8 @@ Trial 3's `pkill` is blocked, and Claude is told to stop its server by PID.
 
 | Situation | What to do |
 |-----------|------------|
-| The driver was killed or the machine stopped mid-trial | Run the same command again. The unfinished trial is recorded as failed (`interrupted`) and counts toward the limit |
+| You pressed `Ctrl C` | The call and the servers it started are stopped, the lock is released, and the trial in progress is recorded as failed (`interrupted`); it counts toward the limit. `status` and the dashboards show `interrupted` until you run `devloops run`, which resumes (exit 130 meanwhile). Not `retry`: the loop is not stopped on failure, unless that trial was the milestone's last, and then `devloops run` stops with `trials-exhausted` |
+| The driver was killed or the machine stopped mid-trial | Run `devloops run` again (with `--force-unlock` after a kill that left the lock). The unfinished trial is recorded as failed (`interrupted`) then, and counts toward the limit |
 | A milestone used all its trials (exit 20, `trials-exhausted`) | Read the last trial's `validation.json` and `evidence/`, then `retry --milestone <id> --reason "<guidance>" [--trials n]`; it continues the run (see [Trials and failures](#when-a-milestone-runs-out-of-trials)) |
 | A question stopped the run (exit 20, `needs-input`) | Answer it in `open-questions.md`, or leave the answer empty to accept Claude's suggestion, then `retry --milestone <id>`; it continues the run. `retry` is refused while a question has neither an answer nor a suggestion |
 | A tool is missing (exit 30, `missing-tool`) | Nothing was recorded: install it (`devloops check` shows how), then `devloops run` again |

@@ -6,6 +6,7 @@ Both loops use a stub validator, so the tests exercise the run and the handoff, 
 real application. The stub publishes the target's OpenAPI document on an achieved milestone, as
 the curl adapter does, so the backend leaves `outputs/openapi.json` behind.
 """
+import argparse
 import contextlib
 import importlib.util
 import io
@@ -18,7 +19,7 @@ from unittest import mock
 
 import helpers
 import samples
-from devloops import cli, engine, inputs, state
+from devloops import cli, engine, inputs, orchestrator, state
 from stub_loop import STUB, implemented
 
 WS = "orch"
@@ -479,9 +480,9 @@ class RunCommandTest(unittest.TestCase):
         self.assertEqual(code, 30)
         self.assertLess(time.monotonic() - started, 1.0)
 
-    def test_both_loops_run_through_the_engine(self):
-        # In-process, so `engine.Engine` can be spied on. The stub validator lives in the temp
-        # repo copy, so register it under the package this process imported.
+    def register_stub(self):
+        """For in-process runs: the stub validator lives in the temp repo copy, so register it
+        under the package this process imported."""
         spec = importlib.util.spec_from_file_location(
             f"devloops.validators.{STUB_NAME}",
             os.path.join(self.t.root, "loops", "shared", "devloops", "validators",
@@ -491,6 +492,35 @@ class RunCommandTest(unittest.TestCase):
         sys.modules[spec.name] = module
         self.addCleanup(sys.modules.pop, spec.name, None)
 
+    def test_ctrl_c_between_the_loops_stops_the_run(self):
+        self.register_stub()
+        self.assertEqual(self.run_cmd(), 10, self.last_output)
+        self.approve("backend-dev")
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, self.t.env, clear=True), \
+                mock.patch.object(orchestrator.Orchestrator, "_handoff",
+                                  side_effect=KeyboardInterrupt), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = cli.main(["run", "--workspace", WS], kit=self.t.kit(),
+                            project=self.t.project())
+        # The backend completed; the Ctrl+C came during the handoff, outside either loop.
+        self.assertEqual(code, 130)
+        self.assertIn(f"`devloops status --workspace {WS}`", err.getvalue())
+        run = self.orch_state()
+        self.assertEqual(run["status"], "stopped")
+        self.assertEqual([(s["loop"], s["status"]) for s in run["steps"]],
+                         [("backend-dev", "completed")])
+
+    def test_ctrl_c_before_a_decision_is_recorded_says_nothing_changed(self):
+        args = argparse.Namespace(command="approve", workspace_flag="", decision_recorded=False)
+        self.assertEqual(cli._interrupted_hint(args), "interrupted before the approve was "
+                         "recorded; nothing changed: run the same command again")
+        args.decision_recorded = True
+        self.assertIn("`devloops status` shows", cli._interrupted_hint(args))
+
+    def test_both_loops_run_through_the_engine(self):
+        # In-process, so `engine.Engine` can be spied on.
+        self.register_stub()
         constructed = []
         real = engine.Engine
 

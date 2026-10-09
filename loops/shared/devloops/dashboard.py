@@ -515,6 +515,8 @@ def _next_action(loop, d):
     status = d["status"]
     reason = (d["status_reason"] or {})
     code = reason.get("code")
+    if code == "interrupted":
+        return None  # the reason's message says what it cost and what to run
     if status == "awaiting-approval":
         return (f"Review <code>{e(loop)}/outputs/</code>, answer "
                 f"<code>open-questions.md</code> (an empty answer accepts Claude's suggestion), "
@@ -552,7 +554,8 @@ def attention(data, links=FILE_LINKS, call_href=None):
     items = []
     for loop, d in data["loops"].items():
         status = d["status"]
-        if status.startswith("stopped") or status == "awaiting-approval":
+        interrupted = (d["status_reason"] or {}).get("code") == "interrupted"
+        if status.startswith("stopped") or status == "awaiting-approval" or interrupted:
             reason = d["status_reason"] or {}
             text = f'<a href="#{e(loop)}"><strong>{e(loop)}</strong></a> is {pill(status, RUN_STATUS)}'
             if reason.get("message"):
