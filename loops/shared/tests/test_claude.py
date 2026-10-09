@@ -12,8 +12,7 @@ from devloops.redact import Redactor
 IMPLEMENTED = {"tasks": [{"task_id": "M01-T01", "status": "implemented", "note": ""}],
                "assumptions": [], "needs_input": [], "files_changed": ["app.py"]}
 UI_RESULT = {"criteria": [{"criterion_id": "M01-AC1", "passed": True, "observed": "list shown",
-                           "evidence": ["evidence/s.png"]}],
-             "network_requests": [{"method": "GET", "url": "http://127.0.0.1:8765/items"}]}
+                           "evidence": ["evidence/s.png"]}]}
 
 
 class ClaudeRunnerTest(unittest.TestCase):
@@ -241,9 +240,9 @@ class ClaudeRunnerTest(unittest.TestCase):
         trial_dir = os.path.join(self.loop_dir, "state", "milestones", "M01", "trials", "1")
         mcp = self.t.write_file("mcp.json", json.dumps({"mcpServers": {}}))
         out = self.call("validate-ui", {"structured_output": UI_RESULT, "tool_uses": [
-            "mcp__playwright__browser_navigate", "mcp__playwright__browser_snapshot",
-            "mcp__playwright__browser_snapshot"]}, trial_dir=trial_dir, mcp_config_path=mcp,
-            milestone_id="M01", trial=1)
+            "Read", "mcp__playwright__browser_navigate", "mcp__playwright__browser_snapshot",
+            {"name": "mcp__playwright__browser_snapshot", "result": "page", "is_error": True}]},
+            trial_dir=trial_dir, mcp_config_path=mcp, milestone_id="M01", trial=1)
         argv = self.last_argv()
         self.assertEqual(self.flag_values(argv, "--output-format"), ["stream-json"])
         self.assertIn("--verbose", argv)
@@ -253,8 +252,19 @@ class ClaudeRunnerTest(unittest.TestCase):
         self.assertTrue(out.ok, out.failure_detail)
         self.assertEqual(out.structured_output, UI_RESULT)
         self.assertEqual(out.tool_uses["mcp__playwright__browser_snapshot"], 2)
+        # The browser tools' results are kept, in order, for the validator; not Read's.
+        self.assertEqual(out.tool_results, [
+            {"name": "mcp__playwright__browser_navigate", "text": "ok", "is_error": False},
+            {"name": "mcp__playwright__browser_snapshot", "text": "ok", "is_error": False},
+            {"name": "mcp__playwright__browser_snapshot", "text": "page", "is_error": True}])
         events = state.read_jsonl(os.path.join(trial_dir, "stream.jsonl"))
         self.assertEqual(events[-1]["type"], "result")
+
+    def test_other_steps_keep_no_tool_results(self):
+        out = self.call("implement", dict({"structured_output": IMPLEMENTED}, tool_uses=[
+            {"name": "Bash", "input": {"command": "cat big.log"}, "result": "x" * 1000}]))
+        self.assertTrue(out.ok, out.failure_detail)
+        self.assertEqual(out.tool_results, [])
 
     # --- records ---
 

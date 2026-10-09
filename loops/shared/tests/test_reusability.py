@@ -231,11 +231,11 @@ class ReusabilityTest(unittest.TestCase):
                     "criteria": [{"criterion_id": "M01-AC1", "passed": True,
                                   "steps": ["open the UI URL", "snapshot the page"],
                                   "observed": "the page shows the backend's value",
-                                  "evidence": ["evidence/page.png"]}],
-                    "network_requests": [{"method": "GET", "url": ui_url + "/", "status": 200}] +
+                                  "evidence": ["evidence/page.png"]}]},
+                "tool_uses": PLAYWRIGHT_TOOLS + [helpers.network_log(
+                    [{"method": "GET", "url": ui_url + "/", "status": 200}] +
                     [{"method": m, "url": backend_url + p, "status": 200}
-                     for m, p in app["ui_requests"]]},
-                "tool_uses": PLAYWRIGHT_TOOLS,
+                     for m, p in app["ui_requests"]])],
                 "writes": [{"path": evidence, "content": "PNG"}]}})
         self.assertEqual(self.frontend(ws), 0, self.last_output)
         return ui_url

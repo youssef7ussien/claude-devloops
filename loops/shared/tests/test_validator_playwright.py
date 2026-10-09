@@ -4,7 +4,8 @@ These exercise `devloops.validators.playwright.validate(ctx)` on its own, with a
 same way `engine._adapter_context` builds one. The frontend runtime is a real
 `python3 -m http.server` serving a static page; the backend, when one is configured, is the
 fixture API server. Fake Claude answers `validate-ui` in stream-json with Playwright `tool_use`
-events and the structured `criteria[]`/`network_requests[]`. The pass/fail verdict is the
+events (the page's requests in a `browser_network_requests` result) and the structured
+`criteria[]`. The pass/fail verdict is the
 engine's own `compute_pass`, the same rule a real trial uses. The validator does not exist until
 T045; until then this module fails to import, which is expected (the tests for a story are
 written first and must fail before its implementation tasks).
@@ -121,14 +122,16 @@ class PlaywrightValidatorTest(unittest.TestCase):
                 "evidence": [f"evidence/{cid}.png"] if evidence is None else evidence}
 
     def answer(self, criteria=None, network=None, tool_uses=None, evidence_files=None):
-        """A `validate-ui` answer; screenshots are 'written by the MCP server' into evidence/."""
+        """A `validate-ui` answer; screenshots are 'written by the MCP server' into evidence/, and
+        `network` is the browser's network log the call read (unless `tool_uses` is given)."""
         criteria = [self.entry("M01-AC1"), self.entry("M01-AC2")] if criteria is None else criteria
         if network is None:
             network = [{"method": "GET", "url": self.ui_url + "/", "status": 200},
                        {"method": "GET", "url": self.api_url + "/items", "status": 200}]
         files = evidence_files if evidence_files is not None else ["M01-AC1.png", "M01-AC2.png"]
-        return {"structured_output": {"criteria": criteria, "network_requests": network},
-                "tool_uses": PLAYWRIGHT_TOOLS if tool_uses is None else tool_uses,
+        return {"structured_output": {"criteria": criteria},
+                "tool_uses": (PLAYWRIGHT_TOOLS + [helpers.network_log(network)]
+                              if tool_uses is None else tool_uses),
                 "writes": [{"path": os.path.join(self.evidence_dir, f), "content": "PNG"}
                            for f in files]}
 
@@ -142,6 +145,11 @@ class PlaywrightValidatorTest(unittest.TestCase):
         self.assertEqual(schema.validate(dict(full, passed=passed),
                                          "validation-result.schema.json"), [])
         return passed, problems
+
+    def ui_context(self):
+        """The Context block of the last `validate-ui` prompt."""
+        prompt = self.ui_calls()[-1]["prompt"]
+        return json.loads(prompt.split("```json\n", 1)[1].split("\n```", 1)[0])
 
     def ui_calls(self):
         return [c for c in self.t.fake_calls() if c["step"] == "validate-ui"]
@@ -213,6 +221,121 @@ class PlaywrightValidatorTest(unittest.TestCase):
                          [f"DELETE {self.api_url}/items/1"])  # UI-origin assets are not API calls
         self.assertEqual(result["network_requests"], network)
         self.assertFalse(self.verdict(result)[0])
+
+    def test_requests_come_from_the_browsers_network_log(self):
+        self.use_backend("start")
+        # Two reads of the log (one before a navigation, one at the end): each request once, a
+        # pending one (no status) included. The model reports no requests of its own.
+        tool_uses = PLAYWRIGHT_TOOLS + [
+            helpers.network_log([{"method": "GET", "url": self.ui_url + "/", "status": 200},
+                                 {"method": "GET", "url": self.api_url + "/items",
+                                  "status": 200}]),
+            helpers.network_log([{"method": "GET", "url": self.api_url + "/items", "status": 200},
+                                 {"method": "DELETE", "url": self.api_url + "/items/1"}])]
+        result = self.validate(self.answer(tool_uses=tool_uses))
+        self.assertEqual(result["network_requests"], [
+            {"method": "GET", "url": self.ui_url + "/", "status": 200},
+            {"method": "GET", "url": self.api_url + "/items", "status": 200},
+            {"method": "DELETE", "url": self.api_url + "/items/1"}])
+        self.assertEqual(result["contract"]["unmatched_operations"],
+                         [f"DELETE {self.api_url}/items/1"])
+
+    def test_a_call_that_never_reads_the_network_log_fails_the_contract(self):
+        self.use_backend("start")
+        result = self.validate(self.answer(tool_uses=PLAYWRIGHT_TOOLS))
+        self.assertEqual(result["network_requests"], [])
+        self.assertEqual(result["contract"], {"passed": False, "unmatched_operations": [],
+                                              "problem": playwright.NO_NETWORK_LOG})
+        passed, problems = self.verdict(result)
+        self.assertFalse(passed)
+        self.assertIn("contract check failed: " + playwright.NO_NETWORK_LOG, problems)
+
+    def test_a_unit_test_criterion_is_judged_from_the_drivers_run(self):
+        self.use_backend("start")
+        self.config["unit_tests"] = {"enabled": True,
+                                     "command": f"{sys.executable} -c \"print('3 passed')\""}
+        criteria = [self.entry("M01-AC1"),
+                    self.entry("M01-AC2", observed="unit tests: 3 passed, exit code 0",
+                               evidence=["evidence/unit-tests.log"])]
+        result = self.validate(self.answer(criteria=criteria, evidence_files=["M01-AC1.png"]))
+        # The tests ran before the call, which got their result and the log to cite.
+        unit_tests = self.ui_context()["unit_tests"]
+        self.assertEqual((unit_tests["ran"], unit_tests["exit_code"]), (True, 0))
+        self.assertEqual(unit_tests["evidence"], "evidence/unit-tests.log")
+        self.assertEqual(unit_tests["log_file"],
+                         os.path.join(self.trial_dir, "evidence", "unit-tests.log"))
+        self.assertEqual(result["unit_tests"]["exit_code"], 0)
+        passed, problems = self.verdict(result)
+        self.assertTrue(passed, problems)
+
+    def test_without_a_unit_test_command_the_call_is_told_none_ran(self):
+        self.use_backend("start")
+        result = self.validate(self.answer())
+        self.assertEqual(self.ui_context()["unit_tests"], {"ran": False})
+        self.assertEqual(result["unit_tests"], {"enabled": False})
+
+    def test_a_declared_command_runs_for_the_call_even_when_not_enabled(self):
+        self.use_backend("start")
+        # The tests fail, but unit_tests.enabled is off: only a criterion about them can fail.
+        self.plan["runtime"]["unit_test_command"] = f"{sys.executable} -c \"exit(1)\""
+        result = self.validate(self.answer())
+        unit_tests = self.ui_context()["unit_tests"]
+        self.assertEqual((unit_tests["ran"], unit_tests["enabled"], unit_tests["exit_code"]),
+                         (True, False, 1))
+        self.assertEqual((result["unit_tests"]["enabled"], result["unit_tests"]["exit_code"]),
+                         (False, 1))
+        passed, problems = self.verdict(result)
+        self.assertTrue(passed, problems)
+
+    def test_unit_tests_run_with_the_runtimes_up(self):
+        self.use_backend("start")
+        reach = "import sys, urllib.request as u; [u.urlopen(x) for x in sys.argv[1:]]"
+        self.config["unit_tests"] = {"enabled": True, "command": (
+            f"{sys.executable} -c \"{reach}\" {self.ui_url}/ {self.api_url}/health")}
+        result = self.validate(self.answer())
+        self.assertEqual(result["unit_tests"]["exit_code"], 0)
+
+    # --- the network log -----------------------------------------------------------------------
+
+    def contract_problem(self, tool_uses):
+        return self.validate(self.answer(tool_uses=tool_uses))["contract"].get("problem")
+
+    def test_an_errored_read_of_the_network_log_is_no_read(self):
+        self.use_backend("start")
+        read = dict(helpers.network_log([]), is_error=True, result="Error: No open tabs")
+        self.assertEqual(self.contract_problem(PLAYWRIGHT_TOOLS + [read]),
+                         playwright.NO_NETWORK_LOG)
+
+    def test_a_log_line_that_cannot_be_read_fails_the_contract(self):
+        self.use_backend("start")
+        read = dict(helpers.network_log([]), result=f"- [POST] {self.api_url}/items (201)")
+        self.assertIn("1 line(s) of the browser's network log could not be read",
+                      self.contract_problem(PLAYWRIGHT_TOOLS + [read]))
+
+    def test_using_the_browser_after_the_last_read_fails_the_contract(self):
+        self.use_backend("start")
+        read = helpers.network_log([{"method": "GET", "url": self.ui_url + "/", "status": 200}])
+        self.assertIn("used the browser (browser_click) after its last read",
+                      self.contract_problem(PLAYWRIGHT_TOOLS + [
+                          read, "mcp__playwright__browser_click"]))
+        # A screenshot or a snapshot sends nothing.
+        self.assertIsNone(self.contract_problem(PLAYWRIGHT_TOOLS + [
+            read, "mcp__playwright__browser_take_screenshot", "mcp__playwright__browser_snapshot"]))
+
+    def test_each_outcome_of_a_request_is_kept(self):
+        self.use_backend("start")
+        items = self.api_url + "/items"
+        result = self.validate(self.answer(tool_uses=PLAYWRIGHT_TOOLS + [
+            helpers.network_log([{"method": "GET", "url": items, "status": 500},
+                                 {"method": "POST", "url": items}]),
+            helpers.network_log([{"method": "GET", "url": items, "status": 200},
+                                 {"method": "POST", "url": items,
+                                  "error": "net::ERR_CONNECTION_REFUSED"}])]))
+        # Pending in the first read, failed in the second: one request, with its error.
+        self.assertEqual(result["network_requests"], [
+            {"method": "GET", "url": items, "status": 500},
+            {"method": "GET", "url": items, "status": 200},
+            {"method": "POST", "url": items, "error": "net::ERR_CONNECTION_REFUSED"}])
 
     def use_spec(self, spec):
         self.t.write_file(os.path.join("state", "api-spec.json"), json.dumps(spec),

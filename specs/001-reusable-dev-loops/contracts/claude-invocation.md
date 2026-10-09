@@ -50,7 +50,7 @@ claude -p "<composed prompt>" \
 | `plan` / `replan` | both | `Read Glob Grep` | default; write tools and `Bash` in `--disallowedTools` | [plan.schema.json](./plan.schema.json) |
 | `implement` / `fix` | both | `Read Edit Write Glob Grep Bash` (configurable) | `acceptEdits` | `{tasks: [{task_id, status: implemented\|not-implemented, note}], assumptions: [{text, affects}], needs_input: [{question, requirement_refs, suggested_answer, suggestion_reason}], files_changed: [path]}`. Put anything that would add, remove, or contradict a requirement in `needs_input`, never in `assumptions` (FR-055a) |
 | `author-checks` | backend-dev | `Read Glob Grep` | default; write tools and `Bash` in `--disallowedTools` | [checks.schema.json](./checks.schema.json) |
-| `validate-ui` | frontend-dev | `Read` + `mcp__playwright__*` | default; write tools and `Bash` in `--disallowedTools` | `criteria[]` and `network_requests[]` (see [validation-result.schema.json](./validation-result.schema.json)) |
+| `validate-ui` | frontend-dev | `Read` + `mcp__playwright__*` | default; write tools and `Bash` in `--disallowedTools` | `criteria[]` (see [validation-result.schema.json](./validation-result.schema.json)); the driver reads the page's requests from the call's `browser_network_requests` results, not from the model |
 
 ## Driver post-conditions for every call
 

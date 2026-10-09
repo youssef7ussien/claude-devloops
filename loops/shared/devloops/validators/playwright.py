@@ -5,12 +5,18 @@ URL (D-2), then runs one `validate-ui` call that may use only `Read` and the Pla
 Playwright runs inside Claude, so its evidence cannot be re-executed; instead the driver checks
 what it can itself: every criterion has an entry with an observation and existing evidence
 (`engine.compute_pass`), the stream shows real Playwright tool use and no denied tool, and every
-backend request the page made matches an operation in the frozen API spec (FR-024). Without a
-configured backend, any request that reaches for the API fails the contract, so a backend-
-dependent criterion can never pass silently (FR-039).
+backend request the page made matches an operation in the frozen API spec (FR-024). The requests
+are read from the browser's own network log (the `browser_network_requests` results in the
+stream), never from the model's account of them. Without a configured backend, any request that
+reaches for the API fails the contract, so a backend-dependent criterion can never pass silently
+(FR-039).
+
+The optional unit tests run first, and their result is in the call's context, so a criterion
+about them is judged from the driver's own run: the browser step cannot run a command.
 """
 import contextlib
 import os
+import re
 from urllib.parse import urlsplit
 
 from .. import config as config_mod
@@ -20,6 +26,7 @@ from ..runtime import Runtime, RuntimeStartFailed
 from .unit_tests import run as run_unit_tests
 
 PLAYWRIGHT_TOOL_PREFIX = "mcp__playwright__"
+NETWORK_TOOL = PLAYWRIGHT_TOOL_PREFIX + "browser_network_requests"
 
 
 class ValidateUIError(CallFailed):
@@ -68,7 +75,7 @@ def _write_mcp_config(ctx):
     return path
 
 
-def _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path):
+def _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path, unit_tests):
     milestone = ctx.milestone
     context = {
         "loop": ctx.loop, "step": "validate-ui", "trial": ctx.trial,
@@ -80,6 +87,7 @@ def _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path):
         "evidence_dir": ctx.evidence_dir,
         "milestone": {"id": milestone["id"], "title": milestone["title"], "goal": milestone["goal"],
                       "acceptance_criteria": milestone["acceptance_criteria"]},
+        "unit_tests": unit_tests,
     }
     out = ctx.runner.call("validate-ui", context, ctx.target_dir, milestone_id=milestone["id"],
                           trial=ctx.trial, trial_dir=ctx.trial_dir, mcp_config_path=mcp_path,
@@ -90,6 +98,32 @@ def _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path):
                               out.failure_class)
     _check_mcp_started(ctx, out)
     return out
+
+
+def _run_unit_tests(ctx):
+    """Run the unit tests, with the runtimes up; return `(result, context)`.
+
+    `result` is validation's `unit_tests` (FR-008): with `unit_tests.enabled`, a failure fails the
+    milestone. `context` is what the validate-ui call needs to judge a criterion about the unit
+    tests (it cannot run a command): the driver's run, with the log to read and the path to cite
+    as evidence. When only a command is declared (`runtime.unit_test_command` or
+    `unit_tests.command`) without `unit_tests.enabled`, the tests run for that context alone, so
+    such a criterion is judged on a real run; their result then fails nothing by itself.
+    """
+    settings = ctx.config.get("unit_tests") or {}
+    runtime = (ctx.plan or {}).get("runtime")
+    enabled = bool(settings.get("enabled"))
+    if not enabled and not (settings.get("command") or (runtime or {}).get("unit_test_command")):
+        return {"enabled": False}, {"ran": False}
+    config = ctx.config if enabled else dict(ctx.config, unit_tests=dict(settings, enabled=True))
+    run = run_unit_tests(config, runtime, ctx.target_dir, ctx.trial_dir, redactor=ctx.redactor)
+    result = dict(run, enabled=enabled)
+    if "exit_code" not in run:  # enabled, but no command
+        return result, {"ran": False}
+    log = run["log_path"]
+    return result, {"ran": True, "enabled": enabled, "command": run["command"],
+                    "exit_code": run["exit_code"], "log_file": os.path.join(ctx.trial_dir, log),
+                    "evidence": log}
 
 
 def _check_mcp_started(ctx, out):
@@ -127,6 +161,76 @@ def _criteria(entries, problems):
     note = "; ".join(problems)
     return [dict(e, passed=False, observed=f"{note} (reported: {e.get('observed', '')})")
             for e in entries]
+
+
+# --- the browser's network log -------------------------------------------------------------------
+
+# One request in a `browser_network_requests` result: `12. [POST] http://host/x => [201] Created`,
+# `=> [FAILED] net::ERR_CONNECTION_REFUSED`, or no `=>` part while it is pending.
+_REQUEST_LINE = re.compile(
+    r"^\s*(?:\d+\.\s*)?\[([A-Za-z]+)\]\s+(\S+)(?:\s+=>\s+\[([^\]]+)\](.*))?$")
+# A line that names a request, whether or not `_REQUEST_LINE` can read it.
+_LOOKS_LIKE_REQUEST = re.compile(r"\[[A-Za-z]+\]\s+[A-Za-z][A-Za-z0-9+.-]*://")
+# Browser tools that cannot make the page send a request: using one after the last read of the
+# network log leaves nothing unchecked.
+PASSIVE_TOOLS = {"browser_network_requests", "browser_take_screenshot", "browser_snapshot",
+                 "browser_console_messages", "browser_close"}
+
+NO_NETWORK_LOG = ("the validate-ui call never read the browser's network log "
+                  "(browser_network_requests), so the page's requests could not be checked")
+
+
+def _parse_request(line):
+    """`{method, url[, status | error]}` for one line of the log, or None."""
+    m = _REQUEST_LINE.match(line.rstrip())
+    if not m:
+        return None
+    req = {"method": m.group(1).upper(), "url": m.group(2)}
+    outcome, rest = m.group(3), (m.group(4) or "").strip()
+    if outcome and outcome.isdigit():
+        req["status"] = int(outcome)
+    elif outcome:
+        req["error"] = rest or outcome
+    return req
+
+
+def _network_log(out):
+    """`(requests, problem)`: the requests in the browser's network log, read from each
+    successful `browser_network_requests` result of the call (the log restarts at each page
+    load, so the call reads it before leaving a page), one entry per method, URL, and outcome;
+    and why they cannot all be checked, or None.
+
+    The requests come from the browser, never from the model's account of them. They are
+    incomplete when the call never read the log, when a line of it could not be read, or when
+    the call used the browser again after its last read."""
+    reads = [i for i, r in enumerate(out.tool_results)
+             if r["name"] == NETWORK_TOOL and not r["is_error"]]
+    if not reads:
+        return [], NO_NETWORK_LOG
+    requests, unread = {}, []
+    for i in reads:
+        for line in out.tool_results[i]["text"].splitlines():
+            req = _parse_request(line)
+            if req is not None:
+                requests.setdefault((req["method"], req["url"], req.get("status"),
+                                     req.get("error")), req)
+            elif _LOOKS_LIKE_REQUEST.search(line):
+                unread.append(line.strip())
+    # A request seen pending in one read and answered in a later one is the same request.
+    answered = {(m, u) for m, u, status, error in requests if status or error}
+    observed = [req for (m, u, status, error), req in requests.items()
+                if status or error or (m, u) not in answered]
+    if unread:
+        return observed, (f"{len(unread)} line(s) of the browser's network log could not be "
+                          "read, so their requests could not be checked (first: "
+                          f"{unread[0][:120]})")
+    later = [r["name"][len(PLAYWRIGHT_TOOL_PREFIX):] for r in out.tool_results[reads[-1] + 1:]
+             if r["name"][len(PLAYWRIGHT_TOOL_PREFIX):] not in PASSIVE_TOOLS]
+    if later:
+        return observed, (f"the validate-ui call used the browser ({later[0]}) after its last "
+                          "read of the network log, so the requests that followed could not be "
+                          "checked")
+    return observed, None
 
 
 # --- the API contract (FR-024) ---------------------------------------------------------------------
@@ -228,15 +332,18 @@ def validate(ctx):
                                     runtime["ready_url"], ready_timeout,
                                     log_path=os.path.join(ctx.trial_dir, "runtime.log")))
         _record_ui_url(ctx, ui_url)
-        out = _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path)
-        unit_tests = run_unit_tests(ctx.config, (ctx.plan or {}).get("runtime"), ctx.target_dir,
-                                    ctx.trial_dir, redactor=ctx.redactor)
+        # Before the call, so it can judge a criterion about the unit tests from this run.
+        unit_tests, unit_tests_context = _run_unit_tests(ctx)
+        out = _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path, unit_tests_context)
 
-    network_requests = out.structured_output["network_requests"]
+    network_requests, problem = _network_log(out)
+    contract = _contract(spec, network_requests, backend_url, ui_url)
+    if problem:
+        contract = dict(contract, passed=False, problem=problem)
     return {
         "kind": "playwright", "ui_url": ui_url,
         "criteria": _criteria(out.structured_output["criteria"], _tool_problems(out)),
         "network_requests": network_requests,
-        "contract": _contract(spec, network_requests, backend_url, ui_url),
+        "contract": contract,
         "unit_tests": unit_tests,
     }

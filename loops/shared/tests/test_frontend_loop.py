@@ -148,10 +148,9 @@ class FrontendLoopTest(unittest.TestCase):
                     "criteria": [{"criterion_id": "M01-AC1", "passed": True,
                                   "steps": ["navigate to the UI URL", "snapshot the page"],
                                   "observed": "heading 'Items' is visible",
-                                  "evidence": ["evidence/home.png"]}],
-                    "network_requests": [{"method": "GET", "url": self.ui_url + "/",
-                                          "status": 200}]},
-                "tool_uses": PLAYWRIGHT_TOOLS,
+                                  "evidence": ["evidence/home.png"]}]},
+                "tool_uses": PLAYWRIGHT_TOOLS + [helpers.network_log(
+                    [{"method": "GET", "url": self.ui_url + "/", "status": 200}])],
                 "writes": [{"path": os.path.join(self.evidence_dir(), "home.png"),
                             "content": "PNG"}]},
         })

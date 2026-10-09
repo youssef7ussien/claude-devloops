@@ -61,15 +61,14 @@ IMPLEMENT_RESULT_SCHEMA = {
     },
 }
 
-# Structured result of validate-ui: the model-supplied parts of validation-result.schema.json.
+# Structured result of validate-ui: the model-supplied part of validation-result.schema.json.
+# The network requests are not asked for: the driver reads them from the browser's own network
+# log, in the call's tool results (validators/playwright.py).
 VALIDATE_UI_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["criteria", "network_requests"],
-    "properties": {
-        "criteria": _VR["properties"]["criteria"],
-        "network_requests": _VR["properties"]["network_requests"],
-    },
+    "required": ["criteria"],
+    "properties": {"criteria": _VR["properties"]["criteria"]},
 }
 
 STEPS = {
@@ -79,7 +78,8 @@ STEPS = {
     "fix": {"schema": IMPLEMENT_RESULT_SCHEMA, "writes": True, "tools": None},
     "author-checks": {"schema": "checks.schema.json", "writes": False, "tools": READ_ONLY_TOOLS},
     "validate-ui": {"schema": VALIDATE_UI_SCHEMA, "writes": False,
-                    "tools": ["Read", "mcp__playwright__*"], "keep_stream": True},
+                    "tools": ["Read", "mcp__playwright__*"], "keep_stream": True,
+                    "keep_tool_results": "mcp__playwright__"},
 }
 # Every call streams its events (`--output-format stream-json`), so a command can show what
 # Claude is doing while it works (progress.py); `keep_stream` also saves the stream in the trial
@@ -140,6 +140,9 @@ class CallResult:
     failure_reason: str = None      # timeout | claude-error | invalid-output | a void reason
     failure_detail: str = ""
     tool_uses: Counter = field(default_factory=Counter)
+    # [{name, text, is_error}] in stream order, for the tools named by the step's
+    # `keep_tool_results` prefix (validate-ui: the browser's); empty for other steps.
+    tool_results: list = field(default_factory=list)
     mcp_servers: list = field(default_factory=list)  # stream-json init: [{name, status}]
     snapshot_before: dict = None
     snapshot_after: dict = None
@@ -297,7 +300,8 @@ class ClaudeRunner:
             ended_at = state.now_iso()
             out.snapshot_after = snapshot() if snapshot else None
 
-            result, out.tool_uses = _parse_stream(stdout)
+            result, out.tool_uses, out.tool_results = _parse_stream(
+                stdout, STEPS[step].get("keep_tool_results"))
             out.mcp_servers = _mcp_servers(stdout)
             if STEPS[step].get("keep_stream") and trial_dir:
                 os.makedirs(trial_dir, exist_ok=True)
@@ -611,9 +615,11 @@ def _mcp_servers(stdout):
     return []
 
 
-def _parse_stream(stdout):
-    """The final `result` event of a stream-json log, and a count of `tool_use` events by name."""
-    result, tool_uses = None, Counter()
+def _parse_stream(stdout, keep_results=None):
+    """The final `result` event of a stream-json log, a count of `tool_use` events by name, and
+    what each tool whose name starts with `keep_results` returned: `[{name, text, is_error}]`, in
+    stream order (the text parts joined; none when `keep_results` is None)."""
+    result, tool_uses, tool_results, names = None, Counter(), [], {}
     for line in (stdout or "").splitlines():
         try:
             event = json.loads(line)
@@ -625,6 +631,23 @@ def _parse_stream(stdout):
             for block in (event.get("message") or {}).get("content") or []:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     tool_uses[block.get("name")] += 1
+                    if keep_results and (block.get("name") or "").startswith(keep_results):
+                        names[block.get("id")] = block.get("name")
+        elif event.get("type") == "user":
+            for block in (event.get("message") or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_result" \
+                        and block.get("tool_use_id") in names:
+                    tool_results.append({"name": names[block["tool_use_id"]],
+                                         "text": _tool_result_text(block.get("content")),
+                                         "is_error": bool(block.get("is_error"))})
         elif event.get("type") == "result":
             result = event
-    return result, tool_uses
+    return result, tool_uses, tool_results
+
+
+def _tool_result_text(content):
+    """A `tool_result` block's content as text: a string, or its `text` parts joined."""
+    if isinstance(content, str):
+        return content
+    return "\n".join(part.get("text") or "" for part in content or []
+                     if isinstance(part, dict) and part.get("type") == "text")

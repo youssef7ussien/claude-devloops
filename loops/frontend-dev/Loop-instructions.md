@@ -11,6 +11,11 @@ acceptance criteria must be phrased as observable UI behavior: what content is o
 an interaction does, and what result the user then sees. "The page loads" is never a criterion on
 its own; a milestone is not done until a user could see and do what its criteria describe.
 
+Every criterion is checked in a browser, which cannot run a command. So a criterion never asks for
+something only a command shows, such as "the unit tests pass" or "the build succeeds". Plan the unit
+tests as tasks, and declare the command that runs them as `runtime.unit_test_command`: the driver
+runs it at every validation, and when `unit_tests.enabled` is set, a failure fails the milestone.
+
 Declare a `runtime` for the stack you choose or find:
 
 - `install_command` (optional): how to install dependencies.

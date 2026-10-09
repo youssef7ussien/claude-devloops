@@ -33,6 +33,20 @@ def run_cli(args, env=None, root=None, timeout=120, cwd=None):
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def network_log(requests):
+    """A fake `browser_network_requests` tool use whose result lists `requests` (`[{method, url,
+    status? | error?}]`) as the Playwright MCP server prints them; the validator reads the page's
+    requests from it."""
+    def outcome(r):
+        if "status" in r:
+            return f" => [{r['status']}] OK"
+        return f" => [FAILED] {r['error']}" if "error" in r else ""
+
+    lines = [f"{i}. [{r['method']}] {r['url']}{outcome(r)}" for i, r in enumerate(requests, 1)]
+    return {"name": "mcp__playwright__browser_network_requests", "input": {"static": False},
+            "result": "### Result\n" + "\n".join(lines)}
+
+
 def write_scenario(scenario, env=None, directory=None):
     """Write a fake-Claude scenario file and point `DEVLOOPS_FAKE_SCENARIO` at it.
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "devloops/validation-result.schema.json",
-  "title": "Validation result for one trial (driver-computed; model supplies only 'criteria'/'network_requests' for playwright)",
+  "title": "Validation result for one trial (driver-computed; model supplies only 'criteria' for playwright)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -126,6 +126,10 @@
           },
           "status": {
             "type": "integer"
+          },
+          "error": {
+            "type": "string",
+            "description": "why the request failed without a response (for example net::ERR_CONNECTION_REFUSED)"
           }
         }
       }
@@ -140,6 +144,10 @@
       "properties": {
         "passed": {
           "type": "boolean"
+        },
+        "problem": {
+          "type": "string",
+          "description": "frontend: why the browser's requests could not be checked (the validate-ui call never read the browser's network log); fails the contract"
         },
         "unmatched_operations": {
           "type": "array",

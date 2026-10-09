@@ -488,11 +488,12 @@ sequenceDiagram
         Claude->>UI: edits files in the target
         CLI->>API: start backend.start_command (if configured)
         CLI->>UI: start the UI runtime, record the UI URL
-        CLI->>Claude: validate-ui (Playwright MCP, read-only)
-        Claude->>UI: navigate, act, screenshot
+        CLI->>UI: run the unit tests (when a unit test command is declared)
+        CLI->>Claude: validate-ui (Playwright MCP, read-only), with the unit test result
+        Claude->>UI: navigate, act, screenshot, read the network log
         UI->>API: API calls
-        Claude-->>CLI: per-criterion results and network requests
-        CLI->>CLI: evidence, Playwright tool use, requests against the spec, write audit
+        Claude-->>CLI: per-criterion results
+        CLI->>CLI: evidence, Playwright tool use, the network log against the spec, write audit
     end
     CLI-->>Dev: exit 0, outputs/ui-url.txt and final-report.md
 ```
@@ -785,6 +786,32 @@ captures its value, even `null`; a path that is missing captures nothing. When t
 should capture a value fails (a create answering 400), every later check using it fails with
 `uses ${planId}, which no earlier check captured` and is not sent, so fix the first failing check:
 the rest follow from it.
+
+### What passes a frontend milestone
+
+All of these, from the driver's own run of the frontend and the `validate-ui` browser call:
+
+- every acceptance criterion has a passing result with what was observed and evidence that exists
+  (screenshots), from a call that really used the browser;
+- **the contract**: every request the page made to the backend, or through the UI's own server, is
+  an operation the backend's OpenAPI document declares. The requests are read from the browser's
+  own network log (each `browser_network_requests` result of the call), never from Claude's
+  account of them. The contract also fails when the requests cannot all be checked: the call never
+  read the log (or every read failed), a line of the log could not be read, or the call used the
+  browser after its last read (a screenshot or a snapshot after it is fine);
+- the unit tests pass, when `unit_tests.enabled`;
+- nothing was written outside the target.
+
+A browser cannot run a command, so the frontend plan is told never to make "the unit tests pass" an
+acceptance criterion: unit tests are tasks, with the command in `runtime.unit_test_command`. When a
+criterion still asks for them, it is judged on the driver's own run: once the frontend and backend
+are up, the driver runs the declared unit test command (`unit_tests.command`, else the plan's) and
+gives the browser call its exit code and log. The criterion passes only when they passed. Without
+`unit_tests.enabled`, the tests still run for that purpose, but a failure fails nothing else.
+
+The network log restarts at each page load, so Claude is told to read it before each navigation.
+A request sent by the navigation itself, such as a classic form post that loads a new page, can
+still be missed.
 
 ### Questions raised during a trial
 

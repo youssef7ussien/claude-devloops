@@ -87,7 +87,8 @@ def compute_pass(milestone, result, trial_dir):
     contract = result.get("contract") or {}
     if not contract.get("passed"):
         problems.append("contract check failed: "
-                        + (", ".join(contract.get("unmatched_operations") or []) or "no detail"))
+                        + (", ".join(contract.get("unmatched_operations") or [])
+                           or contract.get("problem") or "no detail"))
     bound = result.get("boundary") or {}
     if not bound.get("passed"):
         problems.append("boundary violated: " + ", ".join(bound.get("violations") or []))

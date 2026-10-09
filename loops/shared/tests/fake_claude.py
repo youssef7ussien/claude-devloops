@@ -25,7 +25,8 @@ Answer fields (all optional):
                       "Edit"/"Write"/"MultiEdit"/"NotebookEdit" (the PreToolUse hooks from
                       `--settings` run first; exit 2 blocks the write and records a denial)
   tool_uses           tools emitted as `tool_use` events (stream-json): a name, or
-                      `{name, input}`
+                      `{name, input, result, is_error}`; `result` is the text of its
+                      `tool_result` (default: "ok"), `is_error` marks that result failed
   mcp_servers         `[{name, status}]` in the stream-json init event (default: [])
   api_error_status    number or null
   is_error            bool (default: false, or true when api_error_status is set)
@@ -250,8 +251,10 @@ def emit_stream(result, tool_uses, session_id, cwd, opts, mcp_servers=()):
          "permissionMode": one(opts, "--permission-mode") or "default",
          "mcp_servers": list(mcp_servers)})
     for tool in tool_uses or []:
-        name, tool_input = (tool["name"], tool.get("input", {})) if isinstance(tool, dict) \
-            else (tool, {})
+        name, tool_input, tool_output, tool_error = (
+            (tool["name"], tool.get("input", {}), tool.get("result", "ok"),
+             bool(tool.get("is_error")))
+            if isinstance(tool, dict) else (tool, {}, "ok", False))
         tool_use_id = "toolu_" + uuid.uuid4().hex[:24]
         out({"type": "assistant", "session_id": session_id, "message": {
             "role": "assistant",
@@ -260,7 +263,8 @@ def emit_stream(result, tool_uses, session_id, cwd, opts, mcp_servers=()):
         }})
         out({"type": "user", "session_id": session_id, "message": {
             "role": "user",
-            "content": [{"type": "tool_result", "tool_use_id": tool_use_id, "content": "ok"}],
+            "content": [{"type": "tool_result", "tool_use_id": tool_use_id, "is_error": tool_error,
+                         "content": [{"type": "text", "text": tool_output}]}],
         }})
     out(result)
 
