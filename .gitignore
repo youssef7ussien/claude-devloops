@@ -1,6 +1,3 @@
-# --- Devloops runtime ---------------------------------------------------------
-# Workspaces are committed (spec A-4); only per-process run locks are not.
-workspaces/*/*/state/lock
 # Leftovers from an atomic write interrupted before os.replace
 *.tmp
 
@@ -58,8 +55,3 @@ desktop.ini
 # Office lock files (LibreOffice, Microsoft Office)
 .~lock.*#
 ~$*
-
-# >>> devloops (added by "devloops init")
-.devloops/dashboards/
-.devloops/devloops.local.json
-# <<< devloops

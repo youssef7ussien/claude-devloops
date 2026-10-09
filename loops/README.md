@@ -1143,14 +1143,11 @@ to upgrade a project set up by a newer one (`downgrade-refused`, exit 30, nothin
 - **Redaction covers only listed values.** Review workspaces and exported dashboards before sharing
   them, or serving them beyond this machine.
 
-## Migrating this repository
+## Using this checkout
 
-This repository is itself a devloops project, set up with `bin/devloops init --no-prompt
---track-workspaces`. Its `devloops.json` sets `"workspaces_dir": "workspaces"`, so the committed
-example workspaces stay in `workspaces/`, and its skills are the rendered `.claude/skills/devloops-*`
-(calling `bin/devloops`). The tests build each temporary checkout the same way. To use the loops on
-another application, install devloops and run `devloops init` in that application's folder instead
-of working inside this repository.
+This repository holds devloops itself; it is not a devloops project. To run the loops on an
+application, install devloops, or call `bin/devloops` from this checkout by its path, and run
+`devloops init` in that application's folder.
 
 ## Repository layout
 
