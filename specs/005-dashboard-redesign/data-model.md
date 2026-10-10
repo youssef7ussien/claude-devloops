@@ -174,7 +174,8 @@ calls (their next action is then null). Worked out on every request, not kept pe
 
 One HTML file: the app shell, stylesheet, and joined script (without `vendor/`) inline; one
 `<script type="application/json" id="d:<API path>">` per API response, each file's content
-(`files/<id>`), and `d:search-corpus` (`{items: [{kind, id, label, route, text}]}`); a root
+(`files/<id>`), and `d:search-corpus` (`{items: [{kind, id, label, route, text}]}`, a file's
+item naming its element with `file` instead of `text`); a root
 `data-source="embedded"`, `data-exported-at`, `data-devloops-version`, `data-workspace`,
 `data-running` (`true` when a loop was running). File contents over 5 MB are replaced by
 `{not_embedded: true, size, path}` (contracts/export.md).

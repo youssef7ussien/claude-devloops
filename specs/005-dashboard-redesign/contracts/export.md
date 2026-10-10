@@ -51,6 +51,8 @@ workspace folder is git-ignored, so exports are too.
   polls. The top bar shows "Snapshot · <exported-at> · devloops <version>", "run in progress" when
   `data-running` is true, and the notice "Contains full Claude Code conversations — review before
   sharing".
+- `d:search-corpus` is `{items: [{kind, id, label, route, text}]}`, the server's searchable texts;
+  a file's item has `file: <id>` instead of `text`, which is read from that file's element.
 - Search runs in the page over `d:index` and `d:search-corpus`, with the server's rules (contracts/
   api.md).
 - Nothing outside the file is referenced: no `src`/`href` to another file or the network, except

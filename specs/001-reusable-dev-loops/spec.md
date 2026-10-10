@@ -10,6 +10,11 @@
 development loops (backend-dev, frontend-dev, shared loop functionality, optional orchestration)
 from `specs/claude-loops/task-description.md`. Do NOT specify the application described by the PRD."
 
+> **Revised by specs/005-dashboard-redesign**: the per-command dashboard
+> (`workspaces/<ws>/dashboard.html`, written after each command) is removed. The dashboard is
+> served by `devloops dashboard` and exported by `devloops dashboard --export`; a command's output
+> points to it (005 FR-008–FR-010). "The dashboards" below means that app.
+
 ## Scope and Source Classification
 
 **In scope**: the reusable development-loop infrastructure only — the `backend-dev` loop, the

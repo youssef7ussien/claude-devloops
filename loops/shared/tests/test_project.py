@@ -77,6 +77,13 @@ class ProjectTest(unittest.TestCase):
     def test_unknown_key(self):
         self.assert_invalid({"schema_version": 1, "worksapce": "x"}, "worksapce")
 
+    def test_a_removed_key_says_it_was_removed(self):
+        self.assert_invalid({"schema_version": 1, "dashboards_dir": ".devloops/dashboards"},
+                            '"dashboards_dir" was removed (the dashboard is served or exported '
+                            'now); delete it')
+        self.assert_invalid({"schema_version": 1, "config": {"dashboard": {"light": False}}},
+                            '"dashboard" was removed')
+
     def test_wrong_type(self):
         self.assert_invalid({"schema_version": 1, "targets": {"backend-dev": 3}},
                             "targets.backend-dev")
@@ -125,7 +132,6 @@ class ProjectTest(unittest.TestCase):
         p = project.Project(self.root)
         self.assertEqual(p.default_workspace, "main")
         self.assertEqual(p.workspaces_dir, os.path.join(self.root, ".devloops", "workspaces"))
-        self.assertEqual(p.dashboards_dir, os.path.join(self.root, ".devloops", "dashboards"))
         self.assertEqual(p.targets, {"backend-dev": None, "frontend-dev": None})
         self.assertIsNone(p.requirements)
         self.assertEqual(p.run_config_layers(), [{}, {}])
@@ -133,11 +139,9 @@ class ProjectTest(unittest.TestCase):
 
     def test_configured_directories_resolve_against_the_root(self):
         self.write_config({"schema_version": 1, "workspaces_dir": "workspaces",
-                           "dashboards_dir": "/abs/dash",
                            "requirements": {"path": "docs/prd.md"}})
         p = project.Project(self.root)
         self.assertEqual(p.workspaces_dir, os.path.join(self.root, "workspaces"))
-        self.assertEqual(p.dashboards_dir, "/abs/dash")
         self.assertEqual(p.requirements, {"path": os.path.join(self.root, "docs", "prd.md")})
 
     def test_relative_or_absolute_round_trips(self):

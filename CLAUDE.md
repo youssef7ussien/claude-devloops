@@ -53,13 +53,13 @@ node --test loops/shared/devloops/assets/app/tests/
 - **State is files.** Everything is in `<workspace>/<loop>/state/` (`run.json`, `plan.json`,
   `invocations.jsonl`, `events.jsonl`, `milestones/<id>/trials/<n>/…`) and `outputs/`; a run
   resumes from it. Writes are atomic (`state.py`). JSON shapes are in `loops/shared/schemas/`.
-- **Dashboard** (being redesigned by spec 005): `serve.py` is a stdlib HTTP server whose JSON API
-  is built by builder functions in `dashboard.py` (registered in `serve.API`) and `artifacts.py`
-  (file listing, file contents, conversations), every answer redacted. The browser app is plain
+- **Dashboard** (spec 005): `serve.py` is a stdlib HTTP server whose JSON API is built by
+  builder functions in `dashboard.py` (registered in `serve.API`) and `artifacts.py` (file
+  listing, file contents, conversations), every answer redacted. The browser app is plain
   JavaScript in `assets/app/` (no framework, no build), joined by `appbundle.py` in the order of
-  `assets/app/scripts.txt`. `ui.py`, `fulldash.py`, the HTML parts of `dashboard.py`, and
-  `assets/dashboard.{js,css}` are the old server-rendered dashboard, pending removal (spec 005
-  T051–T053).
+  `assets/app/scripts.txt`. `dashboard_export.py` writes the same app as one file with every
+  answer embedded (`devloops dashboard --export`, to `<workspace>/exports/`). No command writes a
+  dashboard by itself.
 - **Tests** run the real CLI against temporary checkouts with a fake `claude`
   (`tests/fake_claude.py`, driven by scenario files; see `helpers.py` and `stub_loop.py`).
 

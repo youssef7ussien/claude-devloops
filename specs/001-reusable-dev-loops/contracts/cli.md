@@ -159,6 +159,12 @@ path, tokens, cost, start, end). This is the input for the prompts/session-ID sp
 
 ### `dashboard`
 
+> **Revised by specs/005-dashboard-redesign**
+> ([contracts/cli.md](../../005-dashboard-redesign/contracts/cli.md)): `dashboard` serves the
+> dashboard app (`--daemon`, `--stop`) or writes an export (`--export [<path>]`); no command
+> writes `dashboard.html`, and the output of `run`, `approve`, `replan`, and `retry` ends with
+> `dashboard: <url>` or the command that starts a server.
+
 Writes `workspaces/<ws>/dashboard.html` from the workspace state: one self-contained page with the
 overview statistics, the trial timeline, costs, every milestone's criteria, checks, evidence, and
 trials, the questions and answers, the run and its handoff, and every Claude call and event.

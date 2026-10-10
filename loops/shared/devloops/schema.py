@@ -30,6 +30,18 @@ def validate(instance, schema_name, schemas_dir=SCHEMAS_DIR):
     return check(instance, schema, schemas_dir=schemas_dir)
 
 
+def explain_removed(errors, removed):
+    """`errors` with each unexpected property named in `removed` (`{key: why}`) said to be
+    removed: `<path>: "<key>" was removed (<why>); delete it`."""
+    out = []
+    for error in errors:
+        path, sep, problem = error.rpartition(": unexpected property ")
+        key = problem.strip("'\"") if sep else None
+        out.append(f'{path}: "{key}" was removed ({removed[key]}); delete it'
+                   if key in removed else error)
+    return out
+
+
 def check(instance, schema, schemas_dir=SCHEMAS_DIR, root=None):
     """Validate against an in-memory schema; `$ref`s resolve relative to `schemas_dir`."""
     errors = []

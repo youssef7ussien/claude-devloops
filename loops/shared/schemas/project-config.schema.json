@@ -20,11 +20,6 @@
       "default": ".devloops/workspaces",
       "description": "Where bare workspace names live (FR-012)"
     },
-    "dashboards_dir": {
-      "type": "string",
-      "default": ".devloops/dashboards",
-      "description": "Where full dashboards are written (FR-036)"
-    },
     "targets": {
       "type": "object",
       "additionalProperties": false,

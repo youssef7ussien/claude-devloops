@@ -11,6 +11,11 @@
 > - `workspace.json` stores targets and the requirements path relative to the project root when
 >   they are inside it.
 
+> **Revised by specs/005-dashboard-redesign**: there is no `dashboard.html` and no full
+> dashboards folder. The workspace gains `exports/` (`devloops dashboard --export`,
+> [export.md](../../005-dashboard-redesign/contracts/export.md)) and each loop's
+> `state/live.json` (the call running now, while it runs).
+
 > **Revised by specs/003-single-run-command**: the run's record moves from `orchestrator/` to
 > `run/` in each workspace, and the kit's `orchestrator/README.md` describes the single `devloops
 > run` command.

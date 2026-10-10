@@ -17,7 +17,6 @@ LOCAL_NAME = "devloops.local.json"
 MANIFEST_NAME = "manifest.json"
 DEFAULT_WORKSPACE = "main"
 DEFAULT_WORKSPACES_DIR = os.path.join(DIRNAME, "workspaces")
-DEFAULT_DASHBOARDS_DIR = os.path.join(DIRNAME, "dashboards")
 LOOPS = ("backend-dev", "frontend-dev")
 
 
@@ -81,9 +80,14 @@ def read_config_file(path, required):
     return data
 
 
+# Keys a project file may still set from an earlier devloops: an error that says they were removed.
+REMOVED = {"dashboards_dir": "the dashboard is served or exported now",
+           "dashboard": "the dashboard is served or exported now"}
+
+
 def validate(data):
     """Schema errors plus the rules the stdlib validator cannot express (no `oneOf`)."""
-    errors = schema.validate(data, "project-config.schema.json")
+    errors = schema.explain_removed(schema.validate(data, "project-config.schema.json"), REMOVED)
     if errors or not isinstance(data, dict):
         return errors
     req = data.get("requirements")
@@ -165,10 +169,6 @@ class Project:
     @property
     def workspaces_dir(self):
         return self.resolve(self.merged.get("workspaces_dir") or DEFAULT_WORKSPACES_DIR)
-
-    @property
-    def dashboards_dir(self):
-        return self.resolve(self.merged.get("dashboards_dir") or DEFAULT_DASHBOARDS_DIR)
 
     @property
     def targets(self):

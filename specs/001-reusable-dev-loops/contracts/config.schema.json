@@ -199,26 +199,6 @@
         }
       }
     },
-    "dashboard": {
-      "type": "object",
-      "additionalProperties": false,
-      "default": {
-        "full_on_stop": false,
-        "light": true
-      },
-      "properties": {
-        "full_on_stop": {
-          "type": "boolean",
-          "default": false,
-          "description": "Also write a full dashboard when a command ends in completed or a stopped-* status; off by default: `devloops dashboard --export` writes one on demand"
-        },
-        "light": {
-          "type": "boolean",
-          "default": true,
-          "description": "Write the summary page `<workspace>/dashboard.html` when a command pauses, stops, or ends; `devloops dashboard --serve` shows files and conversations"
-        }
-      }
-    },
     "git": {
       "type": "object",
       "additionalProperties": false,

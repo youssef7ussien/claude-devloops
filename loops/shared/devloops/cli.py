@@ -10,7 +10,6 @@ import sys
 
 from . import (__version__, artifacts, checkcmd, dashboard, dashboard_export, engine,
                initcmd, orchestrator, prompts, render, serve, state, workspace)
-from . import config as config_mod
 from . import progress as progress_mod
 from . import project as project_mod
 from .kit import Kit
@@ -204,8 +203,6 @@ def build_parser():
                            "write checks, sonnet to build); Claude Code then picks the model")
     init.add_argument("--track-workspaces", action="store_true",
                       help="do not git-ignore the workspaces folder")
-    init.add_argument("--track-dashboards", action="store_true",
-                      help="do not git-ignore the full dashboards folder")
     init.add_argument("--allow-skills", action="store_true",
                       help="add the devloops permission rule to .claude/settings.json (also on "
                            "an initialized project)")
@@ -346,55 +343,37 @@ def _print_status(obj, message=None):
         print(f"  progress: {obj['progress']}")
 
 
-def _dashboard_path(ws):
-    path = os.path.join(ws.path, dashboard.FILENAME)
-    return path if os.path.exists(path) and _light_on(ws) else None
-
-
-def _light_on(ws):
-    """Whether commands write `dashboard.html` (`dashboard.light`, on by default). A view
-    preference, so it is read from the configuration files as they are now (config.LIVE_KEYS)."""
-    try:
-        value = config_mod.live_value(ws.project, ws.config_path(), "dashboard.light",
-                                      ws.kit.path("shared", "config", "defaults.json"))
-    except (AttributeError, DevloopsError):
-        return True
-    return value is not False
-
-
-def _files_hint(args, ws):
-    """Where to see files and conversations: the running server's URL, or the command to start
-    one (the same command the summary page names)."""
+def _dashboard_url(args, ws):
+    """The workspace's address on the project's running dashboard server, or None."""
     rec = serve.running(ws.project, getattr(args, "env", None))
-    if rec:
-        return f"files and conversations: {serve.url_for(rec, ws.name)} (dashboard server running)"
-    return f"files and conversations: {dashboard.serve_command(ws)}"
+    return serve.url_for(rec, ws.name) if rec else None
+
+
+def _dashboard_hint(args, ws):
+    """Where to see the run (FR-009): the running server's URL, or the command that starts one.
+    A command never starts a server itself."""
+    url = _dashboard_url(args, ws)
+    return f"dashboard: {url or 'devloops dashboard --daemon' + dashboard.workspace_flag(ws)}"
 
 
 def _emit(args, ws, loop, message, code):
     obj = engine.status_object(ws, loop)
-    obj["dashboard"] = _dashboard_path(ws)
     if args.json:
+        url = _dashboard_url(args, ws)
+        if url:
+            obj["dashboard_url"] = url
         obj["exit_code"] = code
         if message:
             obj["message"] = message
         _dump(args, obj)
     else:
         _print_status(obj, message)
-        _print_dashboards(args, ws, obj["dashboard"])
-
-
-def _print_dashboards(args, ws, path):
-    """Where to look next: the summary page, and where files and conversations are."""
-    if path:
-        print(f"dashboard: {path}")
-    print(_files_hint(args, ws))
+        print(_dashboard_hint(args, ws))
 
 
 def _start_hint(progress, args, ws, loops):
-    """Before a command runs loops: where to look while it works (the summary page is written
-    when it pauses, stops, or ends)."""
-    progress.note(_files_hint(args, ws))
+    """Before a command runs loops: where to look while it works."""
+    progress.note(_dashboard_hint(args, ws))
     for loop in loops:
         progress.note(f"log{f' ({loop})' if len(loops) > 1 else ''}: "
                       f"{progress_mod.log_path(ws.loop_dir(loop))}")
@@ -497,12 +476,13 @@ def _run(args, kit, project, env, action=None, selected=None):
     except BaseException:
         args.decision_recorded = action is None or not orch.deciding  # for the Ctrl+C hint
         raise
-    finally:
-        _write_dashboard(ws, announce=False, light=True)
     statuses = {loop: engine.status_object(ws, loop) for loop in loops}
     if args.json:
         obj = {"workspace": ws.name, "run": orch.state, "loops": statuses,
-               "exit_code": code, "message": orch.message, "dashboard": _dashboard_path(ws)}
+               "exit_code": code, "message": orch.message}
+        url = _dashboard_url(args, ws)
+        if url:
+            obj["dashboard_url"] = url
         if action:
             obj["decision"] = {"command": args.command, "loop": action[0]}
         _dump(args, obj)
@@ -512,7 +492,7 @@ def _run(args, kit, project, env, action=None, selected=None):
         print(f"run: {orch.state['status']}")
         for obj in statuses.values():
             _print_status(obj)
-        _print_dashboards(args, ws, _dashboard_path(ws))
+        print(_dashboard_hint(args, ws))
     if code == state.EXIT_CODES["awaiting-approval"] and orch.last_run and _interactive(args):
         return _review(args, kit, project, env, ws, orch.last_run)
     return code
@@ -645,27 +625,9 @@ def _decide(args, kit, project, env):
     except BaseException:
         args.decision_recorded = eng.decided  # for the Ctrl+C hint
         raise
-    finally:
-        _write_dashboard(ws, announce=False, light=True)
     orchestrator.Orchestrator(ws, kit=kit, env=env).sync_step(loop)
     _emit(args, ws, loop, eng.message, code)
     return code
-
-
-def _write_dashboard(ws, announce, light=False):
-    """Refresh the workspace's summary page, when a command pauses, stops, or ends (`light`: only
-    if `dashboard.light` is on) or on demand. A failure only warns: it never changes a run's
-    outcome."""
-    if light and not _light_on(ws):
-        return None
-    try:
-        path = dashboard.write(ws)
-    except Exception as e:  # noqa: BLE001 - the dashboard is a view; the run's result stands
-        print(f"devloops: warning: could not write the dashboard: {e}", file=sys.stderr)
-        return None
-    if announce:
-        print(f"dashboard: {path}")
-    return path
 
 
 def _dashboard(args, kit, project, env):
@@ -737,7 +699,7 @@ def _init(args, kit):
         no_backend=args.no_backend, no_frontend=args.no_frontend,
         requirements=args.requirements, speckit_feature=args.speckit_feature,
         no_prompt=args.no_prompt or args.json, track_workspaces=args.track_workspaces,
-        track_dashboards=args.track_dashboards, allow_skills=args.allow_skills,
+        allow_skills=args.allow_skills,
         models=not args.no_models)
     root = os.path.abspath(args.dir)
     if args.restore and not args.upgrade:
@@ -748,7 +710,6 @@ def _init(args, kit):
             ("--no-backend", args.no_backend), ("--no-frontend", args.no_frontend),
             ("--requirements", args.requirements), ("--speckit-feature", args.speckit_feature),
             ("--track-workspaces", args.track_workspaces),
-            ("--track-dashboards", args.track_dashboards),
             ("--no-models", args.no_models)) if value]
         if given:
             raise state.UsageError(f"--upgrade does not change the project configuration "
@@ -852,27 +813,25 @@ def main(argv=None, kit=None, project=None, env=None):
             large = large_evidence(ws, loops)
             if args.json:
                 objs = {loop: engine.status_object(ws, loop) for loop in loops}
-                obj = objs[args.loop] if args.loop else {
-                    "workspace": ws.name, "loops": objs,
-                    "full_dashboards": engine.full_dashboards(ws)}
+                obj = objs[args.loop] if args.loop else {"workspace": ws.name, "loops": objs}
                 if run:
                     obj["run"] = run
                 obj["large_evidence"] = large
+                url = _dashboard_url(args, ws)
+                if url:
+                    obj["dashboard_url"] = url
                 _dump(args, obj)
             else:
                 if run:
                     print(f"run: {run.get('status')}")
                 for loop in loops:
                     _print_status(engine.status_object(ws, loop))
-                full = engine.full_dashboards(ws)
-                if full["count"]:
-                    print(f"full dashboards: {full['count']} "
-                          f"({artifacts.human_bytes(full['bytes'])}), latest {full['latest']}")
                 if large:
                     print("evidence files over 1 MB (review them for secrets before committing "
                           "the workspace):")
                     for item in large:
                         print(f"  {item['path']} ({item['bytes']} bytes)")
+                print(_dashboard_hint(args, ws))
             return 0
 
         if args.command == "dashboard":

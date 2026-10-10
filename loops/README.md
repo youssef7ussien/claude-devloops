@@ -74,7 +74,7 @@ That is the whole run. `devloops run` goes through these phases without stopping
 | 4 | Handoff | The backend's verified `openapi.json` and how to start it go to the frontend |
 | 5 | Frontend plan | As in phase 2, for the UI |
 | 6 | Frontend build | For each milestone: implement, then validate in a real browser (Playwright), up to 3 trials |
-| 7 | Done | `final-report.md` per loop and the dashboards are written |
+| 7 | Done | `final-report.md` per loop is written |
 
 Progress shows in the terminal and the [live dashboard](#dashboards)
 (`devloops dashboard` in another terminal, or `devloops dashboard --daemon` in the background). If you stop it (`Ctrl C`, a crash, a reboot),
@@ -141,7 +141,7 @@ questions; press Enter to keep the default:
 | `--requirements <file>` / `--speckit-feature [DIR]` | The default requirements (`active` with no `DIR`) |
 | `--no-models` | Write no model choice (`"config": {}`); without it, the recommended models are written |
 | `--no-prompt` | Never ask (implied when stdin or stdout is not a terminal, and by `--json`) |
-| `--track-workspaces`, `--track-dashboards` | Leave that folder out of the `.gitignore` block |
+| `--track-workspaces` | Leave the workspaces folder out of the `.gitignore` block |
 | `--allow-skills` | Pre-approve devloops for Claude Code (see [Claude Code skills](#claude-code-skills)) |
 | `--upgrade [--restore]` | Upgrade an initialized project (see [Upgrades](#upgrades)) |
 | `--json` | Print the result as JSON |
@@ -182,8 +182,7 @@ myapp/
 │   ├── devloops.local.json      # your machine's settings (optional, git-ignored)
 │   ├── manifest.json            # devloops version and fingerprints of the installed files (commit it)
 │   ├── prompts/README.md        # how to override prompts
-│   ├── workspaces/<ws>/         # run records (git-ignored by default)
-│   └── dashboards/<ws>/*.html   # exported dashboards (git-ignored by default)
+│   └── workspaces/<ws>/         # run records and exports (git-ignored by default)
 ├── .claude/skills/devloops-*/   # the Claude Code skills (commit them)
 ├── .gitignore                   # one block added under a "# >>> devloops" marker
 ├── backend/                     # backend-dev's target
@@ -191,7 +190,7 @@ myapp/
 ```
 
 The project is found from the current folder upward; `DEVLOOPS_PROJECT=<dir>` names it explicitly.
-`workspaces/` and `dashboards/` are created when first used.
+`workspaces/` is created when first used.
 
 `devloops.json`, as `init` writes it:
 
@@ -200,7 +199,6 @@ The project is found from the current folder upward; `DEVLOOPS_PROJECT=<dir>` na
   "schema_version": 1,
   "workspace": "main",
   "workspaces_dir": ".devloops/workspaces",
-  "dashboards_dir": ".devloops/dashboards",
   "targets": {"backend-dev": "backend", "frontend-dev": "frontend"},
   "requirements": {"speckit_feature": "active"},
   "config": {
@@ -253,7 +251,7 @@ version is newer, install that version.
 | `approve` | Accept the stored plan of the loop awaiting approval and the answers in its `outputs/open-questions.md`, then continue the run. Refused (exit 2, `nothing awaits approval (run: <status>)`) when no loop is in `awaiting-approval` |
 | `replan` | Plan the waiting loop again with the answers (a planning trial), then continue: the new plan is approved and built, or, when plans are reviewed, pauses again. Refused like `approve` |
 | `retry --milestone <id> [--reason <text>] [--trials <n>]` | Give the loop stopped on failure more trials for that milestone (default `max_trials`), then continue the run. The reason, when given, is guidance passed to later fix prompts. Refused (exit 2, `no loop is stopped on failure (run: <status>)`) otherwise |
-| `status [<loop>]` | Show the run's status (`run: <status>`) and, for each loop it includes (or the one named), the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start, and the exported dashboards. Read-only |
+| `status [<loop>]` | Show the run's status (`run: <status>`) and, for each loop it includes (or the one named), the status, next milestone, trials used, last failure, UI URL, OpenAPI artifact, spec-kit feature, evidence files over 1 MB, configuration and prompt changes since the first start. Read-only |
 | `export-sessions [--csv <file>]` | Write every Claude invocation as CSV (standard output by default) |
 | `dashboard [--daemon \| --stop \| --export [<path>]]` | Serve the live dashboard, with every file and conversation, until `Ctrl C` and open it in a browser (`--no-open` not to); `--daemon` serves it in the background and prints its address and log; `--stop` stops it; `--export [<path>]` writes it as one self-contained file (see [Dashboards](#dashboards)) |
 
@@ -270,11 +268,13 @@ version is newer, install that version.
 stderr. First, where to look while the command works:
 
 ```
-         files and conversations: devloops dashboard --daemon
+         dashboard: devloops dashboard --daemon
          log: /repo/.devloops/workspaces/main/backend-dev/state/run.log
 ```
 
-(with the URL instead when a dashboard server is running).
+(`dashboard: <url>` instead when a dashboard server is running for the project; a command never
+starts one). The final summary ends with the same `dashboard:` line, and `--json` adds
+`dashboard_url` while a server is running.
 
 Then one line per step: each recorded event (a trial starting, passing, or failing, a plan stored,
 an approval, a question, a stop) and each Claude call, with the model it runs on, and when it
@@ -521,15 +521,18 @@ terminal), and `devloops approve` approves and continues the run from there.
 
 ## Dashboards
 
-A workspace has three views. All are built from `state/` only and never read back, so they can
-never change a run's outcome; if writing one fails, the command prints a warning and keeps its
-exit code.
+The dashboard is one app with two forms. Both are built from `state/` only and never read back, so
+they can never change a run's outcome. No command writes a dashboard by itself: a run's output ends
+with where to see it.
 
-| View | What it is | How |
+| Form | What it is | How |
 |---|---|---|
 | **Live dashboard** | Everything about every workspace, with each file and conversation, following runs as they go | `devloops dashboard` (`--daemon` in the background) |
-| **Summary page** | `<workspace>/dashboard.html`: one offline page with status, milestones, trials, failures, questions, and cost | Written when a command pauses, stops, or ends; `devloops dashboard` on demand |
-| **Exported dashboard** | One self-contained HTML file with every file and conversation embedded, to share or keep | `devloops dashboard --export` |
+| **Export** | The same app in one self-contained HTML file, with its data embedded, to share or keep | `devloops dashboard --export` |
+
+> Changed by [spec 005](../specs/005-dashboard-redesign/spec.md): the summary page
+> (`<workspace>/dashboard.html`), the full dashboards in `dashboards_dir`, `dashboard.light`,
+> `dashboard.full_on_stop`, and `init --track-dashboards` were removed.
 
 ### The live dashboard
 
@@ -543,6 +546,9 @@ serves the dashboards of the project's workspaces at `http://127.0.0.1:8765/w/<w
 browser unless `--no-open`. It starts nothing else and writes nothing to the project: open it while a run goes on, or afterwards.
 The sidebar switches between workspaces.
 
+- **Now**, above every view: the Claude call running, with its loop, milestone, trial, step,
+  model, the time since it started, and the tools it used so far; otherwise the run's status and
+  its next action or what it waits for.
 - **Overview**: status, milestones achieved, first-try pass rate, trials, Claude calls, cost,
   tokens, and elapsed time; **Needs attention** (stopped or paused loops and their next action,
   failing criteria, unanswered questions, failed calls, evidence over 1 MB, and milestones that
@@ -570,6 +576,9 @@ The sidebar switches between workspaces.
   row, code and logs are highlighted, and images fit the window or show at full size.
 - **Questions** (open questions and planning assumptions, filtered by loop) and **Events**.
 
+Token counts show their breakdown (input, output, cache) on hover, and every requirement, task,
+or criterion id shows its text on hover or focus.
+
 `Ctrl K` (or `/`) jumps to any page, call, or file, and from three characters also searches the
 text of every file and conversation. The theme button switches light and dark.
 
@@ -581,7 +590,7 @@ were at the end). **Live** in the top bar pauses this, and shows **Offline** whe
 stopped.
 
 While it runs, the other commands print its URL instead of the command
-(`files and conversations: http://127.0.0.1:8765/w/main/ (dashboard server running)`), and a second
+(`dashboard: http://127.0.0.1:8765/w/main/`), and a second
 `devloops dashboard` prints that URL instead of starting another. It records itself in
 `$XDG_RUNTIME_DIR/devloops/` (or `~/.cache/devloops/`), outside the project.
 
@@ -613,53 +622,40 @@ HTTP: use it on a private network only. To reach it from elsewhere, use an SSH t
 |---|---|---|
 | `--port <n>` | `8765`, or the next free port up to `8784` | The port; `0` picks any free one |
 | `--host <address>` | `127.0.0.1` | Where to listen: `0.0.0.0` (or `::`) for every network, or one address |
-| `--open` | off | Open it in the default browser |
+| `--no-open` | off | Do not open it in a browser (nor does `DEVLOOPS_NO_BROWSER=1`) |
+| `--daemon` | off | Serve in the background; print `serving: <url>` and `log: <path>` once it answers |
 | `--token <value>` | a random one beyond this machine | Require this token |
 | `--no-token` | off | Require no token, even beyond this machine |
-| `--json` | off | Print `{url, urls, host, port, pid, token}` on one line when it starts |
+| `--json` | off | Print `{serving, urls, workspace, token, pid, daemon}` on one line when it starts (`log` with `--daemon`) |
 
-### The summary page
-
-`<workspace>/dashboard.html` is written when `run`, `approve`, `replan`, or `retry`
-pauses, stops, or ends. It is one offline file with the Overview, each
-loop's milestones and trials, Claude calls, Questions, Events, and links to the exported
-dashboards, so after a pause or a stop the state is one click away. It shows no file contents and
-no conversations: where they would be, it says `Files and conversations: devloops dashboard
---daemon`. It does not change while a command runs; use the live dashboard for that. Set
-`dashboard.light` to `false` to stop commands writing it.
-
-### Exported dashboards
+### Exports
 
 ```
 devloops dashboard --export [<file.html>]
 ```
 
-writes the live dashboard of one workspace as a single self-contained HTML file that opens
-anywhere, offline, with no other file: every input, plan file, output, check, trial record, piece
-of evidence (images inline), prompt with the source of each of its parts, and the full Claude Code
-conversation of every call are embedded in it.
+writes the dashboard of one workspace as a single HTML file that opens anywhere, offline, with no
+other file: the same views, with every answer the app would ask the server for embedded in the
+page (every input, plan file, output, check, trial record, piece of evidence with images inline,
+prompt with the source of each of its parts, and the full Claude Code conversation of every call).
+The top bar says **Snapshot**, when it was exported, and with which devloops version ("run in
+progress" when a loop was running); nothing polls. `Ctrl K` searches its embedded text as the
+server does. Code is shown without syntax highlighting.
 
-- **Where**: a path after `--export` names the file (replaced if it exists). The summary page is refreshed too, and
-  links it. Without a path,
-  `<dashboards_dir>/<workspace>/<YYYYMMDDTHHMMSSZ>.html` (UTC), `.devloops/dashboards/` by default;
-  those are never replaced, so they **accumulate**: delete old ones when you no longer need them.
-  `status` reports how many there are and their total size.
-- **Size**: the command prints the file's path and size and lists the five largest embedded items.
-  A file over 5 MB is listed but not embedded (the command names it); open it on disk, or in the
-  live dashboard, which has no limit.
-- **At every stop**: to have `run`, `approve`, `replan`, and `retry` export one each
-  time they end in `completed` or a `stopped-*` status, as earlier versions did, set
-  `dashboard.full_on_stop` to `true`.
+- **Where**: a path after `--export` names the file (replaced if it exists). Without one,
+  `<workspace>/exports/<YYYYMMDDTHHMMSSZ>.html` (UTC), never replaced, so exports
+  **accumulate** (git-ignored with the workspace): delete old ones when you no longer need them.
+  The file listing leaves `exports/` out.
+- **Size**: the command prints the file's path and size, the five largest embedded items, the
+  number of conversations unavailable, and the files over 5 MB, which are listed but not embedded
+  (open them on disk, or in the live dashboard, which has no limit). `--json` prints
+  `{workspace, export: {path, bytes, largest, unavailable, not_embedded}}`.
 - **Review before sharing.** It contains whole conversations, including file contents Claude
-  read. Values listed under `secrets` are redacted, as everywhere, but nothing else is.
+  read, and says so at the top. Values listed under `secrets` are redacted, as everywhere, but
+  nothing else is.
 
 Conversations are copied, redacted, into `state/conversations/` after each call. A call whose
 transcript could not be found is shown as unavailable, with its session ID.
-
-`dashboard.light` and `dashboard.full_on_stop` are not frozen like the other settings: they are
-read from the configuration files (`.devloops/devloops.json`, `devloops.local.json`, and the
-workspace's config file) as they are when the command ends, so they also apply to runs already
-started, and changing them is not reported as drift.
 
 ## Approval, replan, and open questions
 
@@ -933,8 +929,6 @@ to that run: `status` lists the keys that would now differ (`config_drift`). CLI
 | `playwright.headless` | true | false shows the browser while frontend-dev validates (see below) |
 | `playwright.executable_path` | null | The browser the Playwright MCP server starts; `~` is expanded |
 | `playwright.mcp_command` | null | The full command that starts the Playwright MCP server, used exactly as written. When null, it is `npx @playwright/mcp@latest`, plus `--headless` and `--executable-path` from the two keys above |
-| `dashboard.light` | true | Write the summary page `<workspace>/dashboard.html` when a command pauses, stops, or ends (see [Dashboards](#dashboards)). Not frozen: read from the configuration files when the command ends, and never drift |
-| `dashboard.full_on_stop` | false | Also export a full dashboard each time a command ends in `completed` or a `stopped-*` status. Off: export one with `devloops dashboard --export` when you want it. Not frozen, like `dashboard.light` |
 | `git.commit_per_milestone` | false | After each achieved milestone, commit the target's changes (only paths under the target) as `feat(<loop>): complete <id> <title>`. The outcome is a `git-commit` event; a failed commit does not fail the milestone |
 | `secrets.env` / `secrets.literals` | [] / [] | Values to redact (see below) |
 | `boundary.allowed_extra` | [] | Paths inside an audited git repository that tools may write to, such as a cache directory |
@@ -1063,7 +1057,6 @@ the likeliest place for a secret to hide.
 .devloops/workspaces/<name>/
 ├── workspace.json            # requirements fingerprint, mode, story ID, targets, config path
 ├── config.json               # optional workspace config
-├── dashboard.html            # the summary page, written when a command pauses, stops, or ends
 ├── backend-dev/
 │   ├── task.md               # the rendered assignment
 │   ├── progress.md           # action items; per-milestone start, end, tokens, cost, sessions
@@ -1075,11 +1068,13 @@ the likeliest place for a secret to hide.
 │   │   └── final-report.md
 │   └── state/                # the driver's state; never edit it
 │       ├── run.json  plan.json  events.jsonl  invocations.jsonl  lock
+│       ├── live.json         # the call running now (only while it runs)
 │       ├── prompts/<seq>-<step>.md
 │       ├── conversations/<seq>-<step>.jsonl   # the call's Claude Code transcript, redacted
 │       └── milestones/<id>/{checks.json, trials/<n>/{trial.json, validation.json, stream.jsonl, evidence/}}
 ├── frontend-dev/             # the same shape; outputs/ has ui-url.txt instead of openapi.json
-└── run/{state.json, progress.md}  # the run: its steps and the handoff to frontend-dev
+├── run/{state.json, progress.md}  # the run: its steps and the handoff to frontend-dev
+└── exports/<YYYYMMDDTHHMMSSZ>.html  # devloops dashboard --export (see Dashboards)
 ```
 
 A loop the run does not include has no folder. Changed by

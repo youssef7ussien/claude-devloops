@@ -120,6 +120,30 @@ class DashboardCommandTest(StubLoopMixin, unittest.TestCase):
         code, out, _ = self.dashboard("--stop", "--json")
         self.assertEqual((code, json.loads(out)), (0, {"stopped": False}))
 
+    def test_a_run_writes_no_dashboard_and_points_to_it(self):
+        # SC-009, FR-008–FR-010: a completed run writes no page and no export; it names the
+        # command that starts a server, and the URL only while one runs.
+        self.assertEqual(self.cli("approve", "--json"), 0, self.last_output)
+        result = json.loads(self.last_output)
+        self.assertEqual(result["run"]["status"], "completed")
+        for key in ("dashboard", "full_dashboard", "dashboard_url"):
+            self.assertNotIn(key, result)
+        self.assertFalse(os.path.exists(os.path.join(self.t.workspace_dir, "dashboard.html")))
+        self.assertFalse(os.path.exists(os.path.join(self.t.workspace_dir, "exports")))
+        code, out, err = self.t.run_cli(["run", "--workspace", WS])
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(out.rstrip().endswith(
+            f"dashboard: devloops dashboard --daemon --workspace {WS}"), out)
+        self.assertIsNone(serve.running(self.t.project(), self.t.env))  # none was started
+        code, out, _ = self.dashboard("--daemon", "--port", "0", "--json")
+        self.assertEqual(code, 0, self.last_output)
+        url = json.loads(out)["serving"]
+        self.assertEqual(self.cli("status", "--json"), 0, self.last_output)
+        self.assertEqual(json.loads(self.last_output)["dashboard_url"], url)
+        code, out, err = self.t.run_cli(["status", "--workspace", WS])
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(out.rstrip().endswith(f"dashboard: {url}"), out)
+
     def test_a_daemon_that_cannot_start(self):
         taken = socket.socket()
         taken.bind(("127.0.0.1", 0))

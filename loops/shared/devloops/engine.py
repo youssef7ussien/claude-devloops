@@ -1315,7 +1315,7 @@ def status_object(workspace, loop):
            "status_reason": None, "next_milestone": None, "trials_used": None,
            "trial_limit": None, "last_failure": None, "ui_url": None, "openapi_artifact": None,
            "invocation_count": 0, "progress": os.path.join(loop_dir, "progress.md"),
-           "config_drift": [], "prompt_drift": [], "full_dashboards": full_dashboards(workspace)}
+           "config_drift": [], "prompt_drift": []}
     if rs is None:
         return out
     out["config_drift"] = _config_drift(workspace, rs)
@@ -1345,14 +1345,6 @@ def status_object(workspace, loop):
         out.update(trials_used=len(counted), trial_limit=rs["effective_config"]["max_trials"])
     out["last_failure"] = failures[-1] if failures else None
     return out
-
-
-def full_dashboards(workspace):
-    """`{count, bytes, latest}` of the workspace's full dashboards (002 FR-036a); read-only."""
-    from .dashboard import list_full_dashboards
-    found = list_full_dashboards(workspace)
-    return {"count": len(found), "bytes": sum(i["bytes"] for i in found),
-            "latest": found[0]["path"] if found else None}
 
 
 def _prompt_drift(workspace, loop, rs):

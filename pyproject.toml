@@ -31,7 +31,7 @@ devloops = "loops/shared/devloops"
 devloops_kit = "loops"
 
 [tool.setuptools.package-data]
-devloops = ["assets/*", "assets/app/*", "assets/app/views/*", "assets/app/vendor/*",
+devloops = ["assets/app/*", "assets/app/views/*", "assets/app/vendor/*",
             "assets/app/vendor/prism/*"]  # the dashboard app (not its tests)
 devloops_kit = [
     "backend-dev/*",

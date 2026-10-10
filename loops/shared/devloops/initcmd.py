@@ -52,7 +52,6 @@ class InitOptions:
     speckit_feature: str = None
     no_prompt: bool = False
     track_workspaces: bool = False
-    track_dashboards: bool = False
     allow_skills: bool = False
     models: bool = True  # write RECOMMENDED_MODELS into devloops.json; `--no-models` turns it off
 
@@ -163,7 +162,6 @@ def default_project_config(targets, requirements, models=True):
         "schema_version": 1,
         "workspace": project_mod.DEFAULT_WORKSPACE,
         "workspaces_dir": project_mod.DEFAULT_WORKSPACES_DIR,
-        "dashboards_dir": project_mod.DEFAULT_DASHBOARDS_DIR,
         "targets": dict(targets),
         "requirements": requirements,
         "config": copy.deepcopy(RECOMMENDED_MODELS) if models else {},
@@ -343,15 +341,11 @@ def _flag_requirements(opts, proj):
 # --- .gitignore ------------------------------------------------------------------------------------
 
 def ignore_rules(proj, config, opts):
-    """The block's lines: the workspaces and dashboards folders (unless tracked), and the local
-    file. Folders outside the project are left out."""
+    """The block's lines: the workspaces folder (unless tracked, or outside the project), and the
+    local file."""
     rules = []
-    for key, default, tracked in (
-            ("workspaces_dir", project_mod.DEFAULT_WORKSPACES_DIR, opts.track_workspaces),
-            ("dashboards_dir", project_mod.DEFAULT_DASHBOARDS_DIR, opts.track_dashboards)):
-        if tracked:
-            continue
-        path = proj.resolve(config.get(key) or default)
+    if not opts.track_workspaces:
+        path = proj.resolve(config.get("workspaces_dir") or project_mod.DEFAULT_WORKSPACES_DIR)
         if proj.contains(path) and path != proj.root:
             rules.append(os.path.relpath(path, proj.root).replace(os.sep, "/") + "/")
     rules.append(f"{project_mod.DIRNAME}/{project_mod.LOCAL_NAME}")

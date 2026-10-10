@@ -18,6 +18,25 @@ from samples import PNG
 SECRET = "S3CR3T-artifacts-value"
 
 
+class FileKindTest(unittest.TestCase):
+    def test_kind_by_extension_then_content(self):
+        cases = {
+            ("notes.md", "# Title"): ("markdown", ""),
+            ("plan.json", "{}"): ("json", ""),
+            ("stream.jsonl", '{"a": 1}'): ("jsonl", ""),
+            ("server.py", "print(1)"): ("code", "python"),
+            ("C1.command", "curl -sS x"): ("code", "shell"),
+            ("C1.headers", "HTTP/1.1 200 OK"): ("code", "http"),
+            ("runtime.log", "started"): ("log", ""),
+            ("C1.body", '{"status": "ok"}'): ("json", ""),   # JSON by content
+            ("C2.body", "not found"): ("text", ""),
+            ("shot.png", None): ("image", ""),
+            ("blob.bin", None): ("binary", ""),
+        }
+        for (path, text), expected in cases.items():
+            self.assertEqual(artifacts.kind_of(path, text)[:2], expected, path)
+
+
 class FileContentTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

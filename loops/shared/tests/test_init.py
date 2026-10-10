@@ -178,7 +178,7 @@ class InitTest(unittest.TestCase):
     # --- .gitignore ---
 
     def test_track_flags_drop_their_lines(self):
-        self.init_json("--track-workspaces", "--track-dashboards")
+        self.init_json("--track-workspaces")
         self.assertEqual(self.read(".gitignore").splitlines(),
                          ['# >>> devloops (added by "devloops init")',
                           ".devloops/devloops.local.json", "# <<< devloops"])
@@ -237,6 +237,14 @@ class InitTest(unittest.TestCase):
         code, out, err = self.init("--no-prompt", "--no-backend", "--backend-target", "api")
         self.assertEqual(code, 2, err)
         self.assertEqual(all_files(self.dir), [])
+
+    def test_track_dashboards_was_removed(self):
+        code, out, err = self.init("--no-prompt", "--track-dashboards")
+        self.assertEqual(code, 2, err)
+        self.assertEqual(all_files(self.dir), [])
+        self.assertNotIn("dashboards_dir", json.dumps(self.init_json()[1]))
+        self.assertNotIn("dashboards_dir", self.read(".devloops/devloops.json"))
+        self.assertNotIn("dashboards", self.read(".gitignore"))
 
     def test_no_loop_at_all_is_refused_before_any_write(self):
         code, out, err = self.init("--no-prompt", "--no-backend", "--no-frontend")

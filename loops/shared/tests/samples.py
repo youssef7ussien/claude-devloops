@@ -121,7 +121,6 @@ _CONFIG = {
     "runtime": {"ready_timeout_seconds": 120},
     "backend": {},
     "playwright": {"mcp_command": ["npx", "@playwright/mcp@latest", "--headless"]},
-    "dashboard": {"full_on_stop": False, "light": True},
     "git": {"commit_per_milestone": False},
     "secrets": {"env": [], "literals": []},
     "boundary": {"allowed_extra": []},
@@ -156,7 +155,6 @@ def project_config():
     """A `.devloops/devloops.json` with every key (002 contracts/project-config.schema.json)."""
     return {
         "schema_version": 1, "workspace": "main", "workspaces_dir": ".devloops/workspaces",
-        "dashboards_dir": ".devloops/dashboards",
         "targets": {"backend-dev": "backend", "frontend-dev": None},
         "requirements": {"speckit_feature": "active"},
         "config": {"max_invocations_per_run": 40, "git": {"commit_per_milestone": True}},

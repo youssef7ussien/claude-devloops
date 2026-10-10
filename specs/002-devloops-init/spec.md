@@ -578,6 +578,16 @@ override file and its fingerprint.
 
 #### Full dashboard
 
+> **Revised by specs/005-dashboard-redesign**: FR-035 to FR-042d describe the old dashboards.
+> The summary page (`dashboard.html`, FR-036a, FR-038), the full dashboards written to
+> `dashboards_dir` (FR-036), the automatic write at a final status (`dashboard.full_on_stop`,
+> FR-039), `dashboard.light`, `--serve`, and `--out` are removed. `devloops dashboard` serves one
+> app (`--daemon` in the background, `--stop`), and `devloops dashboard --export [<path>]` writes
+> the same app with its data embedded to `<workspace>/exports/<UTC timestamp>.html` (005 FR-001,
+> FR-008–FR-015; [contracts/export.md](../005-dashboard-redesign/contracts/export.md)). The copied
+> conversations (FR-042), the redaction (FR-041), the notice (FR-041), and the server's
+> protections (FR-042b, FR-042c, FR-042d) are kept.
+
 - **FR-035** [Clarifications; revised 2026-10-07]: `devloops dashboard --export` MUST generate a full dashboard of a workspace
   as one self-contained file. Opened anywhere, with no other file and no network, it shows
   everything the per-command dashboard (001) shows. It also embeds every artifact the developer
@@ -649,6 +659,9 @@ override file and its fingerprint.
 
 #### Live dashboard
 
+> **Revised by specs/005-dashboard-redesign**: served by `devloops dashboard` (no `--serve`), as an
+> app that loads each view's data from a JSON API ([contracts/api.md](../005-dashboard-redesign/contracts/api.md)).
+
 - **FR-042a** [Clarifications 2026-10-07]: `devloops dashboard --serve` MUST serve, until stopped,
   the full dashboard of each of the project's workspaces, with the same views, file viewer, and
   conversation viewer as FR-035 and FR-040. It MUST load a file or a conversation only when it is
@@ -706,6 +719,9 @@ override file and its fingerprint.
   conversations when opened and following runs as they go.
 - **Summary page**: `<workspace>/dashboard.html`, written when a command pauses, stops, or ends.
 
+> **Revised by specs/005-dashboard-redesign**: the full dashboard is replaced by the export
+> (`<workspace>/exports/`), the live dashboard by the served app, and the summary page is removed.
+
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
@@ -732,6 +748,9 @@ override file and its fingerprint.
   recorded calls whose conversation was available when it was generated can be read in full.
 - **SC-010**: 0 configured secret values appear anywhere in a full dashboard, including the
   embedded conversations.
+
+  > **Revised by specs/005-dashboard-redesign**: SC-009 and SC-010 apply to the export (005 SC-007,
+  > SC-008).
 
 ## Assumptions
 

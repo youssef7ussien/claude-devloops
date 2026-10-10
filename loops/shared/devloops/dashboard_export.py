@@ -112,9 +112,16 @@ def render(ws, env=None, now=None, max_bytes=MAX_EMBED_BYTES):
         if content.get("not_embedded"):
             not_embedded.append({"path": shown, "bytes": content["size"]})
         items.append((f"files/{file_id}", content))
-    skip = {file_id for file_id, (_, c) in files.items() if c.get("not_embedded")}
-    corpus = [item for item in serve.SearchIndex(keep=0).corpus(ctx)
-              if not (item["kind"] == "file" and item["id"] in skip)]
+    # A file's text is in its own element: its corpus item names it (`file`) instead of a copy.
+    corpus = []
+    for item in serve.SearchIndex(keep=0).corpus(ctx):
+        if item["kind"] == "file":
+            content = (files.get(item["id"]) or (None, {}))[1]
+            if content.get("text") != item["text"]:
+                continue  # not embedded as text (too large, or unreadable now)
+            item = dict(item, file=item["id"])
+            del item["text"]
+        corpus.append(item)
     items.append(("search-corpus", {"items": ctx.redactor.redact_obj(corpus)[0]}))
     parts = []
     for key, data in items:

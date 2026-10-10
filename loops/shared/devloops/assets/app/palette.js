@@ -140,9 +140,27 @@
     select(0);
   }
 
+  /* An export's corpus with each file item's text: a file item names its embedded file
+     (`file: id`) instead of holding a copy of its text (contracts/export.md). Read once. */
+  var corpusOnce = null;
+  function embeddedCorpus() {
+    if (!corpusOnce) {
+      corpusOnce = DL.api.get('search-corpus').then(function (corpus) {
+        return Promise.all((corpus.items || corpus).map(function (item) {
+          if (item.text != null || !item.file) return item;
+          return DL.api.get('files/' + item.file).then(function (f) {
+            return { kind: item.kind, id: item.id, label: item.label, route: item.route, text: f.text };
+          }, function () { return item; });
+        }));
+      });
+      corpusOnce.catch(function () { corpusOnce = null; });
+    }
+    return corpusOnce;
+  }
+
   function contentHits(q) {
     if (DL.api.source() === 'embedded') {
-      return DL.api.get('search-corpus').then(function (corpus) { return content(corpus.items || corpus, q); });
+      return embeddedCorpus().then(function (items) { return content(items, q); });
     }
     return DL.api.get('search?q=' + encodeURIComponent(q)).then(function (d) { return d.results; });
   }

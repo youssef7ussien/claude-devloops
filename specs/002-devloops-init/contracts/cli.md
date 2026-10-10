@@ -44,6 +44,12 @@ Missing spec-kit inputs (both are input errors, exit 30):
 - a feature folder without `spec.md` stops the run with `missing-input`;
 - a `US<n>` with no matching heading stops it with `story-not-found` (FR-026).
 
+> **Revised by specs/005-dashboard-redesign**
+> ([contracts/cli.md](../../005-dashboard-redesign/contracts/cli.md)): no full dashboard and no
+> summary page is written by a command; the output ends with `dashboard: <url>` while a server
+> runs for the project, else `dashboard: devloops dashboard --daemon[ --workspace <ws>]`, and
+> `--json` has `dashboard_url` only while one runs.
+
 **Full dashboard after a final status**: only when `dashboard.full_on_stop` is set (in the
 configuration files as they are when the command ends; it is not frozen and never drift), and `run`,
 `approve`, `replan`, or `retry` ends in `completed`, `stopped-on-failure`, `stopped-on-input-error`,
@@ -83,7 +89,7 @@ files are listed in [project-layout.md](./project-layout.md).
 | `--no-prompt` | Never ask questions. Implied when stdin or stdout is not a terminal |
 | `--no-models` | Write `config: {}`, with no model choice (FR-007c) |
 | `--track-workspaces` | Do not add the workspaces ignore rule |
-| `--track-dashboards` | Do not add the full-dashboards ignore rule |
+| `--track-dashboards` | Do not add the full-dashboards ignore rule (*removed by specs/005-dashboard-redesign*) |
 | `--allow-skills` | Add the skills' permission rule to `.claude/settings.json` (also on an initialized project; FR-022b) |
 | `--upgrade` | Upgrade an initialized project (FR-027 to FR-029) |
 | `--restore` | With `--upgrade`, re-create installed files that were deleted |
@@ -165,6 +171,13 @@ devloops check            # backend-only project
 
 ## `dashboard`: changed
 
+> **Revised by specs/005-dashboard-redesign**
+> ([contracts/cli.md](../../005-dashboard-redesign/contracts/cli.md)): `devloops dashboard` serves
+> the app (`--daemon` in the background, `--stop` stops it) and `--export [<path>]` writes the
+> export ([contracts/export.md](../../005-dashboard-redesign/contracts/export.md)). The summary
+> page, `--serve`, `--open`, `--out`, and `--light` are removed; the table below is the old
+> behavior.
+
 | Form | Effect |
 |------|--------|
 | `devloops dashboard` | Writes the summary page `<workspace>/dashboard.html` (FR-038), then prints `dashboard: <path>` and the `files and conversations: …` line. `--json`: `{"workspace", "dashboard", "serving": <url> \| null}`. `--light` is accepted and means the same |
@@ -194,7 +207,7 @@ default does not exist yet.
 |-----|---------|
 | `config_drift` | Dotted keys whose effective value would differ if the configuration were resolved now (FR-015) |
 | `prompt_drift` | Prompt parts whose source or fingerprint changed since the configuration was frozen (FR-032) |
-| `full_dashboards` | `{count, bytes, latest}` |
+| `full_dashboards` | `{count, bytes, latest}` (*removed by specs/005-dashboard-redesign*) |
 | `warnings` | e.g. the version mismatch |
 
 The text output shows each addition as one line, only when it is not empty.

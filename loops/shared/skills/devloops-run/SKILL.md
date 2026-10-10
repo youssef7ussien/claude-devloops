@@ -21,9 +21,8 @@ A run can take hours: let the command finish, in the background if it outlasts t
 Summarize: exit_code, message, the run's status (`run.status`), and for each loop in `loops` its
 status, status_reason, next milestone and trials used, last failure, and artifacts, and any
 warnings. Report the dashboard as the result gives it: `dashboard_url` when present (a dashboard
-server is running), and the `dashboard` and `full_dashboard` paths when present. Without
-`dashboard_url`, say that `devloops dashboard` in a terminal (or `devloops dashboard --daemon`)
-shows the run live; never state an address the result does not give, and never start a dashboard
+server is running). Without `dashboard_url`, say that `devloops dashboard` in a terminal (or
+`devloops dashboard --daemon`) shows the run live; never state an address the result does not give, and never start a dashboard
 server yourself. When the setup stops before anything runs (exit 30 with only `status_reason`: no
 loop, or a frontend without a backend), report `status_reason.message`, which says how to fix it.
 On a usage error (exit 2) the result is `{error, exit_code}`: report `error`, and do not guess

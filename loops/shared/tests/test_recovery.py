@@ -62,11 +62,7 @@ class InterruptedTrialTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(run["status"], "stopped")
         self.assertEqual([(s["loop"], s["reason"]) for s in run["steps"]],
                          [("backend-dev", "interrupted")])
-        # The summary page, written as the command ends, says so once.
-        with open(os.path.join(self.loop_dir, "..", "dashboard.html"), encoding="utf-8") as f:
-            page = f.read()
-        self.assertIn("trial 1 of M02 failed as interrupted and counts", page)
-        self.assertNotIn("→ Run", page)
+        self.assertFalse(os.path.exists(os.path.join(self.loop_dir, "..", "dashboard.html")))
 
     def assert_recovered(self, rs):
         m2 = rs["milestones"]["M02"]

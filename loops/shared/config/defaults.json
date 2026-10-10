@@ -20,10 +20,6 @@
     "executable_path": null,
     "mcp_command": null
   },
-  "dashboard": {
-    "full_on_stop": false,
-    "light": true
-  },
   "git": {
     "commit_per_milestone": false
   },

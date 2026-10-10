@@ -22,6 +22,10 @@
 
 `workspaces/` and `dashboards/` are created when they are first used, not by `init`.
 
+> **Revised by specs/005-dashboard-redesign**: there is no `dashboards/` folder, `dashboards_dir`
+> setting, or `--track-dashboards` option, and the `.gitignore` block has no dashboards line.
+> Exports are written inside the workspace, to `<ws>/exports/` (git-ignored with the workspaces).
+
 > Revised by specs/003-single-run-command: the `devloops-orchestrate` skill is no longer installed.
 > In `devloops.json`, `targets.backend-dev` and `targets.frontend-dev` name each loop's folder; a
 > `null` or missing target means the project does not use that loop (`init --no-backend`,

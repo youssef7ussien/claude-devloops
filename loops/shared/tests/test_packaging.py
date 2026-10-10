@@ -58,8 +58,6 @@ class PackagingTest(unittest.TestCase):
                       "devloops_kit/shared/project/prompts/README.md",
                       "devloops_kit/backend-dev/loop.json",
                       "devloops/cli.py",
-                      "devloops/assets/dashboard.js",
-                      "devloops/assets/dashboard.css",
                       "devloops/assets/app/scripts.txt",
                       "devloops/assets/app/index.html",
                       "devloops/assets/app/core.js",
@@ -68,6 +66,7 @@ class PackagingTest(unittest.TestCase):
                       "devloops/assets/app/vendor/prism/LICENSE"):
             self.assertIn(asset, names)
         self.assertFalse([n for n in names if "/tests/" in n or n.startswith("tests/")])
+        self.assertFalse([n for n in names if n.startswith("devloops/assets/dashboard.")])
 
     def test_the_installed_command(self):
         out = self.run_ok([self.devloops, "--version"]).stdout

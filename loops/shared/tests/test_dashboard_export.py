@@ -146,8 +146,14 @@ class ExportTest(StubLoopMixin, unittest.TestCase):
             call = data[f"calls/backend-dev/{r['seq']}"]
             self.assertEqual(call["conversation"], "copied")
             self.assertTrue(call["records"])
-        kinds = {i["kind"] for i in data["search-corpus"]["items"]}
-        self.assertEqual(kinds, {"file", "call", "event"})
+        items = data["search-corpus"]["items"]
+        self.assertEqual({i["kind"] for i in items}, {"file", "call", "event"})
+        for item in items:  # a file's text is read from its own element, not copied
+            if item["kind"] == "file":
+                self.assertNotIn("text", item)
+                self.assertIn(f"files/{item['file']}", data)
+            else:
+                self.assertIn("text", item)
         self.assertIn("plan done; the key is ***", page)
 
     def api_path(self, route):

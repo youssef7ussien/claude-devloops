@@ -195,8 +195,8 @@ class Site:
             return None
 
     def version(self, ws):
-        """A digest of everything the dashboard shows: each file's size and time, the full
-        dashboards written, and the workspaces to switch to. Computed at most once a second per
+        """A digest of everything the dashboard shows: each file's size and time (but the exports),
+        and the workspaces to switch to. Computed at most once a second per
         workspace, however many pages ask."""
         now = time.monotonic()
         with self._lock:
@@ -206,15 +206,13 @@ class Site:
         h = hashlib.sha1()
         for path in artifacts._walk(ws.path):
             rel = artifacts.relative(path, ws.path)
-            if rel == dashboard.FILENAME or rel.split(os.sep)[0] == artifacts.EXPORTS:
+            if rel.split(os.sep)[0] == artifacts.EXPORTS:
                 continue
             try:
                 st = os.stat(path)
             except OSError:
                 continue
             h.update(f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\n".encode("utf-8", "replace"))
-        for item in dashboard.list_full_dashboards(ws):
-            h.update(item["name"].encode("utf-8"))
         h.update("\0".join(self.workspaces()).encode("utf-8"))
         version = h.hexdigest()[:16]
         with self._lock:

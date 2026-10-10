@@ -4,14 +4,13 @@ Claude suggests an answer to every question it raises. An empty answer accepts t
 the developer approves (or retries after a needs-input stop); under `questions: accept-suggested`
 the run accepts the suggestions itself instead of pausing, and flags them for review.
 """
-import os
 import re
 import unittest
 
 import helpers  # noqa: F401 - puts the package on sys.path
 import samples
-from devloops import render
-from stub_loop import StubLoopMixin, implemented
+from devloops import dashboard, render, workspace
+from stub_loop import WS, StubLoopMixin, implemented
 
 OPEN_QUESTIONS = "outputs/open-questions.md"
 QUESTION = "Should listing items be paginated, and with what page size?"
@@ -44,9 +43,10 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
         self.write(OPEN_QUESTIONS, content.replace(
             block, re.sub(r"(?m)^\*\*Answer:\*\*.*$", f"**Answer:** {text}", block, count=1)))
 
-    def dashboard(self):
-        with open(os.path.join(self.t.workspace_dir, "dashboard.html"), encoding="utf-8") as f:
-            return f.read()
+    def dashboard(self, builder):
+        """The dashboard API's data for `builder` (`summary`, `questions`, …)."""
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
+        return getattr(dashboard, builder)(dashboard.Context(ws, self.t.env))
 
     # --- the developer reviews -------------------------------------------------------------------
 
@@ -56,7 +56,8 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
         content = self.read(OPEN_QUESTIONS)
         self.assertIn("**Suggested answer:** Port 8765.\n**Why:** reason OQ1\n\n**Answer:**\n",
                       content)
-        self.assertIn("Suggested, not accepted yet", self.dashboard())
+        [q] = self.dashboard("questions")["questions"]
+        self.assertEqual((q["id"], q["status"]), ("OQ1", "suggested"))
 
     def test_approve_accepts_the_suggestions_left_empty(self):
         self.scenario(steps(plan_with(("OQ1", "Port 8765."),
@@ -133,7 +134,8 @@ class SuggestedAnswersTest(StubLoopMixin, unittest.TestCase):
                          "suggested answer, accepted automatically (questions: accept-suggested)")
         self.assertIn("plan approved automatically", self.events("approved")[-1]["message"])
         self.assertIn("## Suggested answers accepted", self.read("outputs/final-report.md"))
-        self.assertIn("1 suggested answer(s) accepted automatically", self.dashboard())
+        [item] = [a for a in self.dashboard("summary")["attention"] if a["kind"] == "auto-accepted"]
+        self.assertEqual(item["questions"], ["OQ1"])
 
     def test_accept_suggested_still_pauses_on_a_question_without_a_suggestion(self):
         self.scenario(steps(plan_with(("OQ1", "Port 8765."),

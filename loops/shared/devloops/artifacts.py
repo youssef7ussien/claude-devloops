@@ -9,8 +9,7 @@ research R-14): no HTML here, only data.
   records parsed and redacted, with the failed tool results and the files it changed
   (`parse_conversation`).
 
-The server (serve.py) and the export build their responses from these; the old full dashboard
-(fulldash.py) imports them too until it is removed.
+The server (serve.py) and the export (dashboard_export.py) build their responses from these.
 """
 import base64
 import json
@@ -22,7 +21,7 @@ from .redact import Redactor
 
 
 def _dashboard():
-    # Imported when used: dashboard.py imports ui.py, which imports the file kinds from here.
+    # Imported when used: dashboard.py imports this module.
     from . import dashboard
     return dashboard
 
@@ -379,8 +378,8 @@ def file_index(ws, data):
       true}` for a file that cannot be read; `id` is today's anchor, so links stay stable;
     - `by_id` holds the files that can be sent (never a missing one), `inputs` the ids of
       recorded inputs, which may lie outside the workspace.
-    Conversations are not listed (the calls show them), nor the summary page, a run's lock, or
-    the running call's `live.json`.
+    Conversations are not listed (the calls show them), nor the exports, a run's lock, or the
+    running call's `live.json`.
     """
     dashboard = _dashboard()
     ids, by_id, inputs = _Ids(), {}, set()
@@ -453,7 +452,7 @@ def file_index(ws, data):
     for path in paths:
         rel = relative(path, ws.path)
         first = rel.split(os.sep)[0]
-        if first in dashboard.LOOPS or rel == dashboard.FILENAME:
+        if first in dashboard.LOOPS:
             continue
         (orch if first == "run" else own).files.append(ref({"rel": rel, "abs": path}))
     trees += [t for t in (orch, own) if t.count()]
