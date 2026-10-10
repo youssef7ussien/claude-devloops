@@ -35,7 +35,7 @@ Markdown file also shows only its first line.
   full-dashboards folder;
 - new and improved views: a live "now" panel (A1), tokens and cost at every level (A2), a trial
   drill-down (A3), a plan view (A5), a why-a-trial-failed view (B6), conversation viewer
-  upgrades (B8), and faster search (B10);
+  upgrades (B8; readable actions added 2026-10-10, User Story 8), and faster search (B10);
 - fixing the Markdown renderer's multi-line list items;
 - skills, README, and the 001/002 contracts updated to match.
 
@@ -79,6 +79,28 @@ Markdown file also shows only its first line.
 - Q: Should `devloops run` start a dashboard server by itself when none is running? → A: No. Run
   and decision commands only print the running server's address, or the command that starts one
   (FR-009).
+
+### Session 2026-10-10
+
+- Q: Should conversations read as more than folded tool lines? → A: Yes (User Story 8, FR-021a to
+  FR-021f). A tool use and its result show as one action with a readable name and summary; each
+  result is shown as what it is; Claude's messages head the actions after them; and the call's
+  final answer comes first. Agreed on a mockup of a frontend call and two backend calls.
+- Q: Do these rules work for browser-tool conversations only? → A: No. They apply to every
+  conversation: the known tools (Claude Code's own and the browser tools) have their own summaries,
+  and any other tool, including any MCP tool, gets a readable name made from its own name and a
+  summary from its first meaningful input (FR-021b, research R-15).
+- Q: Keep both the plan view and the loop view, though both list every milestone's tasks and
+  criteria? → A: Yes, with separate jobs. The plan view becomes the readable plan ("what was
+  agreed"); the loop view shows progress, and a milestone's tasks shrink to one line linking to the
+  plan (FR-020a, FR-020b).
+- Q: Keep the loop view's "Planning" section, given "Cost by step" already has the plan step's
+  cost? → A: No. The planning attempts (each try, its result, and why it failed) move to the plan
+  view (FR-020a).
+- Q: Add "Expand all" and "Collapse all" for the loop view's milestones? → A: Yes (FR-020b).
+- Q: Keep tiles for input, output, cache write, and cache read in the loop view? → A: No. The
+  Tokens tile shows the split on hover or focus, as at every other level, and the cache-hit rate as
+  its second line (FR-017).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -135,8 +157,9 @@ with the sums of the recorded calls.
 2. **Given** no call is running, **When** the developer opens the dashboard, **Then** the now panel
    says the run is idle and shows its status and next action, or what it is waiting for.
 3. **Given** a loop with recorded calls, **When** the developer views its overview card and its
-   loop view, **Then** each shows the loop's total tokens, and the loop view shows input, output,
-   cache write, and cache read, the cache-hit rate, and the cost per milestone achieved.
+   loop view, **Then** each shows the loop's total tokens with input, output, cache write, and cache
+   read on hover or focus, and the loop view shows the cache-hit rate and the cost per milestone
+   achieved. *(Revised 2026-10-10: one Tokens tile instead of four tiles.)*
 4. **Given** a milestone, a trial, or a step, **When** the developer views it, **Then** its tokens
    and cost are shown with the same breakdown, and they add up to the loop's totals.
 
@@ -197,6 +220,15 @@ with the right status.
    **Then** each of those criteria is marked failing and links to the trial view.
 3. **Given** the plan is waiting for approval, **When** the developer opens the plan view, **Then**
    it says the plan is waiting for approval and which command approves or replans it.
+4. *(Added 2026-10-10)* **Given** a stored plan, **When** the developer opens the plan view,
+   **Then** it reads as a document: the approval notice and open questions first, a summary
+   (milestones, tasks, criteria, questions, assumptions, achieved so far), the milestones in
+   dependency order as a strip that jumps to each, each milestone as its goal, "Done when"
+   (criteria) and tasks, then the assumptions and the planning attempts (each try, its result, why
+   it failed, cost, and tokens).
+5. *(Added 2026-10-10)* **Given** a loop view, **When** it shows the milestones, **Then** each
+   milestone's tasks are one line (counts and a link to the plan), there is no "Planning" section,
+   and "Expand all" and "Collapse all" open or close every milestone.
 
 ---
 
@@ -276,6 +308,55 @@ network, and open it: every view, file, and conversation within the size limit o
 
 ---
 
+### User Story 8 - Read a conversation at a glance (Priority: P2)
+
+The developer opens a call's conversation to learn what Claude did and how it ended. The call's
+answer (the tasks it did, or the criteria it checked) comes first. Then each of Claude's messages
+heads the actions that follow it. Each action is one row, a tool use and its result together, in
+plain words ("Browser · Click — button \"Save\"", "Run — the unit tests", "Edit — src/app.js +3 −1"),
+with whether it worked and how long it took. Opening a row shows the result as what it is: a page
+as Markdown, a screenshot as an image, an edit as a diff, a command's output as a terminal with its
+failing lines marked.
+
+**Why this priority**: User Story 5 folds the tool calls, but a conversation still reads as raw tool
+names, JSON inputs, and results apart from the calls that made them. Finding out what a call did,
+and why it failed, still means reading most of it.
+
+**Independent Test**: Open a recorded frontend conversation (browser tools, screenshots, a final
+answer with criteria) and a backend one (edits, commands including a failing test run, a final
+answer with tasks). The answer is at the top; each tool use and its result are one row with a
+readable name, a summary, an outcome, and a duration; results open as Markdown, image, diff, or
+terminal; "Errors only" leaves only the failed actions; a tool the dashboard does not know still
+shows a readable row.
+
+**Acceptance Scenarios**:
+
+1. **Given** a conversation, **When** it opens, **Then** each tool use and its result show as one
+   action row: a readable tool name, a one-line summary, ✓ or ✕, and its duration; a tool use with
+   no recorded result shows as unfinished.
+2. **Given** a call that ended with a structured answer, **When** its conversation opens, **Then** a
+   result card at the top shows the answer (the tasks with their status and notes, files changed,
+   assumptions, and questions; or the criteria, each passed or failed, with what was observed), and
+   the prompt shows as one row that opens the prompt file.
+3. **Given** results of different kinds, **When** an action is opened, **Then** Markdown is
+   rendered as Markdown, an image as a thumbnail that opens in the viewer, an edit as a line diff, a
+   file read with its line numbers, and a command's output as a terminal block with its exit code;
+   a long result shows its first and last lines with "show all".
+4. **Given** a command whose output has failure lines although the command succeeded, **When** the
+   conversation opens, **Then** its row is marked "N failure lines", and those lines are highlighted
+   when it is opened.
+5. **Given** Claude's messages, **When** the conversation opens, **Then** each message heads the
+   actions after it and shows the time since the call started; a thinking step with no text shows
+   only "thought for N s".
+6. **Given** a conversation, **When** the developer chooses "Errors only" or a kind of action,
+   **Then** only those actions show; a summary line gives the number of actions of each kind, the
+   errors, and the call's duration; and "Files changed" shows the lines added and removed per file.
+7. **Given** a link to a record (`?at=`) from search, an error, or "Files changed", **When** it
+   opens, **Then** the action holding that record is opened and scrolled to, and `[` and `]` move
+   between the failed actions.
+
+---
+
 ### Edge Cases
 
 - **Workspace with no loop started**: the overview says so and shows the run's setup state; other
@@ -296,6 +377,15 @@ network, and open it: every view, file, and conversation within the size limit o
 - **Browser without scripts**: the served page says that the dashboard needs scripts enabled.
 - **Export of a workspace during a run**: the export is consistent as of one moment and says that
   the run was still in progress.
+- **A tool the dashboard does not know** (another MCP server, a new built-in tool): its row shows
+  its name made readable ("Server · Tool name") and its first meaningful input; opened, its input
+  as JSON and its result as text.
+- **A tool use with no result** (the call was interrupted or timed out): the row is marked
+  unfinished, with no outcome and no duration.
+- **A call with no structured answer** (it failed, or its step has none): there is no result card;
+  the conversation starts with the prompt row.
+- **Output that only looks like a failure**: the "failure lines" mark comes from the text alone and
+  is a hint; the action's outcome (✓ or ✕) is the tool's own.
 
 ## Requirements *(mandatory)*
 
@@ -372,7 +462,8 @@ network, and open it: every view, file, and conversation within the size limit o
   when none is running, the run's status and either its next action or what it waits for.
 - **FR-017** (A2): Tokens and cost MUST be shown for the workspace, each loop (on its overview card
   and in its view), each milestone, each trial, each step, and each call, split into input, output,
-  cache write, and cache read. A loop's view MUST also show its cache-hit rate (cache read divided by
+  cache write, and cache read (the split may be shown on hover or keyboard focus, as one Tokens
+  tile; revised 2026-10-10). A loop's view MUST also show its cache-hit rate (cache read divided by
   all input tokens) and its cost per milestone achieved. Totals at each level MUST equal the sum of
   the calls they contain; a total that includes calls with unknown values MUST say it is partial.
 - **FR-018** (A3): The trial timeline MUST let the developer open any trial. A trial view MUST show
@@ -389,10 +480,48 @@ network, and open it: every view, file, and conversation within the size limit o
   not yet checked, from the latest trial), and tasks with their requirement references; and the
   plan's open questions with their answers and its assumptions. When the plan waits for approval,
   the view MUST say so and name the command that approves or replans it.
+- **FR-020a** (A5, added 2026-10-10): The plan view MUST read as the agreed plan: the approval
+  notice and the open questions first; a summary of the counts of milestones (and how many are
+  achieved), tasks, criteria, open questions, and assumptions; the milestones in plan order as a
+  strip marked with their status, each jumping to its section; each milestone with its goal, its
+  criteria under "Done when", its tasks, and links to the milestones it depends on; then the
+  assumptions; then the planning attempts, each with its result, why it failed, duration, cost, and
+  tokens.
+- **FR-020b** (added 2026-10-10): The loop view MUST NOT repeat the plan: a milestone's tasks show as
+  one line (how many, how many done, and a link to that milestone in the plan view), and the
+  planning attempts are not shown (the plan step's cost is in "Cost by step"). The loop view MUST
+  offer "Expand all" and "Collapse all" for its milestones; by default the milestones not yet
+  achieved are open, and the developer's choice is kept while the view refreshes.
 - **FR-021** (B8): A conversation MUST show each tool call as one folded line (tool name and a hint)
   that unfolds on demand; MUST show the number of failed tool results in its header, mark each one,
   and let the developer move between them; and MUST list the files Claude wrote or edited, each
   once, jumping to the tool call that last changed it.
+- **FR-021a** (B8, User Story 8): A conversation MUST show each tool use together with its result
+  (matched by the tool use's id) as one action row: a readable tool name, a one-line summary, the
+  outcome (succeeded, failed, or unfinished when no result was recorded), and the duration between
+  the two records' times. Opening the row MUST show the input and the result.
+- **FR-021b**: Tool names MUST be readable: a known tool by its own name or verb (research R-15),
+  and an MCP tool `mcp__<server>__<tool>` as "<Server> · <Tool>" with its words split. A row's
+  summary MUST follow R-15 for a known tool and be the first meaningful input for any other tool.
+  No rule may name an application (constitution II).
+- **FR-021c**: A result MUST be shown by its kind: Markdown text rendered as Markdown, with a
+  browser tool's page block reduced to one line and its console error count; images as thumbnails
+  that open in the viewer; page snapshots folded; an edit as a line diff; a file read with its line
+  numbers; and a command's output as a terminal block with its exit code, the lines that look like
+  failures highlighted and counted on the row. A result over 40 lines MUST show its first and last
+  lines with "show all"; nothing is hidden without a way to show it.
+- **FR-021d**: Claude's text messages MUST head the actions that follow them, each with the time
+  since the call started. A thinking block with no text MUST show only "thought for N s" when its
+  duration was recorded, and nothing otherwise.
+- **FR-021e**: When the call ended with a structured answer (its last `StructuredOutput` tool use),
+  the conversation MUST begin with a result card: the tasks with their status and note, files
+  changed, assumptions, and questions; or the criteria, each passed or failed, with what was
+  observed; any other answer as its fields. The first user message MUST show as one "Prompt" row
+  that opens the prompt file (or unfolds the text when the call has no prompt file).
+- **FR-021f**: The conversation MUST show a summary line (actions of each kind, errors, duration),
+  filters ("Errors only" and each kind of action), and the lines added and removed per file in
+  "Files changed". `?at=`, moving between errors (FR-021), and "System records" MUST keep working,
+  each pointing at the action that holds the record.
 - **FR-022** (B10): The "go to" palette MUST match names of views, loops, milestones, trials, calls,
   and files as the developer types, and from three characters MUST add matches in file contents,
   conversations, and events, each opening at its line.
@@ -447,6 +576,9 @@ network, and open it: every view, file, and conversation within the size limit o
   to decide when to reload the open view.
 - **Now panel state**: the call that is running (if any) and its tools so far, from the loop's run
   records.
+- **Action**: a tool use and its result, paired by the tool use's id, with its readable name,
+  summary, outcome, duration, result kind, and the indexes of its records; worked out in the
+  browser from the call's records (the server sends records, as for User Story 5).
 - **Export**: one file holding the app and every view's data as of one moment.
 
 ## Success Criteria *(mandatory)*
@@ -472,6 +604,10 @@ network, and open it: every view, file, and conversation within the size limit o
 - **SC-009**: 0 files are written by run or decision commands for the dashboard.
 - **SC-010**: Adding a new view needs one new view part and one new data request, with no change to
   other views (checked in review against FR-029).
+- **SC-011**: For 100% of the tool uses in the test conversations, the conversation shows one action
+  row with a readable name, its outcome, and a summary whenever the input has any text; and for
+  every call with a structured answer, the answer is shown before the first action (checked by
+  tests).
 
 ## Assumptions
 
@@ -485,6 +621,9 @@ network, and open it: every view, file, and conversation within the size limit o
   conversation; changes made by shell commands are not detected.
 - Target files (the code Claude changed) are listed by path only; the dashboard serves workspace
   files, not the target repository, as today.
+- Images that Claude received in tool results (browser screenshots) are shown inside the
+  conversation, as the trial view shows the validation's screenshots. Like those, images cannot be
+  checked for secrets; they are the pages Claude saw.
 - The refresh interval and the 5 MB export limit stay as they are today.
 - The developer's machine runs a current desktop browser; older browsers are not supported.
 - The served dashboard is used by one developer at a time; several open pages are supported but

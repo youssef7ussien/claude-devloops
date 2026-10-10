@@ -250,3 +250,99 @@ would be a heavy test dependency).
 Removed configuration: `dashboard.light`, `dashboard.full_on_stop`, `dashboards_dir`; `init
 --track-dashboards`; the dashboards git-ignore rule (projects created with them keep a harmless
 line). devloops is in development; no migration [ER: Scope].
+
+## R-15 Readable conversations: actions, names, summaries, result kinds (User Story 8)
+
+Added 2026-10-10, after profiling the 85 recorded quickflow conversations and agreeing on a mockup
+of frontend call #52 (validate-ui) and backend calls #3 and #4 [ER: FR-021a–FR-021f].
+
+**What the records hold** [RD]: a tool use (`assistant` record, `tool_use` block with `id`, `name`,
+`input`) and its result (a later `user` record, `tool_result` block with `tool_use_id`,
+`is_error`, and `content` as a string or text and `image` parts) are separate records. Records
+carry `timestamp`; thinking blocks have empty text, and the record carries `thinkingDurationMs`
+when it was measured. Browser screenshots arrive as base64 `image` parts (`source.media_type`,
+`source.data`). The browser tools answer in Markdown ("### Ran Playwright code" with a code block,
+"### Page" with "- Page URL", "- Page Title", "- Console: N errors, M warnings", "### Snapshot",
+"### Result", "### Error"). `Read` results prefix each line with its number and `→` (or a tab).
+The call's final answer is its last `StructuredOutput` tool use: `{tasks, assumptions,
+needs_input, files_changed}` for implement and fix steps, `{criteria}` for validation steps.
+
+**Decision** [RC]:
+
+1. **Where**: the server keeps sending records (data-model Call; no API change, so the export
+   embeds the same data). A new pure script `assets/app/actions.js` (`DL.actions`) turns records
+   into a model, `build(records) → {prompt, answer, turns, actions, stats}`, tested under Node;
+   `views/conversation.js` only renders it. Each action keeps the indexes of its use and result
+   records, so `?at=`, `errors`, search hits, and "Files changed" map a record to its action.
+2. **Pairing**: a tool use pairs with the first later `tool_result` whose `tool_use_id` is its
+   `id`. Outcome: ✕ when `is_error`, ✓ otherwise, "unfinished" with no result. Duration: result
+   `timestamp` − use `timestamp`, shown only when both parse. A result with no matching use is
+   shown as a row of its own ("Result").
+3. **Turns**: each `assistant` text block starts a turn headed by the text (Markdown) and "+m:ss"
+   since the first record's `timestamp`; the actions after it belong to it until the next text.
+   An empty thinking block shows "thought for N s" from `thinkingDurationMs`, or nothing.
+4. **Names and summaries** (the family sets the icon and the filter chip):
+
+   | Tool | Name | Family | Summary |
+   |------|------|--------|---------|
+   | `Bash` | Shell | shell | `description`, else the command's first line; opened: `$ command` |
+   | `Read` | Read | read | file name · line range when `offset`/`limit`, result line count |
+   | `Edit`, `MultiEdit` | Edit | edit | file name · +added −removed (line diff of old and new) · first changed line when found |
+   | `Write` | Write | edit | file name · line count |
+   | `NotebookEdit` | Edit notebook | edit | file name |
+   | `Grep` | Search | read | pattern · in path or glob |
+   | `Glob` | Find files | read | pattern |
+   | `WebFetch` | Fetch | web | URL |
+   | `WebSearch` | Web search | web | query |
+   | `TodoWrite` | Todos | other | N items, M done |
+   | `Agent`, `Task` | Agent | other | `description` |
+   | `ToolSearch` | Load tools | other | `query` |
+   | `StructuredOutput` | (the result card, FR-021e; no row) | | |
+   | `mcp__playwright__browser_<action>` | the action in words: Click, Type, Fill form, Navigate, Snapshot, Screenshot, Evaluate, Requests, Console, Wait, Press key, Select, Hover, Close… (any other: the action's words) | browser | the target: role and name from "Ran Playwright code" (`getByRole('button', { name: 'Save' })` → button "Save"), else `element`; plus the typed text, the URL navigated to, the fields filled (N fields), the page after it ("→ /path" when the URL changed), or for Requests the count and statuses |
+   | any other `mcp__<server>__<tool>` | "<Server> · <Tool>" (underscores and dashes as spaces, first letter upper case) | other | first meaningful input |
+   | any other name | the name, words split | other | first meaningful input |
+
+   *First meaningful input*: the first non-empty string among `description`, `command`,
+   `file_path`, `path`, `url`, `query`, `pattern`, `element`, `text`, `name`, then any other string
+   input in key order; else "N inputs". One line, at most 160 characters. File paths are shown
+   relative to the loop's target when inside it, as "Files changed" does.
+5. **Result kinds** (opened row; FR-021c):
+   - *image* parts: thumbnails from `data:` URLs (`image/png`, `image/jpeg`, `image/gif`,
+     `image/webp` only; the page CSP allows `img-src data:`), opening in the file viewer.
+   - *browser Markdown*: "Ran Playwright code" shown as one code line; the "### Page" block reduced
+     to one line (URL · title · "console N errors" mark when N > 0); "### Snapshot" (a YAML
+     accessibility tree, or a link to one) folded with its line count; the rest as Markdown.
+   - *Markdown*: text with a Markdown heading, list, or fence → `DL.md`.
+   - *read*: the `N→` prefixes moved to a line-number gutter, highlighted by the file's extension.
+   - *edit*: a line diff of `old_string` and `new_string` (each edit of a `MultiEdit`), removed
+     lines red, added green, unchanged lines as context; `Write` shows its content as added lines.
+   - *terminal* (`Bash`): the output in a terminal block; exit code from the result's "Exit code
+     N" line or `is_error`.
+   - *text*: anything else; JSON pretty-printed when it parses.
+   - Over 40 lines: the first 15 and the last 10, with "⋯ N more lines · Show all".
+6. **Failure lines** (a hint, never the outcome): in shell output, a line is a failure line when it
+   matches `✖`, `✗`, `✕`, `not ok`, `FAIL`, `FAILED`, `ERR!`, `Error:`, `Traceback`, or a
+   whole-word `fail`/`failed`/`failing`/`failures` followed by something other than a zero count —
+   so "ℹ fail 0", "0 failed", "failures: 0" are not. The row shows "N failure lines" and the lines
+   are highlighted when it opens.
+7. **Result card** (FR-021e): from the last `StructuredOutput` input. `tasks` → one line per task
+   (id, ✓ when its status is implemented or done, ✕ when failed, else its status; note);
+   `files_changed`, `assumptions` (with what they affect), `needs_input`/questions; `criteria` →
+   one line per criterion (✓/✕ from `passed`, `observed`), headed "N of M criteria passed"; any
+   other object as its fields. The first `user` text record becomes a "Prompt" row (step, line
+   count) opening `call.prompt` in the viewer.
+8. **Summary and filters** (FR-021f): "N actions · per family · E errors · duration" (duration from
+   the call); chips "Errors only" and one per family present; a filter hides other actions and
+   any turn left empty. "Files changed" adds +added −removed per path, summed over its edits.
+
+**Rationale**: the records already hold everything (pairs, times, images, the answer), so a
+browser-side model keeps one source for the served and exported dashboards and needs no new data
+in the export. Rules by tool name are about Claude Code and its tools, not about an application
+(constitution II). Unknown tools still get a readable row, so the view works for any
+conversation. The failure-line rule is a hint because a pipe (`npm test | tail`) hides the real
+exit code (backend call #3).
+
+**Alternatives**: building actions on the server (a second representation of the same records in
+every export, and the browser still needs the records for "System records"); rendering every
+tool's result as Markdown (shell output and diffs lose their meaning); hiding images behind a link
+(the screenshots are what the validator saw; the trial view already shows them).

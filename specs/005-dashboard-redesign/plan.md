@@ -103,6 +103,11 @@ server; no build step; the export works from `file://`.
 **Post-design re-check (after Phase 1)**: unchanged — all pass. The design adds one view file
 (`live.json`, R-8) and an optional test tool (Node, R-13), both recorded below.
 
+**Re-check for User Story 8 (2026-10-10)**: all pass. II: the naming and summary rules (R-15) are
+about Claude Code's tools and the browser tools the loops use, never an application; any other
+tool falls back to a generic rule. VI and VII: no API change; one new pure script
+(`actions.js`) beside the conversation view. VIII: its rules are tested under Node.
+
 ## Project Structure
 
 ### Documentation (this feature)
@@ -149,6 +154,7 @@ loops/shared/devloops/
         ├── viewer.js    # file viewer dialog and kinds
         ├── charts.js    # bar chart, trial timeline
         ├── palette.js   # go to + search
+        ├── actions.js   # conversation records → turns and actions (User Story 8, R-15)
         ├── now.js       # the now panel
         ├── views/       # overview, run, loop, plan, trial, calls, conversation, files,
         │                #   questions, events (one file each)
@@ -177,7 +183,10 @@ package; its browser code is package data under `assets/app/`.
    + bug 2: the MVP).
 2. **US2**: now panel (`live.json`) and totals at every level.
 3. **US3**: trial view and "why it failed".
-4. **US4**: plan view. **US5**: conversation view. **US6**: search index.
+4. **US4**: plan view. **US5**: conversation view. **US6**: search index. **US8** (added
+   2026-10-10): readable conversations, before the export so it embeds the final view. Then
+   (added 2026-10-10) the plan view as the readable plan with the planning attempts, and the loop
+   view without the plan's tasks, the Planning section, or the four token tiles (FR-020a/b).
 5. **US7**: export. Then `--daemon`/`--stop`, removal of the summary page, full dashboards, old
    modules and keys, and docs/skills.
 

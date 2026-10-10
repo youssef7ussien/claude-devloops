@@ -38,8 +38,7 @@ workspaces: [name], running: [loop]}`
 ## Loop (`api/loops/<loop>`)
 
 `{loop, status, status_reason, next_action, approval, grants, inputs, ui_url, openapi_artifact,
-totals (with cache_hit_rate, cost_per_achieved), planning: {trials: [TrialSummary], totals},
-milestones: [MilestoneSummary], by_step: {<step>: Totals}, outputs: [FileRef]}`
+totals (with cache_hit_rate, cost_per_achieved), milestones: [MilestoneSummary], by_step: {<step>: Totals}, outputs: [FileRef]}`
 
 - **MilestoneSummary**: `{id, title, status, trials: [TrialSummary], totals, seconds}`.
 - **TrialSummary**: `{key, n, attempt, kind, status, reason, started_at, ended_at, seconds, totals,
@@ -48,7 +47,11 @@ milestones: [MilestoneSummary], by_step: {<step>: Totals}, outputs: [FileRef]}`
 ## Plan (`api/loops/<loop>/plan`)
 
 `{loop, status, approval, milestones: [PlanMilestone], open_questions: [Question],
-assumptions: [{id, text, source}], stack, runtime, routes: {loop}}`
+assumptions: [{id, text, source}], planning: {trials: [TrialSummary], totals}, stack, runtime,
+routes: {loop}}`
+
+- **planning** (moved from Loop on 2026-10-10, FR-020a/FR-020b): the planning attempts and their
+  totals; the loop view no longer shows them.
 
 - **approval**: `{status: "waiting", commands: [approve, replan]}` while the plan waits (each
   command with `--workspace` when the workspace is not the default), `{status: "approved",
@@ -95,6 +98,11 @@ whose folder holds the later attempt's files).
   makes `conversation` "unavailable", with `unavailable_reason` and no records.
 - **Record**: one non-blank transcript line parsed and redacted (`{"raw": text}` when it is not
   JSON); its index is what `?at=` and `errors` refer to.
+- **Action** (browser side, `assets/app/actions.js`, research R-15; not sent by the server): `{use,
+  result, name, family, summary, outcome: "ok"|"error"|"unfinished", duration_ms|null, kind,
+  failure_lines, added, removed, records: [record index]}`, a tool use paired with its result by
+  `tool_use_id`. The view groups actions into turns (Claude's text, its time since the call
+  started) and shows the call's answer (its last `StructuredOutput` input) first.
 
 ## Files (`api/files`, `api/files/<id>`)
 

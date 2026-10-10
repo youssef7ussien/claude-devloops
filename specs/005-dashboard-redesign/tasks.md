@@ -23,7 +23,7 @@ in `loops/shared/devloops/`, browser code in `loops/shared/devloops/assets/app/`
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
-- **[Story]**: The user story the task belongs to (US1–US7)
+- **[Story]**: The user story the task belongs to (US1–US8)
 
 ## Keeping the suite green (used by every phase)
 
@@ -31,8 +31,8 @@ The old outputs stay until their replacement lands, so every phase ends with a p
 - the **served page** switches to the new app in US1 (the old served HTML route and its tests go
   then);
 - the **summary page** (`dashboard.html`) and the **full dashboard** (`fulldash.render_full`) keep
-  using the old HTML functions of `dashboard.py` and `ui.py` until US7 and Phase 10 remove them;
-- new data builders are added to `dashboard.py` next to the old HTML functions, which Phase 10
+  using the old HTML functions of `dashboard.py` and `ui.py` until US7 and Phase 12 remove them;
+- new data builders are added to `dashboard.py` next to the old HTML functions, which Phase 12
   deletes.
 
 ## Browser code rules (used by every JS task)
@@ -209,7 +209,66 @@ conversation and one file; both results appear within 1 s and open at the match.
 
 ---
 
-## Phase 9: User Story 7 - Export a dashboard to keep or share (Priority: P3)
+## Phase 9: User Story 8 - Read a conversation at a glance (Priority: P2)
+
+*Added 2026-10-10 (spec Clarifications, research R-15). Its task IDs continue after T059; the phase
+runs before the export, so the export embeds the final conversation view.*
+
+**Goal**: each tool use and its result read as one action with a readable name, a summary, an
+outcome, and a duration, grouped under Claude's messages; results shown as what they are; the
+call's answer first; a summary line and filters.
+
+**Independent Test**: open a recorded frontend conversation (browser tools, screenshots, criteria)
+and a backend one (edits, a failing test run piped through `tail`, tasks): the answer is at the top;
+every tool use is one row with its name, summary, ✓/✕, and duration; results open as Markdown,
+image, diff, or terminal; "Errors only" leaves the failed actions; an unknown MCP tool shows
+"Server · Tool" and its first input.
+
+### Tests for User Story 8
+
+- [ ] T060 [P] [US8] Create `loops/shared/devloops/assets/app/tests/actions.test.js` over synthetic records (no application names; constitution II), testing `DL.actions` (R-15): pairing by `tool_use_id` across records, including a use with no result (`unfinished`), an error result, and a result with no use; `duration_ms` from the two `timestamp`s (null when one is missing); turns headed by each text block with `elapsed_ms` from the first record, and `thought_ms` from `thinkingDurationMs` on an empty thinking block (none when absent); `name`/`family` for every row of the R-15 table, `mcp__playwright__browser_click` → "Click" (browser), `mcp__some_server__create_issue` → "Some server · Create issue", an unknown plain name split into words; `summary` per row: Bash `description` then command, Read range, Edit/MultiEdit `+N −M` and first changed line, Write line count, Grep/Glob/WebFetch/WebSearch/TodoWrite/Agent/ToolSearch inputs, browser target from "Ran Playwright code" (`getByRole('button', { name: 'Save' })` → button "Save") or `element`, typed text, navigated URL, `→ /path` when "Page URL" changed, Requests count and statuses, and the first-meaningful-input fallback (160 characters, "N inputs" when no string); `kind` (image, browser, markdown, read, edit, terminal, text) and the image filter (only the four `image/*` types); `failureLines` positives (`✖`, `not ok`, `FAIL`, `ERR!`, `Error:`, `Traceback`, `3 failed`) and negatives (`ℹ fail 0`, `0 failed`, `failures: 0`, `no errors`); `diff(old, new)` lines and counts; `readLines` splitting `N→` prefixes; `clip(lines)` first 15 and last 10 over 40; `answer(records)` for a tasks answer, a criteria answer, another object, and none (the last `StructuredOutput` wins); `prompt` is the first user text record; `stats` counts per family, errors, and `+/−` per changed file; `actionOf(records index)` maps a use, a result, and a text record to their action or turn.
+- [ ] T061 [P] [US8] In `loops/shared/tests/test_dashboard_data.py` `CallTest`, add a transcript whose records carry `timestamp`, an empty thinking block with `thinkingDurationMs`, a `tool_result` with a base64 `image` part, and a `StructuredOutput` tool use: `dashboard.call` keeps all of them unchanged in `records` (the inputs of `actions.js`), and a configured secret inside a tool result's text and inside the `StructuredOutput` input is still redacted (SC-008).
+
+### Implementation for User Story 8
+
+- [ ] T062 [US8] Create `loops/shared/devloops/assets/app/actions.js` (listed in `assets/app/scripts.txt` after `palette.js`, before `views/overview.js`): `DL.actions = {build(records, opts) → {prompt, answer, turns, actions, stats}, name, summary, kind, failureLines, diff, readLines, clip, answer, actionOf}` per research R-15 sections 2–8, pure (no DOM at load or in these functions; `opts.target` makes paths relative as `files_changed` does). Make T060 pass.
+- [ ] T063 [US8] Rework `loops/shared/devloops/assets/app/views/conversation.js` to render `DL.actions.build(call.records)` (FR-021a, FR-021b, FR-021d): turns with Claude's text as Markdown and "+m:ss", "thought for N s" lines, one action row per tool use (family icon, name, summary, ✓/✕/unfinished, duration, a "N failure lines" mark), opened to show its input (the command for Shell, JSON for an unknown tool) and its result; results without a use as rows; "System records" kept (hidden until shown); the old `Tool: <name> — <hint>` lines and `hint` removed (update `assets/app/tests/conversation.test.js`). Styles in `assets/app/app.css`, with icons from the app's sprite (no `style=`, no `innerHTML`).
+- [ ] T064 [US8] In `views/conversation.js`, render results by kind (FR-021c, R-15 section 5): `image` parts as thumbnails (`data:` URLs) that open in `DL.viewer`; browser results with the code line, the page line and its console-errors mark, the snapshot folded with its line count, the rest via `DL.md`; Markdown via `DL.md`; Read results with a line-number gutter, highlighted by extension through `DL.highlight`; Edit/MultiEdit/Write as a red/green line diff; Shell output as a terminal block with its exit code and failure lines highlighted; text (JSON pretty-printed); over 40 lines the first 15 and last 10 with "⋯ N more lines · Show all". All model text through `textContent`.
+- [ ] T065 [US8] In `views/conversation.js`, the result card and the prompt row (FR-021e): the card first when `answer` exists (tasks with ✓/✕/status and note, files changed, assumptions with what they affect, questions; or "N of M criteria passed" with each criterion's ✓/✕ and observed; another object as its fields); the first user text as a "Prompt" row (step, line count) opening `call.prompt` in the viewer, or unfolding its text when there is no prompt file.
+- [ ] T066 [US8] In `views/conversation.js`, the summary line, filters, and navigation (FR-021f): "N actions · per family · E errors · duration"; chips "Errors only" and one per family present (a filter hides other actions and empty turns; it persists while the view refreshes); "Files changed" with `+added −removed` per path; `?at=<record>` (from search, errors, and "Files changed") opens and scrolls to the action or turn holding that record via `DL.actions.actionOf`; `[`/`]` and the error buttons step through failed actions, clearing a filter that hides the target. Update the file's header comment to cite FR-021a–FR-021f and R-15.
+- [ ] T067 [US8] Check on the quickflow workspace (`devloops dashboard --daemon`): open frontend-dev call #52 and backend-dev calls #3 and #4 and compare them with the agreed mockup (result card; Click/Type/Snapshot/Screenshot rows; the screenshot thumbnail; the Edit diff `+24 −1`; call #3's "failure lines" mark); open one conversation from each other step kind (plan, implement, fix, validate) and confirm no row lacks a name or outcome; time the largest conversation's render (within SC-002's 1 s); run `node --test loops/shared/devloops/assets/app/tests/` and `test_app_js.py`.
+
+---
+
+## Phase 10: Plan and loop view revisions (US4, US2)
+
+*Added 2026-10-10 (spec Clarifications; FR-017 revised, FR-020a, FR-020b). Task IDs continue after
+T067; the phase runs before the export.*
+
+**Goal**: the plan view reads as the agreed plan and holds the planning attempts; the loop view
+shows progress without repeating the plan, with "Expand all"/"Collapse all" and one Tokens tile.
+
+**Independent Test**: on a workspace with an approved plan, a failed planning attempt, and some
+achieved milestones: the plan view shows the summary, the milestone strip, "Done when" and tasks
+per milestone, the assumptions, and the planning attempts with the failure reason; the loop view
+has no "Planning" section and no Input/Output/Cache tiles, each milestone's tasks are one line
+linking to the plan, and "Collapse all" survives a refresh.
+
+### Tests
+
+- [ ] T068 [P] [US4] In `loops/shared/tests/test_dashboard_data.py`: `PlanTest` checks `planning` (`trials` as TrialSummary with `reason`, and `totals` equal to the sum of the planning calls); the loop test (line ~268) checks that `planning` is no longer in `dashboard.loop` (data-model Loop, Plan).
+- [ ] T069 [P] [US4] Create `loops/shared/devloops/assets/app/tests/plan.test.js` for pure helpers exported by `views/plan.js` as `DL.planView`: `summary(plan)` (milestones, achieved, tasks, tasks done, criteria, criteria passing, open questions unanswered, assumptions) and `strip(milestones)` (plan order with each milestone's status and its dependencies; a dependency on an unknown id is kept as text).
+
+### Implementation
+
+- [ ] T070 [US4] In `loops/shared/devloops/dashboard.py`, move `planning: {trials, totals}` from `loop(ctx, loop)` to `plan(ctx, loop)` (same TrialSummary shape and `reason`); the overview's timeline keeps reading `collect` data, unchanged. Make T068 pass.
+- [ ] T071 [US4] Rework `loops/shared/devloops/assets/app/views/plan.js` (FR-020a): head with "N of M milestones achieved" and a progress bar; the approval callout, then open questions (unanswered first, with the suggested answer); the summary line from `DL.planView.summary`; the milestone strip from `DL.planView.strip` (status-colored chips in plan order, each linking to `?m=<id>`, dependencies shown as "after M01, M02"); per milestone a section with goal, "Done when" (criteria with their state, failing → "Why it fails"), tasks with status and requirement refs, "Depends on" links, and "Trials and cost" → the loop view; then assumptions (id, text, source); then "Planning attempts" (the table moved from `views/loop.js`, with result, reason, duration, cost, tokens). Styles in `assets/app/app.css`. Make T069 pass.
+- [ ] T072 [US2] Rework `loops/shared/devloops/assets/app/views/loop.js` (FR-017 revised, FR-020b): remove the Input, Output, Cache write, and Cache read tiles (the Tokens tile keeps its hover/focus split and gets the sub-line "hit rate N%"); remove the "Planning" section; in each milestone body replace the task list with one line ("4 tasks · 3 done · Read in the plan" linking to `#/loop/<loop>/plan?m=<id>`); add "Expand all" and "Collapse all" buttons above the milestones, the choice kept across refreshes (the router's open-section restore, or a per-view flag); update the header comment.
+- [ ] T073 [US4] Check on quickflow (`devloops dashboard --daemon`): both loops' plan views (a plan with a failed or repeated planning attempt if one exists) and loop views against FR-020a/FR-020b; `?m=` from the strip and from the loop view's tasks line; "Collapse all" then wait for a refresh; run `node --test loops/shared/devloops/assets/app/tests/`, `test_app_js.py`, and `test_dashboard_data.py`.
+
+---
+
+## Phase 11: User Story 7 - Export a dashboard to keep or share (Priority: P3)
 
 **Goal**: `devloops dashboard --export [<path>]` writes the same app with its data embedded; the
 old full dashboard is removed.
@@ -230,7 +289,7 @@ every view, file, and conversation within the size limit opens; search works; no
 
 ---
 
-## Phase 10: Polish & Cross-Cutting Concerns
+## Phase 12: Polish & Cross-Cutting Concerns
 
 **Purpose**: remove the summary page and every old dashboard piece (FR-008–FR-010), update
 skills and docs (FR-031, FR-032), and validate.
@@ -245,7 +304,7 @@ skills and docs (FR-031, FR-032), and validate.
 
 - [ ] T055 [P] Check `loops/shared/skills/devloops-run/SKILL.md` against FR-031 once T052 lands (`dashboard_url` in the result; no summary page or full-dashboard paths); run `test_skills.py`. *Revised during implementation: the dashboard, approve, replan, and retry skills were removed, and the run skill asks for the decisions; this repository no longer installs the skills.*
 - [ ] T056 [P] Update `loops/README.md`: the dashboard section (serving, `--daemon`, `--stop`, export, the views including now, tokens, trial, plan, conversation, search), remove the summary page, full dashboards, `dashboard.light`, `dashboard.full_on_stop`, `dashboards_dir`, `--track-dashboards`; the workspace layout gains `exports/` and `state/live.json`.
-- [ ] T057 [P] Add "Revised by specs/005-dashboard-redesign" notes in place: `specs/001-reusable-dev-loops/spec.md` (the per-command dashboard), `contracts/cli.md`, `contracts/workspace-layout.md`; `specs/002-devloops-init/spec.md` (FR-035 to FR-042d, Key Entities, SC-009/SC-010), `contracts/cli.md`, `contracts/skills.md`, `contracts/project-layout.md`; replace the body of `specs/002-devloops-init/contracts/full-dashboard.md` with a pointer to `specs/005-dashboard-redesign/contracts/export.md` and `api.md`, keeping its "Conversation rendering" table (still the rules `conversation.js` follows).
+- [ ] T057 [P] Add "Revised by specs/005-dashboard-redesign" notes in place: `specs/001-reusable-dev-loops/spec.md` (the per-command dashboard), `contracts/cli.md`, `contracts/workspace-layout.md`; `specs/002-devloops-init/spec.md` (FR-035 to FR-042d, Key Entities, SC-009/SC-010), `contracts/cli.md`, `contracts/skills.md`, `contracts/project-layout.md`; replace the body of `specs/002-devloops-init/contracts/full-dashboard.md` with a pointer to `specs/005-dashboard-redesign/contracts/export.md` and `api.md`, replacing its "Conversation rendering" table with a pointer to `specs/005-dashboard-redesign/research.md` R-15 (the rules `conversation.js` and `actions.js` follow since User Story 8).
 
 ### Validation
 
@@ -265,8 +324,13 @@ skills and docs (FR-031, FR-032), and validate.
 - **US2–US6 (Phases 4–8)**: after US1 (they add views and builders to the app US1 delivers); they
   are independent of each other except that US3's files-changed and US5 share T006 (Foundational),
   and US6's index lists the routes the other stories add (do US6 after the views it should find).
-- **US7 (Phase 9)**: after the views it embeds (US1–US6); T051 last in the phase.
-- **Polish (Phase 10)**: T052–T054 after US7; T055–T057 in parallel after T052–T054; T058, T059 last.
+- **US8 (Phase 9)**: after US5 (it reworks `views/conversation.js`) and US6 (search hits open
+  at `?at=`, which it maps to actions). T060 and T061 in parallel; T062 → T063 → T064 → T065 →
+  T066 (same file); T067 last.
+- **Plan and loop revisions (Phase 10)**: after US4 and US2; independent of US8. T068 and T069 in
+  parallel; T070 → T071 and T072 (different files) → T073.
+- **US7 (Phase 11)**: after the views it embeds (US1–US6, US8, Phase 10); T051 last in the phase.
+- **Polish (Phase 12)**: T052–T054 after US7; T055–T057 in parallel after T052–T054; T058, T059 last.
 
 ### Within each story
 
@@ -280,7 +344,9 @@ Tests first (they fail), then builders (`dashboard.py`), then routes (`serve.py`
 - US2: T029 with T032.
 - US3–US6: each story's test task and view task in parallel with the other stories' (different
   files), once US1 is done; builders in `dashboard.py` are sequential (same file).
-- Phase 10: T055, T056, T057.
+- US8: T060 with T061.
+- Phase 10: T068 with T069; T071 with T072. Phases 9 and 10 can run in parallel (different files).
+- Phase 12: T055, T056, T057.
 
 ### Parallel example: User Story 1
 
@@ -305,8 +371,9 @@ After T021 (builders):
 ### Incremental delivery
 
 US2 (now panel, full totals) → US3 (trial and why) → US4 (plan) → US5 (conversations) → US6
-(search) → US7 (export, old full dashboard removed) → Phase 10 (summary page and old code removed,
-skills, docs, validation). Each phase ends with a passing suite (see "Keeping the suite green").
+(search) → US8 (readable conversations) → plan and loop revisions → US7 (export, old full
+dashboard removed) → Phase 12 (summary page and old code removed, skills, docs, validation). Each
+phase ends with a passing suite (see "Keeping the suite green").
 
 ## Notes
 
