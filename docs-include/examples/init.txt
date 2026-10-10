@@ -1,0 +1,13 @@
+$ devloops init --no-frontend --requirements requirements.md --no-prompt
+initialized <project> (devloops 0.2.0); models: sonnet, with opus to plan, write checks, and make a milestone's last fix trial (edit "config" in .devloops/devloops.json; init --no-models leaves the choice to Claude Code); no git repository here; the ignore rules are in .gitignore anyway
+  created: .claude/skills/devloops-run/SKILL.md
+  created: .claude/skills/devloops-status/SKILL.md
+  created: .devloops/devloops.json
+  created: .devloops/manifest.json
+  created: .devloops/prompts/README.md
+  created: .gitignore
+
+The devloops skills run their command without asking. To let Claude Code run devloops outside the skills without asking, run: devloops init --allow-skills
+(it adds Bash(devloops *) to .claude/settings.json under permissions.allow)
+
+Next: `devloops check`, then `devloops run`.

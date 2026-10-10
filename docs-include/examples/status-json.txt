@@ -1,0 +1,56 @@
+$ devloops status --json
+{
+  "workspace": "main",
+  "loops": {
+    "backend-dev": {
+      "workspace": "main",
+      "loop": "backend-dev",
+      "status": "completed",
+      "status_reason": null,
+      "next_milestone": null,
+      "trials_used": null,
+      "trial_limit": null,
+      "last_failure": null,
+      "ui_url": null,
+      "openapi_artifact": {
+        "path": "outputs/openapi.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "omitted_operations": []
+      },
+      "invocation_count": 5,
+      "progress": "<project>/.devloops/workspaces/main/backend-dev/progress.md",
+      "config_drift": [],
+      "prompt_drift": []
+    }
+  },
+  "run": {
+    "status": "completed",
+    "steps": [
+      {
+        "loop": "backend-dev",
+        "status": "completed",
+        "reason": null,
+        "started_at": "2026-01-01T00:00:00Z",
+        "ended_at": "2026-01-01T00:00:00Z"
+      }
+    ],
+    "handoff": {
+      "api_spec": {
+        "path": "<project>/.devloops/workspaces/main/backend-dev/outputs/openapi.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "backend_runtime": {
+        "start_command": "python3 app.py 8765",
+        "cwd": "<project>/backend",
+        "base_url": "http://127.0.0.1:8765",
+        "ready_url": "http://127.0.0.1:8765/health"
+      }
+    },
+    "loops": [
+      "backend-dev"
+    ],
+    "questions": "ask",
+    "project_root": "<project>"
+  },
+  "large_evidence": []
+}

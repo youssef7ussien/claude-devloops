@@ -1,0 +1,6 @@
+$ devloops status
+run: completed
+backend-dev: completed
+  OpenAPI artifact: outputs/openapi.json
+  progress: <project>/.devloops/workspaces/main/backend-dev/progress.md
+dashboard: devloops dashboard --daemon

@@ -1,0 +1,66 @@
+# The documentation site (spec 006, research R-11): the docs tests and a strict build on every
+# change; on main, publish to GitHub Pages (Settings → Pages → Source: GitHub Actions).
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "docs-include/**"
+      - "tools/docs/**"
+      - "zensical.toml"
+      - "loops/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "docs-include/**"
+      - "tools/docs/**"
+      - "zensical.toml"
+      - "loops/**"
+      - ".github/workflows/docs.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r tools/docs/requirements.txt
+      - name: Docs tests
+        run: python -m unittest discover -s loops/shared/tests -p test_docs.py
+        env:
+          VISUAL: "true"
+          EDITOR: "true"
+      - name: Strict build
+        run: zensical build --strict --clean
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v6
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

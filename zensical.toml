@@ -1,0 +1,120 @@
+# The devloops documentation site (spec 006, research R-1, R-3, R-12).
+# Build: zensical build --strict --clean   Preview: zensical serve
+# The builder is pinned in tools/docs/requirements.txt; upgrade it deliberately.
+
+[project]
+site_name = "devloops"
+site_description = "Have Claude Code build an application from written requirements, one validated milestone at a time."
+site_url = "https://youssef7ussien.github.io/claude-devloops/"
+repo_url = "https://github.com/youssef7ussien/claude-devloops"
+repo_name = "youssef7ussien/claude-devloops"
+docs_dir = "docs"
+site_dir = "site"
+strict = true
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = [
+    "getting-started/install.md",
+    "getting-started/first-run.md",
+  ] },
+  { "How it works" = [
+    "how-it-works/index.md",
+    "how-it-works/run-lifecycle.md",
+    "how-it-works/steps.md",
+    "how-it-works/validation.md",
+    "how-it-works/trials-and-recovery.md",
+    "how-it-works/statuses.md",
+    "how-it-works/state-and-files.md",
+    "how-it-works/dashboard-data.md",
+  ] },
+  { "Guides" = [
+    "guides/backend-loop.md",
+    "guides/frontend-loop.md",
+    "guides/dashboard.md",
+    "guides/approval-and-questions.md",
+    "guides/configuration.md",
+    "guides/prompts.md",
+    "guides/spec-kit.md",
+    "guides/skills.md",
+    "guides/security.md",
+    "guides/upgrades.md",
+    "guides/limitations.md",
+  ] },
+  { "Reference" = [
+    "reference/index.md",
+    "reference/commands.md",
+    "reference/configuration.md",
+    "reference/exit-codes.md",
+    "reference/steps.md",
+    "reference/statuses.md",
+    "reference/state-files.md",
+  ] },
+  { "Glossary" = "glossary.md" },
+  { "Contributing" = [
+    "contributing/index.md",
+    "contributing/architecture.md",
+    "contributing/testing.md",
+    "contributing/specs-process.md",
+    "contributing/writing-style.md",
+    "contributing/documentation.md",
+  ] },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "content.code.copy",
+  "content.tooltips",
+  "navigation.indexes",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+# Light and dark, following the system setting, with a toggle.
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+# Setting markdown_extensions replaces Zensical's default list, so it is listed in full (R-3),
+# plus snippets: generated examples and the glossary's hover definitions from docs-include/.
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.mark = {}
+pymdownx.tilde = {}
+pymdownx.snippets.base_path = ["docs-include"]
+pymdownx.snippets.check_paths = true
+pymdownx.snippets.auto_append = ["abbreviations.md"]
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tasklist.custom_checkbox = true

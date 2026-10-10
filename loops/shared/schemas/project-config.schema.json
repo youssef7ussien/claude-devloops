@@ -7,39 +7,45 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 1,
+      "description": "The version of this file's format. Always 1."
     },
     "workspace": {
       "type": "string",
       "pattern": "^[a-z0-9-]+$",
       "default": "main",
-      "description": "Default workspace name when --workspace is not given (FR-011)"
+      "description": "The workspace commands use when --workspace is not given.",
+      "$comment": "FR-011"
     },
     "workspaces_dir": {
       "type": "string",
       "default": ".devloops/workspaces",
-      "description": "Where bare workspace names live (FR-012)"
+      "description": "The folder that holds workspaces given by name, relative to the project root.",
+      "$comment": "FR-012"
     },
     "targets": {
       "type": "object",
       "additionalProperties": false,
+      "description": "The folder each loop writes its code to. A loop with a folder here is part of every run.",
+      "$comment": "FR-011, FR-013, 003 FR-005",
       "properties": {
         "backend-dev": {
           "type": [
             "string",
             "null"
           ],
-          "description": "A folder: the project uses backend-dev and it writes there. null or missing: the project does not use backend-dev (003 FR-005)"
+          "description": "The folder the backend loop writes to, relative to the project root. null or missing: the project does not use the backend loop.",
+          "$comment": "003 FR-005"
         },
         "frontend-dev": {
           "type": [
             "string",
             "null"
           ],
-          "description": "A folder: the project uses frontend-dev and it writes there. null or missing: the project does not use frontend-dev (003 FR-005)"
+          "description": "The folder the frontend loop writes to, relative to the project root. null or missing: the project does not use the frontend loop.",
+          "$comment": "003 FR-005"
         }
-      },
-      "description": "Default loop targets (FR-011, FR-013); which loops `devloops run` runs (003 FR-005)"
+      }
     },
     "requirements": {
       "type": [
@@ -47,24 +53,29 @@
         "null"
       ],
       "additionalProperties": false,
-      "description": "Default requirements input (FR-011, FR-023, FR-024). Exactly one of path / speckit_feature (checked in code: the stdlib validator has no oneOf); story_file only with path.",
+      "description": "The requirements a run reads when none is given on the command line: a file (path) or a spec-kit feature (speckit_feature), not both.",
+      "$comment": "FR-011, FR-023, FR-024; exactly one of path and speckit_feature, checked in code (the validator has no oneOf); story_file only with path",
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "The requirements file, relative to the project root."
         },
         "story_file": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "true: the requirements file is one standalone story, not a whole product description."
         },
         "speckit_feature": {
           "type": "string",
-          "description": "A spec-kit feature folder, or \"active\" for the feature in .specify/feature.json"
+          "description": "A spec-kit feature folder, or \"active\" for the feature spec-kit marks as active (.specify/feature.json).",
+          "$comment": "002 FR-023"
         }
       }
     },
     "config": {
       "$ref": "config.schema.json",
-      "description": "Run configuration overrides; same shape as 001's config.json (layers 2 and 3 of research P-4)"
+      "description": "Run configuration for this project: the same keys as a workspace's config.json.",
+      "$comment": "layers 2 and 3 of research P-4"
     }
   }
 }

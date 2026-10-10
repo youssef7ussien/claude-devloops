@@ -55,3 +55,10 @@ desktop.ini
 # Office lock files (LibreOffice, Microsoft Office)
 .~lock.*#
 ~$*
+
+# --- Documentation site (built by Zensical; see tools/docs/) -----------------------
+site/
+.venv-docs/
+
+# --- Claude Code worktrees -----------------------------------------------------------
+.claude/worktrees/

@@ -3,7 +3,8 @@
 Supported keywords: `type` (including lists and `null`), `enum`, `const`, `required`,
 `properties`, `additionalProperties` (bool or schema), `items`, `minItems`, `minLength`,
 `pattern`, `minimum`, and `$ref` to a sibling schema file or a local `#/...` pointer.
-Annotation keywords (`$schema`, `$id`, `title`, `description`, `default`, `format`) are ignored.
+Annotation keywords (`$schema`, `$id`, `$comment`, `title`, `description`, `default`,
+`format`) are ignored.
 """
 import json
 import os

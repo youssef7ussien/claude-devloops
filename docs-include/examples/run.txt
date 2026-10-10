@@ -1,0 +1,17 @@
+$ devloops run --review-plan
+         dashboard: devloops dashboard --daemon
+         log: <project>/.devloops/workspaces/main/backend-dev/state/run.log
+00:00:00 backend-dev  first run
+00:00:00 backend-dev  requirements <project>/requirements.md (sha256 0000000000000000000000000000000000000000000000000000000000000000, mode prd), target <project>/backend
+00:00:00 backend-dev plan #1  planning trial 1 (plan)
+00:00:00 backend-dev plan #1  planning (opus)
+00:00:00 backend-dev plan #1  plan done (1s, $0.01)
+00:00:00 backend-dev plan #1  plan stored: 2 milestone(s), 0 open question(s)
+00:00:00 backend-dev  ‖ awaiting approval
+backend-dev: plan stored; review outputs/plan-summary.md, answer outputs/open-questions.md, then run `devloops approve` or `devloops replan`
+run: paused
+backend-dev: awaiting-approval
+  next milestone: M01 (trials used 0 of 3)
+  progress: <project>/.devloops/workspaces/main/backend-dev/progress.md
+dashboard: devloops dashboard --daemon
+(exit code 10)

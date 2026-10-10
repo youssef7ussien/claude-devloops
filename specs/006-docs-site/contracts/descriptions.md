@@ -10,10 +10,14 @@
     "milestone": {}, "task": {}, "trial": {}, "approval": {}
   },
   "stop_reasons": { "<status_reason.code>": "…" },
-  "files": { "state/live.json": "…", "state/run.log": "…" }
+  "files": { "<loop>/state/run.log": "…", "run/state.json": "…" }
 }
 ```
 
 Rules (`test_docs` check 2): for each group, the keys equal the values in the code exactly
 (missing → "add a description for X"; extra → "X no longer exists"). Texts follow the writing
 style: plain, one or two sentences, no undefined terms.
+
+`files` has one entry per file the sample run writes (`docs-include/examples/workspace-files.txt`),
+under its general name (`<loop>/state/milestones/<id>/trials/<n>/trial.json`): what the file
+records. For the files with a schema, the reference page also lists the schema's fields.

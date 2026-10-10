@@ -29,7 +29,7 @@ change without breaking links.
 
 Meanings the code does not hold, keyed by the value in the code
 ([descriptions](./contracts/descriptions.md)): exit codes, steps, each kind of status, stop-reason
-codes, and state files without a schema. Rule: the set of keys of each group equals the set of
+codes, and the files a run writes. Rule: the set of keys of each group equals the set of
 values in the code (`test_docs` check 2).
 
 ## Configuration description

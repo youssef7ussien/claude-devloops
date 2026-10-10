@@ -9,25 +9,29 @@
       "type": "integer",
       "minimum": 1,
       "default": 3,
-      "description": "FR-005/006, D-1: trials per milestone (and per planning)"
+      "description": "How many trials a milestone gets before the run stops, and how many tries the plan step gets. A trial is one attempt to build the milestone and pass its validation.",
+      "$comment": "FR-005, FR-006, D-1"
     },
     "max_invocations_per_run": {
       "type": "integer",
       "minimum": 1,
       "default": 60,
-      "description": "R-18 hard ceiling"
+      "description": "The most calls to Claude Code one run may make. When a run reaches it, the run stops (invocation-cap).",
+      "$comment": "R-18"
     },
     "invocation_timeout_seconds": {
       "type": "integer",
       "minimum": 30,
-      "default": 1800
+      "default": 1800,
+      "description": "How long one call to Claude Code may run, in seconds. A call that takes longer is stopped and its trial fails (timeout)."
     },
     "max_budget_usd_per_invocation": {
       "type": [
         "number",
         "null"
       ],
-      "default": null
+      "default": null,
+      "description": "The most one call to Claude Code may spend, in US dollars, passed to Claude Code as its budget. null sets no limit."
     },
     "model": {
       "type": [
@@ -35,55 +39,62 @@
         "null"
       ],
       "default": null,
-      "description": "Passed as --model when set; the model of every step `models` does not name"
+      "description": "The model every step uses unless `models` names one for that step, passed to Claude Code as --model. null lets Claude Code choose its default."
     },
     "models": {
       "type": "object",
       "additionalProperties": false,
       "default": {},
-      "description": "A model per step, passed as --model for that step's calls; a step not named here (or null) uses `model`. `fix_last_trial` is the model of a milestone's last allowed fix trial",
+      "description": "A model per step, for example a strong model to plan and a cheaper one to write code. A step not named here, or set to null, uses `model`.",
       "properties": {
         "plan": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The model of the plan step, which turns the requirements into milestones."
         },
         "replan": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The model of the replan step, which revises a plan after the developer's feedback."
         },
         "author-checks": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The model of the author-checks step, which writes a backend milestone's HTTP checks before any code."
         },
         "implement": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The model of the implement step, a milestone's first trial."
         },
         "fix": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The model of the fix step, each later trial of a milestone."
         },
         "fix_last_trial": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The model of a milestone's last allowed fix trial, so a hard failure gets a stronger attempt before the run stops."
         },
         "validate-ui": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The model of the validate-ui step, which checks a frontend milestone in a real browser."
         }
       }
     },
@@ -99,16 +110,19 @@
         "Glob",
         "Grep",
         "Bash"
-      ]
+      ],
+      "description": "The Claude Code tools the implement and fix steps may use. They are the only steps that change code."
     },
     "unit_tests": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Running the target's unit tests as part of validation.",
       "properties": {
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "FR-008 optional"
+          "description": "Run unit tests when a milestone is validated; a failing test fails the trial.",
+          "$comment": "FR-008"
         },
         "command": {
           "type": [
@@ -116,67 +130,82 @@
             "null"
           ],
           "default": null,
-          "description": "Overrides plan runtime.unit_test_command"
+          "description": "The command that runs the unit tests. null uses the command the plan names (runtime.unit_test_command)."
         }
       }
     },
     "runtime": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Overrides for plan runtime (R-7)",
+      "description": "How to start the application while it is validated. Each key set here replaces the value the plan chose.",
+      "$comment": "R-7",
       "properties": {
         "install_command": {
-          "type": "string"
+          "type": "string",
+          "description": "How to install the application's dependencies. Shown with the plan; devloops does not run it (the implement step installs dependencies)."
         },
         "start_command": {
-          "type": "string"
+          "type": "string",
+          "description": "The command that starts the application for validation."
         },
         "cwd": {
-          "type": "string"
+          "type": "string",
+          "description": "The folder the start command runs in, relative to the target."
         },
         "base_url": {
-          "type": "string"
+          "type": "string",
+          "description": "The address the running application answers on, for example http://127.0.0.1:8000."
         },
         "ready_url": {
-          "type": "string"
+          "type": "string",
+          "description": "An address devloops asks until it answers, to know the application has started."
         },
         "ready_timeout_seconds": {
           "type": "integer",
           "minimum": 1,
-          "default": 120
+          "default": 120,
+          "description": "How long to wait for the application to answer at its ready address, in seconds, before the trial fails."
         },
         "openapi_path": {
-          "type": "string"
+          "type": "string",
+          "description": "Where the backend writes its OpenAPI document, relative to the target."
         }
       }
     },
     "backend": {
       "type": "object",
       "additionalProperties": false,
-      "description": "frontend-dev only (FR-039, R-12)",
+      "description": "For the frontend loop only: the backend its pages call while they are validated.",
+      "$comment": "FR-039, R-12",
       "properties": {
         "base_url": {
-          "type": "string"
+          "type": "string",
+          "description": "The address of the backend. Without a start command, devloops expects a backend already running there."
         },
         "start_command": {
-          "type": "string"
+          "type": "string",
+          "description": "The command that starts the backend during frontend validation."
         },
         "cwd": {
-          "type": "string"
+          "type": "string",
+          "description": "The folder the backend's start command runs in, relative to the frontend target."
         },
         "ready_url": {
-          "type": "string"
+          "type": "string",
+          "description": "An address devloops asks until it answers, to know the backend has started. Defaults to backend.base_url."
         }
       }
     },
     "playwright": {
       "type": "object",
       "additionalProperties": false,
+      "description": "The browser the frontend loop validates in, driven through the Playwright MCP server.",
       "properties": {
         "headless": {
           "type": "boolean",
           "default": true,
-          "description": "false shows the browser window (002 FR-017); used only when mcp_command is null"
+          "description": "true runs the browser without a window. false shows it, so you can watch validation; that needs a display.",
+          "$comment": "002 FR-017"
         },
         "executable_path": {
           "type": [
@@ -184,7 +213,7 @@
             "null"
           ],
           "default": null,
-          "description": "Browser binary passed as --executable-path; used only when mcp_command is null"
+          "description": "The browser program to start, when the Chrome that Playwright expects is not installed. Used only when mcp_command is null."
         },
         "mcp_command": {
           "type": [
@@ -195,46 +224,53 @@
             "type": "string"
           },
           "default": null,
-          "description": "Explicit MCP server command, used as written. null derives npx @playwright/mcp@latest [--headless] [--executable-path <p>] (002 research P-15)"
+          "description": "The full command that starts the Playwright MCP server, used exactly as written. null runs npx @playwright/mcp@latest with the two settings above.",
+          "$comment": "002 research P-15"
         }
       }
     },
     "git": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Git commits devloops makes in the target.",
       "properties": {
         "commit_per_milestone": {
           "type": "boolean",
           "default": false,
-          "description": "A-6: off unless configured"
+          "description": "After each achieved milestone, commit the target's changes. A failed commit does not fail the milestone.",
+          "$comment": "A-6"
         }
       }
     },
     "secrets": {
       "type": "object",
       "additionalProperties": false,
-      "description": "FR-070, research R-21: values redacted to *** before anything is written",
+      "description": "Values devloops replaces with *** before it writes anything: prompts, call records, logs, evidence and reports.",
+      "$comment": "FR-070, research R-21",
       "properties": {
         "env": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "default": []
+          "default": [],
+          "description": "Names of environment variables whose values are secret."
         },
         "literals": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "default": []
+          "default": [],
+          "description": "Secret values, written out."
         }
       }
     },
     "boundary": {
       "type": "object",
       "additionalProperties": false,
-      "description": "FR-035b, research R-23",
+      "description": "Where Claude Code may write. Writes outside the target fail the trial.",
+      "$comment": "FR-035b, research R-23",
       "properties": {
         "allowed_extra": {
           "type": "array",
@@ -242,7 +278,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Extra paths inside audited repositories that tools may write to (for example, a cache directory)"
+          "description": "Extra paths Claude Code may write to inside a checked git repository, for example a cache folder."
         }
       }
     },
@@ -252,7 +288,8 @@
         "accept-suggested"
       ],
       "default": "accept-suggested",
-      "description": "accept-suggested (default): the plan is approved and Claude's suggested answers are accepted automatically and flagged for review; a question without a suggestion still pauses or stops the run. ask: every plan pauses for review, and open questions stop the run for the developer (FR-053, FR-055a; `--review-plan`)"
+      "description": "What happens to the plan and to open questions. accept-suggested: the plan is approved and Claude's suggested answers are accepted without pausing, and flagged for review; a question without a suggestion still stops the run. ask: every plan pauses for your review, and open questions stop the run.",
+      "$comment": "FR-053, FR-055a; --review-plan"
     }
   }
 }

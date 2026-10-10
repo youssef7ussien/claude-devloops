@@ -1,0 +1,144 @@
+{
+  "exit_codes": {
+    "0": {
+      "name": "completed",
+      "meaning": "The command did what it was asked. For a run, every loop it includes is completed.",
+      "next": "Nothing. A run's results are in each loop's outputs/ folder."
+    },
+    "1": {
+      "name": "error",
+      "meaning": "Something went wrong that no other code covers, for example an export that could not be written.",
+      "next": "Read the message devloops printed; it names what failed."
+    },
+    "2": {
+      "name": "usage error",
+      "meaning": "The command was not usable as given: an unknown option, a missing value, no project found, or an invalid run configuration. Nothing was changed.",
+      "next": "Fix the command or the configuration file the message names, then run it again."
+    },
+    "10": {
+      "name": "awaiting-approval",
+      "meaning": "The run paused for you: a plan is waiting for review, or a question has no suggested answer.",
+      "next": "Review the plan, then run devloops approve, or devloops replan with your feedback."
+    },
+    "20": {
+      "name": "stopped-on-failure",
+      "meaning": "The run stopped: a milestone used all its trials, the plan could not be made, a question needs your answer, or the run reached its limit of calls to Claude Code.",
+      "next": "Run devloops status to see why. Then devloops retry to grant more trials, or change the requirements and start again."
+    },
+    "30": {
+      "name": "stopped-on-input-error",
+      "meaning": "Something the run needs is missing or wrong: the requirements, a story, a tool, the target folder, the project configuration, or an input that changed since the run started. devloops check and devloops init also exit 30 when they find a problem.",
+      "next": "Fix what the message names, then run the same command again."
+    },
+    "40": {
+      "name": "lock held",
+      "meaning": "Another devloops command is working in this workspace, or one that ended abruptly left its lock behind.",
+      "next": "Wait for the other command to finish. If none is running, run devloops status, which says how to clear the lock."
+    },
+    "50": {
+      "name": "stopped-on-service-error",
+      "meaning": "Claude Code could not be used: the service was unavailable, a rate limit was reached, or authentication failed. No trial was used up.",
+      "next": "Wait, or log in to Claude Code again, then run devloops run to resume."
+    },
+    "130": {
+      "name": "interrupted",
+      "meaning": "You pressed Ctrl+C. What was already recorded is kept.",
+      "next": "Run devloops run to resume; devloops status shows where the run stands."
+    }
+  },
+  "steps": {
+    "plan": "Reads the requirements and the target and writes the plan: milestones in order, each with its tasks, acceptance criteria and how to start the application. It changes no files.",
+    "replan": "Writes the plan again, taking your answers in open-questions.md into account, when you run devloops replan. It changes no files.",
+    "implement": "A milestone's first trial: Claude Code writes the code for the milestone's tasks in the target.",
+    "fix": "Each later trial of a milestone: Claude Code is shown why the previous trial failed and changes the code to fix it.",
+    "author-checks": "Before any code is written for a backend milestone, writes the HTTP requests and expected answers that will check it. The checks are then kept unchanged for every trial.",
+    "validate-ui": "Checks a frontend milestone in a real browser: Claude Code drives the browser through each acceptance criterion and reports what it saw, with screenshots as evidence."
+  },
+  "statuses": {
+    "run": {
+      "running": "A devloops command is working on the run's loops.",
+      "paused": "A loop is waiting for you to review its plan or answer a question.",
+      "stopped": "A loop stopped, or the command was interrupted. Running devloops run again resumes it.",
+      "completed": "Every loop the run includes is completed."
+    },
+    "loop": {
+      "not-started": "The loop has no run in this workspace yet.",
+      "planning": "The plan step is writing the plan.",
+      "awaiting-approval": "The plan is written and waits for your review.",
+      "implementing": "The plan is approved and milestones are being built, one at a time.",
+      "completed": "Every milestone of the plan is achieved.",
+      "stopped-on-failure": "The loop stopped because something failed: a milestone ran out of trials, the plan could not be made, a question needs an answer, or the call limit was reached.",
+      "stopped-on-input-error": "The loop stopped because an input is missing, wrong, or changed.",
+      "stopped-on-service-error": "The loop stopped because Claude Code could not be used. Running again resumes where it was."
+    },
+    "milestone": {
+      "pending": "Not started yet.",
+      "in-progress": "A trial is building or validating it.",
+      "achieved": "A trial passed validation. It is never run again.",
+      "failed": "Every allowed trial failed. A retry grant sets it back to in-progress."
+    },
+    "task": {
+      "pending": "Not done yet.",
+      "implemented": "Claude Code reports it done; validation has not confirmed it yet.",
+      "achieved": "Its milestone passed validation.",
+      "failed": "Its milestone ran out of trials before the task was achieved."
+    },
+    "trial": {
+      "in-progress": "Claude Code is working, or devloops is validating the result.",
+      "passed": "Validation passed.",
+      "failed": "Validation failed, or the call failed in a way that counts against the milestone.",
+      "void": "The trial did not count, for example because Claude Code was unavailable. It uses up no trial."
+    },
+    "approval": {
+      "approve": "You approved the plan with devloops approve.",
+      "replan": "You asked for a new plan with devloops replan.",
+      "auto-approve": "devloops approved the plan by itself and accepted Claude's suggested answers (questions: accept-suggested)."
+    }
+  },
+  "stop_reasons": {
+    "trials-exhausted": "A milestone used all its trials without passing validation.",
+    "planning-trials-exhausted": "The plan step did not produce a usable plan within its trials.",
+    "invocation-cap": "The run reached its limit of calls to Claude Code (max_invocations_per_run).",
+    "needs-input": "Claude Code asked a question that needs your answer before the work can go on.",
+    "missing-input": "A file the run needs, such as the requirements, is missing or empty.",
+    "story-not-found": "The story named with --story-id is not in the requirements.",
+    "invalid-api-spec": "The OpenAPI document the frontend loop builds against is not a valid OpenAPI document.",
+    "missing-tool": "A program the loop needs is not installed: Claude Code, curl, or the Playwright MCP server.",
+    "input-changed": "An input the run started with, such as the requirements or the plan, changed since.",
+    "workspace-mismatch": "The workspace belongs to another target or project than the one given.",
+    "target-unwritable": "The target folder cannot be created or written to.",
+    "service-unavailable": "Claude Code's service did not answer.",
+    "rate-limited": "Claude Code refused calls for a while because too many were made.",
+    "auth-failed": "Claude Code is not logged in, or its login expired.",
+    "interrupted": "The run was stopped with Ctrl+C while planning or implementing; running again resumes it."
+  },
+  "files": {
+    "<loop>/outputs/final-report.md": "The loop's final report, written when every milestone is achieved: what was built and what each milestone's validation showed.",
+    "<loop>/outputs/milestone-<NN>-<slug>.md": "One milestone of the plan, readable: its goal, tasks and acceptance criteria.",
+    "<loop>/outputs/open-questions.md": "The plan's open questions, with Claude's suggested answers. You write your answers here before approving.",
+    "<loop>/outputs/openapi.json": "The backend's OpenAPI document, published after each achieved milestone with only the operations validation called.",
+    "<loop>/outputs/plan-summary.md": "The plan in one page, for review before approval.",
+    "<loop>/progress.md": "Where the loop stands: each milestone, its status and its trials. Rewritten as the run goes.",
+    "<loop>/state/conversations/<seq>-<step>.jsonl": "A copy of one call's Claude Code conversation (its transcript), kept so it can be read later.",
+    "<loop>/state/events.jsonl": "One line per thing that happened in the loop, in order: run started, plan stored, trial started, validation passed or failed, and so on.",
+    "<loop>/state/invocations.jsonl": "One line per call to Claude Code: its step, milestone and trial, when it ran, its tokens and cost, and how it ended.",
+    "<loop>/state/milestones/<id>/checks.json": "A backend milestone's checks: the HTTP requests and expected answers written before any code, kept unchanged for every trial.",
+    "<loop>/state/milestones/<id>/trials/<n>/evidence/<check>.body": "The body of the answer a check's HTTP request got.",
+    "<loop>/state/milestones/<id>/trials/<n>/evidence/<check>.command": "The exact curl command a check ran.",
+    "<loop>/state/milestones/<id>/trials/<n>/evidence/<check>.headers": "The headers of the answer a check's HTTP request got.",
+    "<loop>/state/milestones/<id>/trials/<n>/evidence/<check>.request-body.json": "The body a check sent with its HTTP request.",
+    "<loop>/state/milestones/<id>/trials/<n>/runtime.log": "What the application printed while it ran for this trial's validation.",
+    "<loop>/state/milestones/<id>/trials/<n>/trial.json": "One trial: its kind (implement or fix), its status, the calls it made, the assumptions and questions Claude reported, and why it failed, if it did.",
+    "<loop>/state/milestones/<id>/trials/<n>/validation.json": "What validation found for one trial: each check and acceptance criterion, passed or failed, with its evidence.",
+    "<loop>/state/plan.json": "The plan: the milestones in order, their tasks and acceptance criteria, and how to start the application.",
+    "<loop>/state/prompts/<seq>-<step>.md": "The exact prompt one call sent to Claude Code, with secrets replaced by ***.",
+    "<loop>/state/prompts/<seq>-<step>.settings.json": "The Claude Code settings one call ran with: the hooks that keep writes inside the target and stop Claude from ending processes by name.",
+    "<loop>/state/run.json": "The loop's run: its status and why it stopped, its inputs, the settings it started with, the approval, and each milestone's progress.",
+    "<loop>/state/run.log": "Every progress line the loop printed, whatever --quiet or --verbose said.",
+    "<loop>/task.md": "The run's inputs in one page: the requirements, the target folder and the settings in effect.",
+    "exports/<stamp>.html": "A dashboard export: the whole dashboard in one file, written by devloops dashboard --export.",
+    "run/progress.md": "Where the whole run stands: each loop and its status.",
+    "run/state.json": "The run across its loops: its status, each loop's step, and the handoff from the backend loop to the frontend loop.",
+    "workspace.json": "The workspace's identity: its name, the requirements it was started with, the target folder of each loop, and its configuration file."
+  }
+}

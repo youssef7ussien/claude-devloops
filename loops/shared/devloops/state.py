@@ -21,6 +21,15 @@ EXIT_LOCK_HELD = 40
 
 TERMINAL_STATUSES = {"completed", "stopped-on-failure", "stopped-on-input-error"}
 
+# Statuses without a schema enum (spec 006 research R-5): every value the orchestrator, engine
+# and selector write, in the order a run meets them. The code writes them as literals; test_docs
+# checks it writes no other, and the reference pages are generated from these. A loop's own
+# statuses are the `status` enum of run-state.schema.json.
+RUN_STATUSES = ("running", "paused", "stopped", "completed")  # run/state.json
+MILESTONE_STATUSES = ("pending", "in-progress", "achieved", "failed")
+TASK_STATUSES = ("pending", "implemented", "achieved", "failed")
+TRIAL_STATUSES = ("in-progress", "passed", "failed", "void")
+
 # data-model.md, "Event".
 EVENT_TYPES = {
     "run-started", "input-check", "config-override", "lock-cleared", "plan-stored", "paused",
