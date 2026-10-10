@@ -72,7 +72,6 @@ API = [(re.compile(pattern), builder) for pattern, builder in (
     (r"^summary$", "summary"),
     (r"^now$", "now"),
     (r"^loops/(?P<loop>[^/]+)$", "loop"),
-    (r"^loops/(?P<loop>[^/]+)/plan$", "plan"),
     (r"^loops/(?P<loop>[^/]+)/milestones/(?P<milestone>[^/]+)/trials/(?P<key>[^/]+)$", "trial"),
     (r"^calls$", "calls"),
     (r"^calls/(?P<loop>[^/]+)/(?P<seq>[^/]+)$", "call"),

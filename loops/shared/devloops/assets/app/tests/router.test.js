@@ -9,7 +9,6 @@ test('parse and href, both ways', () => {
     ['#/', 'overview', {}],
     ['#/run', 'run', {}],
     ['#/loop/backend-dev', 'loop', { loop: 'backend-dev' }],
-    ['#/loop/backend-dev/plan', 'plan', { loop: 'backend-dev' }],
     ['#/loop/backend-dev/m/M01/t/2.1', 'trial', { loop: 'backend-dev', milestone: 'M01', key: '2.1' }],
     ['#/calls', 'calls', {}],
     ['#/call/frontend-dev/12', 'call', { loop: 'frontend-dev', seq: '12' }],
@@ -91,4 +90,13 @@ test('a view that is not registered is shown as not available, not an error', as
   DL.router._show = (loaded) => shown.push(loaded.def);
   await DL.router.mount({ view: 'not-a-view', params: {}, query: {} });
   assert.deepEqual(shown, [null]);
+});
+
+test('the plan view\'s old address opens the loop view, keeping the milestone (FR-020a)', () => {
+  const R = load().router;
+  const r = R.parse('#/loop/backend-dev/plan?m=M03');
+  assert.equal(r.view, 'loop');
+  assert.deepEqual(load.plain(r.params), { loop: 'backend-dev' });
+  assert.deepEqual(load.plain(r.query), { m: 'M03' });
+  assert.equal(R.href('loop', { loop: 'backend-dev' }, { m: 'M03' }), '#/loop/backend-dev?m=M03');
 });

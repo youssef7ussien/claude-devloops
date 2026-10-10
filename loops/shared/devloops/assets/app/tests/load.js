@@ -24,7 +24,7 @@ function stubDocument() {
     },
     addEventListener: noop, removeEventListener: noop,
     querySelector: () => null, querySelectorAll: () => [],
-    getElementById: () => null,
+    getElementById: () => null, getElementsByTagName: () => [],
   };
 }
 

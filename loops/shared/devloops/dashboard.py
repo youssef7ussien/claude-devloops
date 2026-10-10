@@ -18,7 +18,7 @@ import threading
 import urllib.parse
 from datetime import datetime, timezone
 
-from . import __version__, artifacts, render, state, ui
+from . import __version__, artifacts, claude, render, state, ui
 
 LOOPS = ("backend-dev", "frontend-dev")
 FILENAME = "dashboard.html"
@@ -423,7 +423,7 @@ class Context:
 
 
 # Addresses in the app (assets/app/router.js ROUTES): what each item of the data links to.
-ROUTES = {"overview": "", "run": "run", "loop": "loop/{loop}", "plan": "loop/{loop}/plan",
+ROUTES = {"overview": "", "run": "run", "loop": "loop/{loop}",
           "trial": "loop/{loop}/m/{milestone}/t/{key}", "calls": "calls",
           "call": "call/{loop}/{seq}", "files": "files", "file": "file/{id}",
           "questions": "questions", "events": "events"}
@@ -453,7 +453,7 @@ def next_action(loop, d):
     if status == "awaiting-approval":
         return {"text": f"Review `{loop}/outputs/`, answer `open-questions.md` (an empty answer "
                         f"accepts Claude's suggestion), then `devloops approve` or "
-                        f"`devloops replan`.", "route": route("plan", loop=loop)}
+                        f"`devloops replan`.", "route": route("loop", loop=loop)}
     mid = reason.get("milestone_id")
     if status == "stopped-on-failure" and code == "needs-input":
         return {"text": f"Answer the new questions in `open-questions.md` (an empty answer accepts "
@@ -620,6 +620,8 @@ def summary(ctx):
                           key=lambda row: -row["totals"]["cost"]),
         "counts": {"calls": t["calls"],
                    "questions": sum(len(question_ids(d)) for d in data["loops"].values()),
+                   "assumptions": sum(len((d["plan"] or {}).get("assumptions") or [])
+                                      for d in data["loops"].values()),
                    "events": sum(len(d["events"]) for d in data["loops"].values())},
     }
 
@@ -632,8 +634,11 @@ def _loop_data(ctx, loop):
 
 
 def loop(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>; `loop` is its parameter
-    """`api/loops/<loop>` (data-model Loop): status, next action, totals with their breakdown,
-    planning, milestones with their trials and acceptance criteria, cost by step, and outputs."""
+    """`api/loops/<loop>` (data-model Loop, FR-020–FR-020e): status, next action, approval,
+    totals with their breakdown, milestones in plan order with their goal, dependencies, criteria
+    (each from the milestone's `criteria_trial`; a failed one links to that trial), tasks, and
+    trials, the steps (StepRow) with the planning attempts, what each plan id says (`refs`), the
+    open questions' counts, and the outputs. The plan view was merged into it (FR-020)."""
     d = _loop_data(ctx, loop)
     milestones = []
     for m in d["milestones"]:
@@ -646,38 +651,130 @@ def loop(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>; `loop` is 
             state_ = _criterion_state(last, c["id"])
             evidence = [ctx.file_ref(os.path.join(os.path.dirname(last["evidence_dir"]), item))
                         for item in (r or {}).get("evidence") or []] if last else []
-            criteria.append({"id": c["id"], "text": c["text"],
-                             "requirement_refs": c.get("requirement_refs") or [],
-                             "result": {"passing": "passed", "failing": "failed"}.get(state_),
-                             "observed": (r or {}).get("observed"), "evidence": evidence})
+            criteria.append(dict({"id": c["id"], "text": c.get("text", ""),
+                                  "requirement_refs": c.get("requirement_refs") or [],
+                                  "result": {"passing": "passed", "failing": "failed"}.get(state_),
+                                  "observed": (r or {}).get("observed"), "evidence": evidence},
+                                 **({"trial_route": route("trial", loop=loop, milestone=m["id"],
+                                                          key=last["key"])}
+                                    if state_ == "failing" else {})))
         milestones.append({
             "id": m["id"], "title": m["title"], "goal": m["goal"], "status": m["status"],
-            "depends_on": m["depends_on"], "tasks": m["tasks"], "criteria": criteria,
+            "depends_on": m["depends_on"], "criteria": criteria,
+            "tasks": [{"id": t["id"], "title": t.get("title", ""),
+                       "description": t.get("description", ""),
+                       "requirement_refs": t.get("requirement_refs") or [],
+                       "status": t["status"]} for t in m["tasks"]],
             "criteria_trial": last["key"] if last else None,
             "trials": [_trial_summary(loop, m["id"], t) for t in m["trials"]],
-            "totals": m["totals"], "seconds": m["seconds"]})
+            "totals": m["totals"], "seconds": m["seconds"],
+            "route": route("loop", {"m": m["id"]}, loop=loop)})
     outputs = [(f"{loop}/progress.md", "Progress"),
                (f"{loop}/outputs/plan-summary.md", "Plan summary"),
                (f"{loop}/outputs/final-report.md", "Final report")]
     if d["openapi_artifact"]:
         outputs.append((f"{loop}/{d['openapi_artifact']['path']}", "OpenAPI document"))
     plan = d["plan"] or {}
+    open_questions = _loop_questions(loop, d)
     return {
         "loop": loop, "status": d["status"], "status_reason": d["status_reason"],
-        "next_action": next_action(loop, d), "approval": d["approval"], "grants": d["grants"],
+        "next_action": next_action(loop, d), "approval": _approval(ctx, d), "grants": d["grants"],
         "inputs": d["inputs"], "ui_url": d["ui_url"], "openapi_artifact": d["openapi_artifact"],
         "target_dir": d["target_dir"], "stack": plan.get("stack"), "runtime": plan.get("runtime"),
         "totals": dict(d["totals"], **d["extras"]),
         "stats": {k: d["stats"][k] for k in ("milestones", "achieved", "trials", "first_try",
                                               "calls", "seconds")},
-        "planning": {"trials": [dict(t, route=None) for t in d["planning"]],
-                     "totals": d["planning_totals"]},
         "milestones": milestones,
-        "by_step": {name: step["totals"] for name, step in d["by_step"].items()},
+        "steps": step_rows(d, loop),
+        "refs": plan_refs(d),
+        "questions": {"open": len(open_questions),
+                      "unanswered": sum(1 for q in open_questions
+                                        if q["status"] not in ("developer", "accepted")),
+                      "assumptions": len(plan.get("assumptions") or []),
+                      "route": route("questions", {"loop": loop})},
         "outputs": [dict(ref, label=label) for ref, label in
                     ((ctx.file_ref(path), label) for path, label in outputs)
                     if not ref.get("missing")],
     }
+
+
+def _approval(ctx, d):
+    """`{status: "waiting", commands}` while the plan waits (approve and replan, with
+    `--workspace` when the workspace is not the default), `{status: "approved", approved_at,
+    action}` once approved, else `{status: "none"}`."""
+    if d["status"] == "awaiting-approval":
+        flag = workspace_flag(ctx.ws)
+        return {"status": "waiting",
+                "commands": [f"devloops approve{flag}", f"devloops replan{flag}"]}
+    if d["approval"]:
+        return {"status": "approved", "approved_at": d["approval"].get("approved_at"),
+                "action": d["approval"].get("action")}
+    return {"status": "none"}
+
+
+def step_rows(d, loop):
+    """The loop's Steps card (data-model StepRow, FR-020c): `[{step, calls, started_at, seconds,
+    totals, share}]`, ordered by `started_at`, the start of the row's first call (a row without a
+    known start last, then in the driver's step order, `claude.STEPS`, and an unknown step by
+    name). Each planning attempt (plan or replan) is a row of its own, with `attempt` (its number
+    among its step's attempts, None when the step has one), `status`, `reason`, `detail`, and
+    `route` (its call); every other step is one row. `seconds` sums the calls' durations (None
+    when none is known); `share` is the row's cost over the loop's (None when the loop's cost is
+    not known)."""
+    loop_cost = d["totals"]["cost"]
+
+    def row(name, records):
+        t = totals(records)
+        known = [r["duration_ms"] for r in records if isinstance(r.get("duration_ms"), (int, float))]
+        starts = [r["started_at"] for r in records if isinstance(r.get("started_at"), str)]
+        return {"step": name, "calls": len(records),
+                "started_at": min(starts) if starts else None,
+                "seconds": sum(known) / 1000 if known else None, "totals": t,
+                "share": t["cost"] / loop_cost if loop_cost else None}
+
+    rows, claimed = [], set()
+    attempts = [a for a in _planning_attempts(d) if a["calls"]]
+    per_step = {}
+    for a in attempts:
+        name = a["calls"][0].get("step") or "?"
+        per_step[name] = per_step.get(name, 0) + 1
+    seen = {}
+    for a in attempts:
+        name = a["calls"][0].get("step") or "?"
+        seen[name] = seen.get(name, 0) + 1
+        claimed.update(id(r) for r in a["calls"])
+        first = min(a["calls"], key=lambda r: r.get("seq") or 0)
+        rows.append({**row(name, a["calls"]),
+                     "attempt": seen[name] if per_step[name] > 1 else None,
+                     "status": a["status"], "reason": a["reason"], "detail": a["detail"],
+                     "route": route("call", loop=loop, seq=first.get("seq"))})
+    by_step = {}
+    for r in d["invocations"]:
+        if id(r) not in claimed:
+            by_step.setdefault(r.get("step") or "?", []).append(r)
+    rows.extend(row(name, records) for name, records in by_step.items())
+    order = list(claude.STEPS)
+    rows.sort(key=lambda r: (r["started_at"] is None, r["started_at"] or "",
+                             order.index(r["step"]) if r["step"] in order else len(order),
+                             r["step"]))
+    return rows
+
+
+def plan_refs(d):
+    """What each id of a loop's plan says (FR-020d): every `requirements_inventory` ref → its
+    summary, every task id → its title, every criterion id → its text."""
+    plan, refs = d["plan"] or {}, {}
+    for item in plan.get("requirements_inventory") or []:
+        if item.get("ref") and item.get("summary"):
+            refs[item["ref"]] = item["summary"]
+    for m in plan.get("milestones") or []:
+        for t in m.get("tasks") or []:
+            if t.get("id") and t.get("title"):
+                refs[t["id"]] = t["title"]
+        for c in m.get("acceptance_criteria") or []:
+            if c.get("id") and c.get("text"):
+                refs[c["id"]] = c["text"]
+    return refs
 
 
 def workspace_flag(ws):
@@ -707,50 +804,25 @@ def _criterion_state(trial, criterion_id):
     return "passing" if result and result.get("passed") else "failing"
 
 
-def plan(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>/plan
-    """`api/loops/<loop>/plan` (data-model Plan, FR-020): the stored plan's milestones in plan
-    order, each criterion's state from the milestone's `criteria_trial` (a failing one links to
-    that trial), the open questions with their answers, the assumptions, and the approval:
-    `{status: "waiting"|"approved"|"none", commands?, approved_at?, action?}`, `commands` (approve,
-    replan) while the plan waits, with `--workspace` when it is not the default."""
-    d = _loop_data(ctx, loop)
-    p = d["plan"] or {}
-    milestones = []
-    for m in d["milestones"]:
-        counted = [t for t in m["trials"] if t["status"] != "void"]
-        last = criteria_trial(m)
-        criteria = []
-        for c in m["criteria"]:
-            state_ = _criterion_state(last, c["id"])
-            criteria.append(dict({"id": c["id"], "text": c.get("text", ""),
-                                  "requirement_refs": c.get("requirement_refs") or [],
-                                  "state": state_},
-                                 **({"trial_route": route("trial", loop=loop, milestone=m["id"],
-                                                          key=last["key"])}
-                                    if state_ == "failing" else {})))
-        milestones.append({
-            "id": m["id"], "title": m["title"], "goal": m["goal"], "status": m["status"],
-            "trials_used": len(counted), "depends_on": m["depends_on"], "criteria": criteria,
-            "tasks": [{"id": t["id"], "title": t.get("title", ""),
-                       "description": t.get("description", ""),
-                       "requirement_refs": t.get("requirement_refs") or [],
-                       "status": t["status"]} for t in m["tasks"]],
-            "route": route("loop", {"m": m["id"]}, loop=loop)})
-    if d["status"] == "awaiting-approval":
-        flag = workspace_flag(ctx.ws)
-        approval = {"status": "waiting",
-                    "commands": [f"devloops approve{flag}", f"devloops replan{flag}"]}
-    elif d["approval"]:
-        approval = {"status": "approved", "approved_at": d["approval"].get("approved_at"),
-                    "action": d["approval"].get("action")}
-    else:
-        approval = {"status": "none"}
-    return {"loop": loop, "status": d["status"], "approval": approval, "milestones": milestones,
-            "open_questions": _loop_questions(loop, d),
-            "assumptions": [{"id": a.get("id"), "text": a.get("text", ""),
-                             "source": a.get("source", "")} for a in p.get("assumptions") or []],
-            "stack": p.get("stack"), "runtime": p.get("runtime"),
-            "routes": {"loop": route("loop", loop=loop)}}
+def _planning_attempts(d):
+    """The loop's planning attempts, each a planning trial with its calls (FR-020c): `key` is `n`,
+    or `n.k` for an earlier attempt voided and re-run under the same number (as milestone trials);
+    `reason` and `detail` from the trial's failure; `calls`, the planning calls of that trial."""
+    calls = [r for r in d["invocations"] if r.get("milestone_id") is None]
+    trials, out = d.get("planning") or [], []
+    for k, t in enumerate(trials):
+        n = t.get("n")
+        latest = all(later.get("n") != n for later in trials[k + 1:])
+        shared = sum(1 for other in trials if other.get("n") == n) > 1
+        attempt = sum(1 for earlier in trials[:k] if earlier.get("n") == n) + 1
+        mine = [r for r in calls if r.get("trial") == n and (not shared or _within(r, t))]
+        failure = t.get("failure") or {}
+        out.append({"key": str(n) if latest else f"{n}.{attempt}", "n": n, "attempt": attempt,
+                    "kind": t.get("kind"), "status": t.get("status"),
+                    "reason": failure.get("reason"), "detail": failure.get("detail"),
+                    "started_at": t.get("started_at"), "ended_at": t.get("ended_at"),
+                    "seconds": t.get("seconds"), "calls": mine})
+    return out
 
 
 _PARSED = {}  # conversation path -> ((size, mtime), artifacts.parse_conversation result)
@@ -841,9 +913,12 @@ def _in_target(path, target):
 def trial(ctx, loop, milestone, key):  # noqa: F811 - the builder; `loop` is its parameter
     """`api/loops/<loop>/milestones/<id>/trials/<key>` (data-model Trial, FR-018, FR-019): the
     trial's outcome, its steps with their calls, its validation result, why it did not pass, the
-    files in its folder, and the files its calls changed (`[{path, step, call_route, block}]`,
-    each path's last change). An earlier attempt voided under the same number (`n.k`) has no
-    files of its own: the folder holds the latest attempt's."""
+    files in its folder (FileRefs with `size` and `kind`, FR-018b), and the files its calls
+    changed (`[{path, step, seq, tool, call_route, block, added, removed}]`, each path's last
+    change, with the lines all its calls added and removed; `seq` lets the view ask for the call
+    when a change is opened, FR-018d). An earlier attempt voided under the same number (`n.k`)
+    has no files of its own: the folder holds the latest attempt's. `refs` (what the plan's ids
+    say, FR-020d) and `target_dir` spare the view the loop's whole answer."""
     d = _loop_data(ctx, loop)
     m = next((m for m in d["milestones"] if m["id"] == milestone), None)
     if m is None:
@@ -870,13 +945,16 @@ def trial(ctx, loop, milestone, key):  # noqa: F811 - the builder; `loop` is its
                                          ctx.redactor)
             for f in (parsed or {}).get("files_changed") or []:
                 path = _in_target(f["path"], target)
-                changed.pop(path, None)
-                changed[path] = {"path": path, "step": r.get("step"), "tool": f["tool"],
-                                 "block": f["block"],
+                before = changed.pop(path, None) or {"added": 0, "removed": 0}
+                changed[path] = {"path": path, "step": r.get("step"), "seq": r.get("seq"),
+                                 "tool": f["tool"], "block": f["block"],
+                                 "added": before["added"] + f["added"],
+                                 "removed": before["removed"] + f["removed"],
                                  "call_route": route("call", {"at": f["block"]}, loop=loop,
                                                      seq=r.get("seq"))}
     criteria_text = {c["id"]: c.get("text", "") for c in m["criteria"]}
-    evidence = sorted((r for path, r in ctx.refs.items() if path.startswith(folder + "/")),
+    evidence = sorted((dict(r, size=r.get("size", 0), kind=r.get("kind") or "missing")
+                       for path, r in ctx.refs.items() if path.startswith(folder + "/")),
                       key=lambda r: r["path"]) if latest else []
     return {"loop": loop, "milestone": milestone, "title": m["title"], "key": t["key"],
             "n": t["n"], "attempt": t["attempt"], "kind": t["kind"], "status": t["status"],
@@ -884,6 +962,7 @@ def trial(ctx, loop, milestone, key):  # noqa: F811 - the builder; `loop` is its
             "ended_at": t["ended_at"], "seconds": t["seconds"], "totals": t["totals"],
             "steps": steps, "validation": t["validation"], "why": _why(t, criteria_text, ref),
             "evidence": evidence, "files_changed": list(changed.values()),
+            "refs": plan_refs(d), "target_dir": target,
             "routes": {"loop": route("loop", {"m": milestone}, loop=loop),
                        "trials": [{"key": x["key"], "status": x["status"],
                                    "route": route("trial", loop=loop, milestone=milestone,
@@ -908,6 +987,9 @@ def call_ref(loop, r):
             "model": r.get("model"), "session_id": r.get("session_id"),
             "started_at": r.get("started_at"), "duration_ms": r.get("duration_ms"),
             "totals": totals([r]), "failure_class": r.get("failure_class"),
+            # how a failed call ended, for its Result (FR-018b)
+            "timed_out": r.get("timed_out"), "is_error": r.get("is_error"),
+            "subtype": r.get("subtype"), "api_error_status": r.get("api_error_status"),
             "conversation": conversation, "route": route("call", loop=loop, seq=r.get("seq"))}
 
 
@@ -925,7 +1007,8 @@ def call(ctx, loop, seq):
     parsed and redacted, the records holding a failed tool result (`errors`), and the files it
     changed (`files_changed`, each path's last change, relative to the target when inside it).
     `conversation` says where the transcript was read from: `copied`, `history`, or
-    `unavailable` (with `unavailable_reason`, and no records)."""
+    `unavailable` (with `unavailable_reason`, and no records). `refs` is what the plan's ids say
+    (FR-020d), for the call's answer."""
     d = _loop_data(ctx, loop)
     r = next((r for r in d["invocations"] if str(r.get("seq")) == str(seq)), None)
     if r is None:
@@ -942,6 +1025,7 @@ def call(ctx, loop, seq):
         "prompt": ctx.file_ref(f"{loop}/{prompt}") if prompt else None,
         "settings": ctx.file_ref(f"{loop}/{settings}") if settings else None,
         "prompt_sources": r.get("prompt_sources") or [],
+        "refs": plan_refs(d),
         "routes": {"loop": route("loop", loop=loop),
                    "trial": route("trial", loop=loop, milestone=r["milestone_id"], key=key)
                    if key else None}})
@@ -964,8 +1048,9 @@ def call(ctx, loop, seq):
 
 
 def calls(ctx):
-    """`api/calls`: `{calls: [CallRef], by_model: [{model, calls, cost}], loops}`, calls by loop
-    then sequence, models by cost."""
+    """`api/calls`: `{calls: [CallRef], by_model: [{model, calls, cost}], loops, steps}`, calls by
+    loop then sequence, models by cost; `steps` is the driver's step order (`claude.STEPS`), which
+    the view's step chips follow, as the loop view's Steps card does (FR-020i)."""
     rows, by_model = [], {}
     for loop, d in ctx.data["loops"].items():
         for r in sorted(d["invocations"], key=lambda r: r.get("seq") or 0):
@@ -974,7 +1059,7 @@ def calls(ctx):
                                                          "cost": 0.0})
             entry["calls"] += 1
             entry["cost"] += r.get("cost_usd") or 0
-    return {"calls": rows, "loops": list(ctx.data["loops"]),
+    return {"calls": rows, "loops": list(ctx.data["loops"]), "steps": list(claude.STEPS),
             "by_model": sorted(by_model.values(), key=lambda m: -m["cost"])}
 
 
@@ -1009,19 +1094,20 @@ def _loop_questions(loop, d):
 
 def questions(ctx):
     """`api/questions`: the loops' open questions with their answers and where each came from
-    (`status`: developer, accepted, suggested, or none), the planning assumptions, and the
-    retries granted."""
-    found, assumptions, grants = [], [], []
+    (`status`: developer, accepted, suggested, or none), the planning assumptions, and what each
+    loop's plan ids say (`refs`, FR-020d). The retries granted show on their milestone in the
+    loop view (FR-020j)."""
+    found, assumptions = [], []
     for loop, d in ctx.data["loops"].items():
         found += _loop_questions(loop, d)
         assumptions += [dict(a, loop=loop) for a in (d["plan"] or {}).get("assumptions") or []]
-        grants += [dict(g, loop=loop) for g in d["grants"]]
-    return {"questions": found, "assumptions": assumptions, "grants": grants}
+    return {"questions": found, "assumptions": assumptions,
+            "refs": {loop: plan_refs(d) for loop, d in ctx.data["loops"].items()}}
 
 
 def index(ctx):
     """`api/index` (data-model Index, FR-022): what the "go to" palette matches by name, each
-    `{kind, label, detail, route}`: the views, then per loop the loop, its plan, milestones,
+    `{kind, label, detail, route}`: the views, then per loop the loop, its milestones,
     trials, and calls, then every listed file."""
     data, items = ctx.data, []
 
@@ -1035,7 +1121,6 @@ def index(ctx):
         add("view", label, "", route(name))
     for loop, d in data["loops"].items():
         add("loop", loop, RUN_STATUS.get(d["status"], (d["status"],))[0], route("loop", loop=loop))
-        add("view", f"{loop} plan", "milestones, criteria, and tasks", route("plan", loop=loop))
         for m in d["milestones"]:
             add("milestone", f"{m['id']} {m['title']}",
                 f"{loop} · {MILESTONE_STATUS.get(m['status'], (m['status'],))[0]}",

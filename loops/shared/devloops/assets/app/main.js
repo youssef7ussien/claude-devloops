@@ -9,7 +9,6 @@
   /* The navigation entry a route belongs to. */
   function navKey(route) {
     var v = route.view;
-    if (v === 'plan') return 'plan:' + route.params.loop;
     if (v === 'loop' || v === 'trial') return 'loop:' + route.params.loop;
     if (v === 'call') return 'calls';
     if (v === 'file') return 'files';
@@ -25,6 +24,13 @@
   }
 
   function count(n) { return n == null ? null : DL.el('span', 'count', String(n)); }
+  /* "6 & 12": the open questions and the planning assumptions. */
+  function questionsCount(c) {
+    if (c.questions == null) return null;
+    var n = count(c.questions + ' & ' + (c.assumptions || 0));
+    n.title = DL.fmt.plural(c.questions, 'open question') + ' and ' + DL.fmt.plural(c.assumptions || 0, 'assumption');
+    return n;
+  }
 
   function buildNav() {
     var nav = DL.$('.nav'), s = summary || {}, r = DL.router;
@@ -34,16 +40,14 @@
     var loops = (s.loops || []).map(function (l) {
       var st = DL.status(l.status, 'run'), dot = DL.el('span', 'dot tone-' + st[2]);
       dot.title = st[0];
-      var plan = navLink('plan:' + l.loop, r.href('plan', { loop: l.loop }), 'Plan', 'plan');
-      plan.classList.add('sub');
-      return [navLink('loop:' + l.loop, r.href('loop', { loop: l.loop }), l.loop, 'loop', dot), plan];
+      return navLink('loop:' + l.loop, r.href('loop', { loop: l.loop }), l.loop, 'loop', dot);
     });
     if (loops.length) groups.push(['Loops', loops]);
     var c = s.counts || {};
     groups.push(['Details', [
       navLink('calls', r.href('calls'), 'Claude calls', 'chat', count(c.calls)),
-      navLink('files', r.href('files'), 'Files', 'folder', count(c.files)),
-      navLink('questions', r.href('questions'), 'Questions', 'help', count(c.questions)),
+      navLink('questions', r.href('questions'), 'Questions', 'help', questionsCount(c)),
+      navLink('files', r.href('files'), 'Files', 'folder'),  /* no count: the summary does not list the files (SC-001) */
       navLink('events', r.href('events'), 'Events', 'list', count(c.events))
     ]]);
     nav.textContent = '';

@@ -241,6 +241,7 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.api("probe/backend-dev/9", 404)[0],
                          {"error": "no call 9 of backend-dev"})
         self.assertEqual(self.api("no/such/route", 404)[0], {"error": "not found"})
+        self.assertEqual(self.api("loops/backend-dev/plan", 404)[0], {"error": "not found"})
         self.assertEqual(self.api("files/f-not-a-file", 404)[0]["error"],
                          "not a file of this workspace")
 
@@ -314,7 +315,7 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         by_label = {item["label"]: item for item in items}
         self.assertEqual(by_label["Overview"]["route"], "#/")
         self.assertEqual(by_label["backend-dev"]["route"], "#/loop/backend-dev")
-        self.assertEqual(by_label["backend-dev plan"]["route"], "#/loop/backend-dev/plan")
+        self.assertNotIn("backend-dev plan", by_label)  # the plan is on the loop view (FR-020)
         self.assertEqual(by_label["M01 List items"]["route"], "#/loop/backend-dev?m=M01")
         self.assertEqual(by_label["M01 trial 1"]["route"], "#/loop/backend-dev/m/M01/t/1")
         self.assertEqual(by_label["#1 plan"]["route"], "#/call/backend-dev/1")

@@ -6,7 +6,7 @@ import unittest
 
 import helpers
 import samples
-from devloops import dashboard, schema, state, workspace
+from devloops import claude, dashboard, schema, state, workspace
 from stub_loop import StubLoopMixin, WS, implemented, service_error
 
 
@@ -251,6 +251,8 @@ class BuildersTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual((s["totals"]["achieved"], s["totals"]["milestones"]), (2, 2))
         self.assertEqual(s["attention"], [])
         self.assertEqual(s["counts"]["calls"], card["totals"]["calls"])
+        plan = self.ctx().data["loops"]["backend-dev"]["plan"]
+        self.assertEqual(s["counts"]["assumptions"], len(plan.get("assumptions") or []))
         self.assertNotIn("files", s["counts"])
         self.assertEqual([r["label"] for r in s["timeline"]],
                          ["backend-dev · Planning", "backend-dev · M01", "backend-dev · M02"])
@@ -265,13 +267,11 @@ class BuildersTest(StubLoopMixin, unittest.TestCase):
                          {"input", "output", "cache_creation", "cache_read", "total"})
         self.assertIsNotNone(d["totals"]["cache_hit_rate"])
         self.assertAlmostEqual(d["totals"]["cost_per_achieved"], d["totals"]["cost"] / 2)
-        self.assertTrue(d["planning"]["trials"])
-        self.assertIn("calls", d["planning"]["totals"])
         m1 = d["milestones"][0]
         self.assertEqual((m1["id"], m1["status"], m1["trials"][0]["route"], m1["criteria_trial"]),
                          ("M01", "achieved", "#/loop/backend-dev/m/M01/t/1", "1"))
         self.assertTrue(all(c["result"] == "passed" for c in m1["criteria"]), m1["criteria"])
-        self.assertEqual(set(d["by_step"]), {"plan", "implement"})
+        self.assertEqual([row["step"] for row in d["steps"]], ["plan", "implement"])
         labels = {o["label"]: o for o in d["outputs"]}
         self.assertEqual(labels["Progress"]["path"], "backend-dev/progress.md")
         self.assertEqual(labels["Progress"]["id"], ctx.file_ref("backend-dev/progress.md")["id"])
@@ -288,6 +288,7 @@ class BuildersTest(StubLoopMixin, unittest.TestCase):
                          (f"#/call/backend-dev/{first['seq']}", "copied"))
         self.assertEqual(first["totals"], dashboard.totals([records[0]]))
         self.assertEqual(sum(m["calls"] for m in c["by_model"]), len(records))
+        self.assertEqual(c["steps"], list(claude.STEPS))  # the step chips' order (FR-020i)
 
         f = dashboard.files(ctx)
         self.assertEqual((f["count"], f["trees"][0]["name"]), (ctx.index["count"], "backend-dev"))
@@ -296,7 +297,8 @@ class BuildersTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual([e["at"] for e in events], sorted(e["at"] for e in events))
         self.assertTrue(all(e["loop"] == "backend-dev" for e in events))
         q = dashboard.questions(ctx)
-        self.assertEqual((q["questions"], q["grants"]), ([], []))
+        self.assertEqual(q["questions"], [])
+        self.assertNotIn("grants", q)  # on the milestone in the loop view (FR-020j)
         self.assertEqual(q["assumptions"][0]["loop"], "backend-dev")
 
     def test_a_stopped_loop_says_what_to_do(self):
@@ -322,8 +324,7 @@ class BuildersTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual((one["id"], one["answer"], one["status"], one["context"], one["affects"]),
                          ("OQ1", "9090", "developer", "the API", ["M01"]))
         self.assertEqual((two["id"], two["status"]), ("OQ2", "none"))
-        self.assertEqual(q["grants"], [{"milestone_id": "M01", "extra_trials": 2,
-                                        "loop": "backend-dev"}])
+        self.assertNotIn("grants", q)
 
 
 PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06"
@@ -436,7 +437,15 @@ class TrialTest(StubLoopMixin, unittest.TestCase):
         self.assertIn("backend-dev/state/milestones/M01/trials/1/validation.json", paths)
         self.assertIn("..env.example", [f["path"] for f in t["files_changed"]])  # in the target
         [app] = [f for f in t["files_changed"] if f["path"] == "app.py"]
-        self.assertEqual((app["step"], app["tool"]), ("implement", "Write"))
+        self.assertEqual((app["step"], app["tool"], app["seq"]), ("implement", "Write", seqs[0]))
+        self.assertGreater(app["added"], 0)  # the lines of the change, worked out by the server
+        self.assertEqual(app["removed"], 0)
+        # FR-020d: what the plan's ids say, and the target, without the loop's whole answer
+        self.assertEqual(t["refs"], dashboard.loop(self.ctx(), "backend-dev")["refs"])
+        self.assertEqual(t["target_dir"], self.ctx().data["loops"]["backend-dev"]["target_dir"])
+        # FR-018b: the folder's files carry what the tree shows (size, kind).
+        self.assertTrue(all(isinstance(r["size"], int) and r["kind"] for r in t["evidence"]),
+                        t["evidence"])
         self.assertEqual(app["call_route"],
                          f"#/call/backend-dev/{seqs[0]}?at={app['block']}")
 
@@ -475,12 +484,16 @@ class TrialTest(StubLoopMixin, unittest.TestCase):
 
 
 
-class PlanTest(StubLoopMixin, unittest.TestCase):
-    """`dashboard.plan`: the plan view's data (FR-020, data-model Plan)."""
+class LoopTest(StubLoopMixin, unittest.TestCase):
+    """`dashboard.loop`: the loop view's data, with the plan merged in (FR-020–FR-020e)."""
 
     def ctx(self):
         ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
         return dashboard.Context(ws, self.t.env)
+
+    @staticmethod
+    def counted(m):
+        return len([t for t in m["trials"] if t["status"] != "void"])
 
     def test_waiting_for_approval(self):
         plan = samples.plan()
@@ -489,78 +502,139 @@ class PlanTest(StubLoopMixin, unittest.TestCase):
                                    "suggestion_reason": "common"}]
         self.scenario({"plan": {"structured_output": plan}})
         self.assertEqual(self.first_run(), 10, self.last_output)
-        p = dashboard.plan(self.ctx(), "backend-dev")
+        p = dashboard.loop(self.ctx(), "backend-dev")
         # us3 is not the project's default workspace: the commands name it
         self.assertEqual(p["approval"], {"status": "waiting", "commands": [
             "devloops approve --workspace us3", "devloops replan --workspace us3"]})
+        self.assertEqual(p["next_action"]["route"], "#/loop/backend-dev")
         self.assertEqual([m["id"] for m in p["milestones"]], ["M01", "M02"])
         m1, m2 = p["milestones"]
-        self.assertEqual((m1["title"], m1["goal"], m1["status"], m1["trials_used"],
+        self.assertEqual((m1["title"], m1["goal"], m1["status"], self.counted(m1),
                           m1["depends_on"], m2["depends_on"], m1["route"]),
                          ("List items", "Clients can list items", "pending", 0, [], ["M01"],
                           "#/loop/backend-dev?m=M01"))
         self.assertEqual(m1["criteria"], [{"id": "M01-AC1", "text": "GET /items returns 200 and "
                                            "a list", "requirement_refs": ["FR-1"],
-                                           "state": "unchecked"}])
+                                           "result": None, "observed": None, "evidence": []}])
         self.assertEqual(m1["tasks"], [{"id": "M01-T01", "title": "GET /items",
                                         "description": "Return all items",
                                         "requirement_refs": ["FR-1"], "status": "pending"}])
-        [q] = p["open_questions"]
-        self.assertEqual((q["loop"], q["id"], q["question"], q["suggested_answer"], q["status"]),
-                         ("backend-dev", "OQ1", "Which port?", "8080", "suggested"))
-        self.assertEqual(p["assumptions"], [{"id": "A1", "text": "Items are kept in memory",
-                                             "source": "proposed"}])
+        self.assertEqual(p["questions"], {"open": 1, "unanswered": 1, "assumptions": 1,
+                                          "route": "#/questions?loop=backend-dev"})
+        refs = p["refs"]
+        inventory = plan["requirements_inventory"][0]
+        self.assertEqual(refs[inventory["ref"]], inventory["summary"])
+        self.assertEqual((refs["M01-T01"], refs["M01-AC1"]),
+                         ("GET /items", "GET /items returns 200 and a list"))
         self.assertEqual(p["stack"]["summary"], "Python stdlib HTTP server")
         self.assertEqual(p["runtime"]["openapi_path"], "openapi.json")
+        q = dashboard.questions(self.ctx())
+        self.assertEqual(q["refs"]["backend-dev"], refs)
         with self.assertRaises(dashboard.NotFound):
-            dashboard.plan(self.ctx(), "frontend-dev")
+            dashboard.loop(self.ctx(), "frontend-dev")
+
+    def test_planning_attempts(self):
+        bad = samples.plan()
+        bad["milestones"] = []
+        self.scenario({"plan": [{"structured_output": bad}, {"structured_output": samples.plan()}]})
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        p = dashboard.loop(self.ctx(), "backend-dev")
+        self.assertNotIn("planning", p)
+        first, second = [r for r in p["steps"] if r["step"] == "plan"]  # one row per attempt
+        self.assertEqual((first["attempt"], first["status"], first["reason"], first["calls"]),
+                         (1, "failed", "invalid-output", 1))
+        self.assertTrue(first["detail"])
+        self.assertEqual((second["attempt"], second["status"], second["reason"]), (2, "passed", None))
+        self.assertLess(first["started_at"], second["started_at"])
+        self.assertEqual([r["route"] for r in (first, second)],
+                         ["#/call/backend-dev/1", "#/call/backend-dev/2"])
+        records = self.ctx().data["loops"]["backend-dev"]["invocations"]
+        self.assertAlmostEqual(first["totals"]["cost"] + second["totals"]["cost"],
+                               sum(r["cost_usd"] for r in records if r["step"] == "plan"))
+
+    def test_steps(self):
+        self.approved()
+        self.assertEqual(self.cli("run"), 0, self.last_output)
+        d = dashboard.loop(self.ctx(), "backend-dev")
+        self.assertNotIn("by_step", d)
+        steps = [row["step"] for row in d["steps"]]
+        self.assertEqual(steps[0], "plan")
+        plan = d["steps"][0]  # one attempt: one row, without an attempt number
+        self.assertEqual((plan["attempt"], plan["status"], plan["route"]),
+                         (None, "passed", "#/call/backend-dev/1"))
+        self.assertEqual(steps.count("plan"), 1)
+        self.assertIn("implement", steps)
+        records = self.ctx().data["loops"]["backend-dev"]["invocations"]
+        for row in d["steps"]:  # each step's first call, and the rows in that order
+            self.assertEqual(row["started_at"], min(r["started_at"] for r in records
+                                                    if r["step"] == row["step"]))
+        starts = [row["started_at"] for row in d["steps"]]
+        self.assertEqual(starts, sorted(starts))
+        self.assertEqual(sum(row["calls"] for row in d["steps"]), d["stats"]["calls"])
+        self.assertAlmostEqual(sum(row["share"] for row in d["steps"]), 1)
+        self.assertEqual(sum(row["totals"]["calls"] for row in d["steps"]), d["stats"]["calls"])
+        implement = next(row for row in d["steps"] if row["step"] == "implement")
+        self.assertAlmostEqual(implement["seconds"], sum(r["duration_ms"] for r in records
+                                                         if r["step"] == "implement") / 1000)
+        # by start; a step without a known start last (driver order, then an unknown step)
+        rows = dashboard.step_rows({"invocations": [
+            {"step": "zz", "cost_usd": 1}, {"step": "plan", "cost_usd": 1},
+            {"step": "fix", "cost_usd": 1, "started_at": "2026-01-01T00:00:02.000Z"},
+            {"step": "implement", "cost_usd": 1, "started_at": "2026-01-01T00:00:01.000Z"}],
+            "totals": {"cost": 4}}, "backend-dev")
+        self.assertEqual([(r["step"], r["share"], r["seconds"]) for r in rows],
+                         [("implement", 0.25, None), ("fix", 0.25, None), ("plan", 0.25, None),
+                          ("zz", 0.25, None)])
+        self.assertEqual(rows[0]["started_at"], "2026-01-01T00:00:01.000Z")
+        # a planning call recorded without a step is a "?" row, not an error
+        rows = dashboard.step_rows({"invocations": [{"seq": 1, "trial": 1, "cost_usd": 1}],
+                                    "planning": [{"n": 1, "status": "passed"}],
+                                    "totals": {"cost": 1}}, "backend-dev")
+        self.assertEqual([(r["step"], r["attempt"], r["status"]) for r in rows], [("?", None, "passed")])
 
     def test_criteria_from_the_latest_counted_trial(self):
         self.approved()
         self.assertEqual(self.cli("run", "--max-trials", "1", env={"DEVLOOPS_STUB": "fail"}), 20,
                          self.last_output)
-        p = dashboard.plan(self.ctx(), "backend-dev")
+        p = dashboard.loop(self.ctx(), "backend-dev")
         self.assertEqual((p["approval"]["status"], p["approval"]["action"]), ("approved", "approve"))
         self.assertNotIn("commands", p["approval"])
         m1, m2 = p["milestones"]
-        self.assertEqual((m1["status"], m1["trials_used"]), ("failed", 1))
-        self.assertEqual([(c["state"], c["trial_route"]) for c in m1["criteria"]],
-                         [("failing", "#/loop/backend-dev/m/M01/t/1")])
-        self.assertEqual([c["state"] for c in m2["criteria"]], ["unchecked"])
+        self.assertEqual((m1["status"], self.counted(m1), m1["criteria_trial"]), ("failed", 1, "1"))
+        self.assertEqual([(c["result"], c["trial_route"]) for c in m1["criteria"]],
+                         [("failed", "#/loop/backend-dev/m/M01/t/1")])
+        self.assertEqual([c["result"] for c in m2["criteria"]], [None])
+        self.assertNotIn("trial_route", m2["criteria"][0])
         self.assertEqual(m1["tasks"][0]["status"], "failed")  # as run.json records it
         # A criterion the result does not mention fails too (FR-068)
         trial_dir = os.path.join(self.loop_dir, "state", "milestones", "M01", "trials", "1")
         doc = state.read_json(os.path.join(trial_dir, "validation.json"))
         doc["criteria"] = []
         state.write_json_atomic(os.path.join(trial_dir, "validation.json"), doc)
-        self.assertEqual(dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]["criteria"][0]
-                         ["state"], "failing")
-        # ...in the loop view as well: both read the same trial the same way
-        loop_m1 = dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]
-        self.assertEqual((loop_m1["criteria_trial"], loop_m1["criteria"][0]["result"]), ("1", "failed"))
+        self.assertEqual(dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]["criteria"][0]
+                         ["result"], "failed")
         # A trial still running leaves the last result shown
         run_path = os.path.join(self.loop_dir, "state", "run.json")
         run = state.read_json(run_path)
         run["milestones"]["M01"]["trials"].append({"n": 2, "status": "in-progress",
                                                    "started_at": "2030-01-01T00:00:00Z"})
         state.write_json_atomic(run_path, run)
-        m1 = dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]
-        self.assertEqual((m1["trials_used"], m1["criteria"][0]["state"], m1["criteria"][0]["trial_route"]),
-                         (2, "failing", "#/loop/backend-dev/m/M01/t/1"))
-        self.assertEqual(dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]["criteria_trial"], "1")
+        m1 = dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]
+        self.assertEqual((self.counted(m1), m1["criteria_trial"], m1["criteria"][0]["result"],
+                          m1["criteria"][0]["trial_route"]),
+                         (2, "1", "failed", "#/loop/backend-dev/m/M01/t/1"))
 
     def test_a_voided_trial_is_not_counted(self):
         self.approved()
         self.scenario({"implement": [service_error(429), implemented("M01-T01"),
                                      implemented("M02-T01")]})
         self.assertEqual(self.cli("run"), 50, self.last_output)
-        m1 = dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]
-        self.assertEqual((m1["trials_used"], [c["state"] for c in m1["criteria"]]),
-                         (0, ["unchecked"]))
+        m1 = dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]
+        self.assertEqual((self.counted(m1), [c["result"] for c in m1["criteria"]]), (0, [None]))
         self.assertEqual(self.cli("run"), 0, self.last_output)
-        m1 = dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]
-        self.assertEqual((m1["status"], m1["trials_used"], m1["criteria"][0]["state"]),
-                         ("achieved", 1, "passing"))
+        m1 = dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]
+        self.assertEqual((m1["status"], self.counted(m1), m1["criteria"][0]["result"]),
+                         ("achieved", 1, "passed"))
         self.assertNotIn("trial_route", m1["criteria"][0])
 
     def test_the_workspace_flag(self):
@@ -644,12 +718,46 @@ class CallTest(StubLoopMixin, unittest.TestCase):
         n = len(c["records"])
         self.assertEqual(c["records"][-1], {"raw": "not json"})
         self.assertEqual(c["errors"], [n - 3])
-        self.assertIn({"path": "app.py", "tool": "Edit", "block": n - 2}, c["files_changed"])
+        self.assertIn({"path": "app.py", "tool": "Edit", "block": n - 2, "added": 1, "removed": 1},
+                      c["files_changed"])
+        self.assertEqual(c["refs"], dashboard.loop(self.ctx(), "backend-dev")["refs"])
         self.assertEqual(c["files_changed"][-1]["path"], "app.py")
         with self.assertRaises(dashboard.NotFound):
             dashboard.call(self.ctx(), "backend-dev", "999")
         with self.assertRaises(dashboard.NotFound):
             dashboard.call(self.ctx(), "frontend-dev", "1")
+
+    def test_records_keep_what_the_actions_need(self):
+        """The view builds its actions from the records (research R-15): times, thinking
+        durations, images, and the final answer reach it unchanged, and secrets do not."""
+        [r] = [r for r in self.records() if r.get("milestone_id") == "M01"]
+        image = {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                             "data": "iVBORw0KGgoAAAANSUhEUg=="}}
+        lines = [
+            {"type": "assistant", "timestamp": "2026-01-01T00:00:01.000Z", "thinkingDurationMs": 735,
+             "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": ""}]}},
+            {"type": "assistant", "timestamp": "2026-01-01T00:00:02.000Z", "message": {
+                "role": "assistant", "content": [{"type": "tool_use", "id": "s", "name": "Shot",
+                                                  "input": {}}]}},
+            {"type": "user", "timestamp": "2026-01-01T00:00:02.500Z", "message": {
+                "role": "user", "content": [{"type": "tool_result", "tool_use_id": "s", "content": [
+                    {"type": "text", "text": f"saw {SECRET}"}, image]}]}},
+            {"type": "assistant", "timestamp": "2026-01-01T00:00:03.000Z", "message": {
+                "role": "assistant", "content": [{"type": "tool_use", "id": "o", "name": "StructuredOutput",
+                                                  "input": {"tasks": [{"id": "M01-T01", "status": "implemented",
+                                                                       "note": f"used {SECRET}"}]}}]}}]
+        with open(self.path(r["conversation_path"]), "a", encoding="utf-8") as f:
+            f.write("".join(json.dumps(x) + "\n" for x in lines))
+        c = dashboard.call(self.ctx(), "backend-dev", str(r["seq"]))
+        think, use, result, answer = c["records"][-4:]
+        self.assertEqual((think["timestamp"], think["thinkingDurationMs"]), ("2026-01-01T00:00:01.000Z", 735))
+        self.assertEqual(use["message"]["content"][0]["id"], "s")
+        self.assertEqual(result["timestamp"], "2026-01-01T00:00:02.500Z")
+        self.assertEqual(result["message"]["content"][0]["content"][1], image)
+        self.assertEqual(answer["message"]["content"][0]["input"]["tasks"][0]["status"], "implemented")
+        text = json.dumps(c, ensure_ascii=False)
+        self.assertNotIn(SECRET, text)
+        self.assertNotIn("S3CR3T", text)
 
     def test_from_history_and_unavailable(self):
         first, second = self.records()[:2]

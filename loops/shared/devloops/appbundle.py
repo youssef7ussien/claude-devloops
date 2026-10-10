@@ -4,7 +4,8 @@ The app is plain JavaScript with no build step (specs/005-dashboard-redesign res
 file listed in `assets/app/scripts.txt` adds itself to one global (`DL`), and the files are joined
 in the listed order into one script. The shell (`index.html`) holds the page's frame; `shell()`
 fills its `{{…}}` placeholders, linking the script and the stylesheet (served) or inlining them
-(the export).
+(the export). The listed `vendor/` files (Prism, research R-16) are served but left out of the
+export, which shows code as plain text (FR-033).
 """
 import functools
 import hashlib
@@ -36,10 +37,17 @@ def script_names():
     return names
 
 
+def is_vendor(name):
+    """A copied-in third-party file (assets/app/vendor/), not the app's own code."""
+    return name.startswith("vendor/")
+
+
 @functools.lru_cache(maxsize=None)
-def script():
-    """The listed files joined into one script (read once)."""
-    return SEPARATOR.join(_read(name) for name in script_names()) + "\n"
+def script(vendor=True):
+    """The listed files joined into one script (read once); `vendor=False` leaves the vendor
+    files out (the export)."""
+    names = [n for n in script_names() if vendor or not is_vendor(n)]
+    return SEPARATOR.join(_read(name) for name in names) + "\n"
 
 
 @functools.lru_cache(maxsize=None)
@@ -74,7 +82,7 @@ def shell(title, attrs=None, inline=False, data=""):
     if inline:
         styles = f"<style>{stylesheet()}</style>"
         # Inside a script element, `</script` would end it; `<\/` reads the same in JavaScript.
-        scripts = f"{data}<script>{script().replace('</', '<' + chr(92) + '/')}</script>"
+        scripts = f"{data}<script>{script(vendor=False).replace('</', '<' + chr(92) + '/')}</script>"
     else:
         v = html.escape(assets_version(), quote=True)
         styles = f'<link rel="stylesheet" href="/assets/app.css?v={v}">'

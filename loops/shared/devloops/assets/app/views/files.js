@@ -1,53 +1,28 @@
 /* views/files.js: `#/files` — the workspace's files as a tree (each loop, then run/ and the
    workspace's own files), filtered by path and by kind, walked with the arrow keys; a file opens
    in the viewer. `#/file/<id>` is the same explorer with that file open (`?line=<n>` at that
-   line); `?q=<text>` starts filtered. */
+   line); `?q=<text>` starts filtered; `?dir=<path>` shows one folder only (FR-020f), with a chip
+   that drops it. The tree itself is drawn by tree.js (shared with the trial view). */
 (function (DL) {
   'use strict';
 
   var KINDS = [['markdown', 'Markdown'], ['json', 'JSON'], ['code', 'Code'], ['log', 'Logs'], ['text', 'Text'], ['image', 'Images']];
 
-  function dirNode(node, files) {
-    var li = DL.el('li', 'd'), det = DL.el('details', 'dir'), sum = DL.el('summary'), span = DL.el('span', 'node');
-    var ul = DL.el('ul'), count = 0;
-    det.open = !!node.open;
-    (node.children || []).forEach(function (child) {
-      var made = child.file ? fileNode(child.file, files) : dirNode(child, files);
-      count += made.count;
-      ul.appendChild(made.li);
+  /* FR-020f: whether a file is inside folder `dir`, by its workspace path or by its place in the
+     tree (the folder names above it, from the top folder), whole names only: a loop's inputs
+     that live outside its folder stay in it, and so do the workspace's own files. */
+  function inDir(path, treePath, dir) {
+    dir = String(dir || '').replace(/\/+$/, '');
+    if (!dir) return true;
+    return [path, treePath].some(function (p) {
+      p = String(p || '');
+      return p === dir || p.indexOf(dir + '/') === 0;
     });
-    var meta = DL.el('span', 'meta');
-    if (node.badge && node.badge.status) meta.appendChild(DL.pill(node.badge.status, node.badge.table));
-    meta.appendChild(DL.el('span', null, String(count)));
-    DL.add(span, DL.icon('chev', 'chev'), DL.icon('folder', 'k'), DL.el('span', 'nm', node.name), meta);
-    DL.add(li, DL.add(det, DL.add(sum, span), ul));
-    return { li: li, count: count };
-  }
-
-  function fileNode(ref, files) {
-    var li = DL.el('li', 'f'), name = ref.path.split('/').pop();
-    if (ref.missing) {
-      var miss = DL.add(DL.el('span', 'node file missing'), DL.icon('file', 'k'), DL.el('span', 'nm', name),
-        DL.el('span', 'meta', 'missing'));
-      miss.dataset.path = ref.path;
-      miss.dataset.kind = 'missing';
-      return { li: DL.add(li, miss), count: 1 };
-    }
-    files.push(ref);
-    var a = DL.link(DL.router.href('file', { id: ref.id }), null, 'node file');
-    a.dataset.path = ref.path;
-    a.dataset.kind = ref.kind === 'jsonl' ? 'json' : ref.kind;
-    a.dataset.id = ref.id;
-    a.title = ref.path + (ref.meta ? ' · ' + ref.meta : '');
-    DL.add(a, DL.icon(ref.icon || 'file', 'k ' + ref.kind), DL.el('span', 'nm', name), DL.el('span', 'meta', DL.fmt.bytes(ref.size)));
-    return { li: DL.add(li, a), count: 1 };
   }
 
   function explorer(d, el, query, openId, refresh) {
-    var files = [], byId = {}, tree = DL.el('div', 'explorer'), ul = DL.el('ul');
-    d.trees.forEach(function (t) { ul.appendChild(dirNode(t, files).li); });
-    files.forEach(function (f) { byId[f.id] = f; });
-    tree.appendChild(ul);
+    var drawn = DL.tree.draw(d.trees, { list: visibleFiles }), tree = drawn.el, files = drawn.files, byId = drawn.byId;
+    var dir = String((query && query.dir) || '').replace(/\/+$/, '');
 
     var bar = DL.el('div', 'toolbar'), input = DL.el('input', 'input'), chips = DL.el('div', 'chips'), kinds = [];
     var shown = DL.el('span', 'small muted');
@@ -66,16 +41,19 @@
       var q = input.value.toLowerCase().trim();
       DL.$$('li.f', tree).forEach(function (li) {
         var f = li.firstChild, ok = (!q || (f.dataset.path || '').toLowerCase().indexOf(q) >= 0) &&
-          (!kinds.length || kinds.indexOf(f.dataset.kind) >= 0);
+          (!kinds.length || kinds.indexOf(f.dataset.kind) >= 0) && inDir(f.dataset.path, f.dataset.tree, dir);
         li.classList.toggle('hidden-by-filter', !ok);
       });
-      DL.$$('li.d', tree).reverse().forEach(function (li) {
-        var any = DL.$('li.f:not(.hidden-by-filter)', li);
-        li.classList.toggle('hidden-by-filter', !any);
-        if ((q || kinds.length) && any) DL.$('details', li).open = true;
-      });
       var n = DL.$$('li.f:not(.hidden-by-filter)', tree).length;
+      DL.$$('li.d', tree).reverse().forEach(function (li) {
+        var m = DL.$$('li.f:not(.hidden-by-filter)', li).length;
+        li.classList.toggle('hidden-by-filter', !m);
+        /* the text and kind filters open every folder with a match; the folder filter opens the
+           folders down to the one holding every shown file */
+        if (m && ((q || kinds.length) || (dir && m === n))) DL.$('details', li).open = true;
+      });
       shown.textContent = DL.fmt.plural(n, 'file');
+      if (none) none.hidden = !!n || !dir;
     }
     input.addEventListener('input', apply);
     KINDS.forEach(function (k) {
@@ -92,16 +70,21 @@
       chips.appendChild(b);
     });
     function all(open) { return function () { DL.$$('details.dir', tree).forEach(function (x) { x.open = open; }); }; }
-    DL.add(bar, input, chips, DL.el('span', 'spacer'), shown,
+    var folder = null, none = null;
+    if (dir) {
+      folder = DL.el('span', 'chip folder-chip');
+      folder.setAttribute('aria-pressed', 'true');
+      var x = DL.el('button', 'x', '×');
+      x.type = 'button';
+      x.setAttribute('aria-label', 'Show every folder');
+      x.title = 'Show every folder';
+      x.addEventListener('click', function () { DL.router.go('files'); });
+      DL.add(folder, DL.icon('folder'), 'Folder: ', DL.el('code', null, dir), x);
+      none = DL.el('p', 'muted', 'No files in ' + dir + '.');
+    }
+    DL.add(bar, folder, input, chips, DL.el('span', 'spacer'), shown,
       DL.btn('Expand all', { cls: 'ghost', on: all(true) }), DL.btn('Collapse all', { cls: 'ghost', on: all(false) }));
 
-    tree.addEventListener('click', function (ev) {
-      var a = ev.target.closest('a.file');
-      if (!a || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
-      ev.preventDefault();
-      var ref = byId[a.dataset.id];
-      DL.viewer.open(ref, { list: visibleFiles(), opener: a });
-    });
     /* arrow keys: up and down through what is shown, right opens a folder, left closes it or
        goes to its parent */
     tree.addEventListener('keydown', function (ev) {
@@ -124,7 +107,7 @@
       }
     });
 
-    DL.add(el, DL.head('Files', null, DL.fmt.plural(d.count, 'file') + ' in this workspace'), bar, tree);
+    DL.add(el, DL.head('Files', null, DL.fmt.plural(d.count, 'file') + ' in this workspace'), bar, none, tree);
     if (!d.count) el.appendChild(DL.el('p', 'muted', 'No files yet.'));
     apply();
 
@@ -148,6 +131,8 @@
   };
   DL.router.register('files', def);
   DL.router.register('file', def);
+
+  DL.filesView = { inDir: inDir };
 
   /* Closing the viewer opened by `#/file/<id>` goes back to the explorer's own address. */
   DL.bus.on('viewer-closed', function () {

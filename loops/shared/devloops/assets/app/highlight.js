@@ -1,54 +1,53 @@
-/* highlight.js: syntax highlighting (a small rule-based tokenizer per language), pretty JSON, and
-   the JSON tree. `tokenize`, `langOf`, and `pretty` are pure; `codeView` and `jsonTree` build DOM
-   (only when called). */
+/* highlight.js: syntax highlighting, pretty JSON, and the JSON tree. Code is cut into tokens by
+   Prism (vendor/, research R-16) through `Prism.tokenize` only, so text never becomes markup
+   (FR-033); logs, HTTP, and diffs keep small rules of their own. Without Prism (the export) or a
+   grammar, the text is one plain token. `tokenize`, `langOf`, and `pretty` are pure; `codeView`
+   and `jsonTree` build DOM (only when called). */
 (function (DL) {
   'use strict';
 
   DL.prefs = DL.prefs || { wrap: DL.store('wrap') !== '0', ln: DL.store('ln') !== '0' };
 
-  var STR2 = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/y,
-    NUM = /\b-?(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/iy,
+  var NUM = /\b-?(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/iy,
     WORD = /[A-Za-z_$][\w$]*/y;
-  function kw(words) { return new RegExp('\\b(?:' + words.split(' ').join('|') + ')\\b', 'y'); }
-  var LANGS = {
-    json: [[/"(?:[^"\\\n]|\\.)*"(?=\s*:)/y, 'key'], [/"(?:[^"\\\n]|\\.)*"/y, 'str'],
-      [/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y, 'num'], [/\b(?:true|false|null)\b/y, 'lit'], [/[{}\[\],:]/y, 'pun']],
-    python: [[/#.*/y, 'com'], [/[rbfu]{0,2}("""[\s\S]*?"""|'''[\s\S]*?''')/iy, 'str'],
-      [/[rbfu]{0,2}(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/iy, 'str'],
-      [kw('def class return if elif else for while in import from as with try except finally raise pass break continue lambda yield not and or is global nonlocal async await assert del'), 'kw'],
-      [kw('True False None self cls'), 'lit'], [/@[\w.]+/y, 'kw'], [NUM, 'num'], [WORD, null]],
-    js: [[/\/\/.*/y, 'com'], [/\/\*[\s\S]*?\*\//y, 'com'], [/`(?:[^`\\]|\\[\s\S])*`/y, 'str'], [STR2, 'str'],
-      [kw('const let var function return if else for while do switch case break continue new class extends import from export default try catch finally throw await async typeof instanceof in of yield this'), 'kw'],
-      [kw('true false null undefined NaN'), 'lit'], [NUM, 'num'], [WORD, null]],
-    shell: [[/#.*/y, 'com'], [STR2, 'str'], [/\$\{?[\w@#?*!-]+\}?/y, 'key'], [/(?:^|(?<=\s))--?[\w-]+/y, 'kw'],
-      [kw('if then else elif fi for in do done while case esac function export local return sudo cd'), 'kw'], [NUM, 'num'], [WORD, null]],
-    yaml: [[/#.*/y, 'com'], [/[\w.\/-]+(?=:(?:\s|$))/y, 'key'], [STR2, 'str'], [kw('true false null yes no on off'), 'lit'],
-      [NUM, 'num'], [/^\s*-(?=\s)/my, 'pun'], [WORD, null]],
+  /* The languages with rules of their own: `[[pattern, class or null]]`, tried in order. */
+  var RULES = {
     http: [[/^HTTP\/[\d.]+ \d+.*$/my, 'head'], [/^(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) .*$/my, 'head'],
       [/^[\w-]+(?=:)/my, 'key'], [NUM, 'num'], [WORD, null]],
-    html: [[/<!--[\s\S]*?-->/y, 'com'], [/<\/?[\w-]+/y, 'kw'], [/\/?>/y, 'kw'], [/[\w-]+(?==)/y, 'key'], [STR2, 'str'], [WORD, null]],
-    css: [[/\/\*[\s\S]*?\*\//y, 'com'], [/[\w-]+(?=\s*:[^{]*[;}])/y, 'key'], [/#[\da-f]{3,8}\b/iy, 'num'], [NUM, 'num'], [STR2, 'str'], [WORD, null]],
-    markdown: [[/^#{1,6} .*$/my, 'head'], [/^```.*$/my, 'com'], [/`[^`\n]+`/y, 'str'], [/\*\*[^*\n]+\*\*/y, 'kw'],
-      [/^\s*(?:[-*+]|\d+\.)(?=\s)/my, 'pun'], [/\[[^\]\n]*\]\([^)\n]*\)/y, 'key'], [WORD, null]],
     log: [[/\b\d{4}-\d\d-\d\dT[\d:.]+Z?\b/y, 'com'], [/\b(?:ERROR|Error|FAIL(?:ED)?|Traceback|Exception|exit [1-9]\d*)\b/y, 'err'],
       [/\b(?:WARN(?:ING)?|Warning)\b/y, 'warn'], [/"(?:[^"\\\n]|\\.)*"/y, 'str'], [/\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/y, 'kw'], [NUM, 'num'], [WORD, null]],
-    text: []
+    diff: [[/^\+.*$/my, 'str'], [/^-.*$/my, 'lit'], [/^@@.*$/my, 'kw']]
   };
-  LANGS.ts = LANGS.js;
-  LANGS.diff = [[/^\+.*$/my, 'str'], [/^-.*$/my, 'lit'], [/^@@.*$/my, 'kw']];
+  /* Our language names → Prism's grammars. */
+  var GRAMMAR = {
+    js: 'javascript', ts: 'typescript', jsx: 'jsx', tsx: 'tsx', json: 'json', python: 'python',
+    shell: 'bash', yaml: 'yaml', html: 'markup', css: 'css', markdown: 'markdown', csharp: 'csharp',
+    go: 'go', java: 'java', sql: 'sql'
+  };
+  /* Prism's token types (or aliases) → our classes; '' resets to plain (code inside a string). */
+  var TYPES = {
+    keyword: 'kw', selector: 'kw', atrule: 'kw', important: 'kw', decorator: 'kw', annotation: 'kw',
+    directive: 'kw', bold: 'kw', italic: 'kw',
+    string: 'str', 'template-string': 'str', 'string-interpolation': 'str', 'triple-quoted-string': 'str',
+    char: 'str', 'attr-value': 'str', regex: 'str', code: 'str', 'code-snippet': 'str',
+    number: 'num', boolean: 'lit', constant: 'lit', 'null': 'lit', nil: 'lit',
+    comment: 'com', prolog: 'com', doctype: 'com', cdata: 'com', shebang: 'com',
+    property: 'key', 'attr-name': 'key', tag: 'key', key: 'key', variable: 'key', url: 'key',
+    'function': 'fn', 'function-variable': 'fn', 'class-name': 'fn', builtin: 'fn',
+    punctuation: 'pun', operator: 'pun', list: 'pun', hr: 'pun', blockquote: 'pun',
+    title: 'head', interpolation: ''
+  };
   var MAX_HL = 400000;
 
-  /* `[[class or null, text]]`: the text cut into tokens by the language's rules. */
-  function tokenize(text, lang) {
-    var rules = LANGS[lang] || [], out = [], plain = '', i = 0, n = text.length;
-    if (!rules.length || n > MAX_HL) return [[null, text]];
+  function rules(text, list) {
+    var out = [], plain = '', i = 0, n = text.length;
     outer: while (i < n) {
-      for (var r = 0; r < rules.length; r++) {
-        var re = rules[r][0];
+      for (var r = 0; r < list.length; r++) {
+        var re = list[r][0];
         re.lastIndex = i;
         var m = re.exec(text);
         if (m && m[0].length) {
-          if (rules[r][1]) { if (plain) { out.push([null, plain]); plain = ''; } out.push([rules[r][1], m[0]]); }
+          if (list[r][1]) { if (plain) { out.push([null, plain]); plain = ''; } out.push([list[r][1], m[0]]); }
           else plain += m[0];
           i += m[0].length;
           continue outer;
@@ -60,13 +59,43 @@
     return out;
   }
 
+  function classOf(token, inherited) {
+    var names = [token.type].concat(token.alias || []);
+    for (var k = 0; k < names.length; k++) {
+      if (Object.prototype.hasOwnProperty.call(TYPES, names[k])) return TYPES[names[k]] || null;
+    }
+    return inherited;
+  }
+  /* Prism's token tree as `[[class or null, text]]`, a nested token taking its own class or its
+     parent's, adjacent texts of one class joined. */
+  function flatten(list, cls, out) {
+    (Array.isArray(list) ? list : [list]).forEach(function (t) {
+      if (typeof t !== 'string') return flatten(t.content, classOf(t, cls), out);
+      var last = out[out.length - 1];
+      if (!t) return;
+      if (last && last[0] === cls) last[1] += t;
+      else out.push([cls, t]);
+    });
+    return out;
+  }
+
+  /* `[[class or null, text]]`: the text cut into tokens; their texts join to the text. */
+  function tokenize(text, lang) {
+    if (!text || text.length > MAX_HL) return [[null, text]];
+    if (RULES[lang]) return rules(text, RULES[lang]);
+    var P = window.Prism, grammar = P && P.tokenize && P.languages && P.languages[GRAMMAR[lang]];
+    return grammar ? flatten(P.tokenize(text, grammar), null, []) : [[null, text]];
+  }
+
   function langOf(s) {
     s = (s || '').toLowerCase();
     return {
-      py: 'python', python: 'python', js: 'js', javascript: 'js', ts: 'ts', typescript: 'ts',
+      py: 'python', python: 'python', js: 'js', mjs: 'js', cjs: 'js', javascript: 'js', jsx: 'jsx',
+      ts: 'ts', mts: 'ts', cts: 'ts', typescript: 'ts', tsx: 'tsx',
       json: 'json', jsonc: 'json', sh: 'shell', bash: 'shell', shell: 'shell', zsh: 'shell', console: 'shell',
-      yml: 'yaml', yaml: 'yaml', html: 'html', xml: 'html', css: 'css', http: 'http', md: 'markdown',
-      markdown: 'markdown', diff: 'diff', log: 'log'
+      yml: 'yaml', yaml: 'yaml', html: 'html', htm: 'html', xml: 'html', svg: 'html', css: 'css',
+      http: 'http', md: 'markdown', markdown: 'markdown', diff: 'diff', log: 'log',
+      cs: 'csharp', csharp: 'csharp', go: 'go', java: 'java', sql: 'sql'
     }[s] || 'text';
   }
 
@@ -149,5 +178,5 @@
     return box;
   }
 
-  DL.hl = { LANGS: LANGS, tokenize: tokenize, langOf: langOf, pretty: pretty, codeView: codeView, jsonTree: jsonTree };
+  DL.hl = { tokenize: tokenize, langOf: langOf, pretty: pretty, codeView: codeView, jsonTree: jsonTree };
 })(window.DL = window.DL || {});

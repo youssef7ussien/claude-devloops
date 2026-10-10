@@ -551,14 +551,16 @@ The sidebar switches between workspaces.
   and labeled by result), **cost by milestone**, and **cost by step** (hover a bar for its
   details).
 - **Run**: the run's steps, one per loop it includes, and the handoff to frontend-dev.
-- **Per loop**: its outputs (progress, plan summary, final report, OpenAPI document), the UI URL,
-  stack and runtime, and a card per milestone with its tasks, acceptance-criteria results with
-  observations and evidence (screenshots as thumbnails), the exact curl commands or the browser's
-  network requests, the API contract result, and every trial with its failure detail, duration,
-  cost, and calls.
-- **Claude calls**: selecting a call opens its conversation (Claude's replies rendered, tool calls
+- **Per loop**: its outputs (progress, plan summary, final report, OpenAPI document), its open
+  questions and assumptions, the UI URL, stack and runtime; **Steps** (cost and time by step, each
+  planning attempt its own row; a step opens the loop's calls of that step); and a card per
+  milestone with its tasks, an acceptance-criteria table (result, observation, and evidence, with
+  screenshots as thumbnails), and its trials with their result, duration, cost, and calls, the
+  retries granted placed before the trials they allowed. A trial opens with its calls, why it
+  failed, the files it changed, and its folder.
+- **Claude calls**: filtered by loop, step, and text; selecting a call opens its conversation (Claude's replies rendered, tool calls
   summarized on one line and opened for their input, results, thinking, and system records shown
-  or hidden), its prompt with the parts it was composed from and where each came from, and its
+  in their place or hidden, and an errors-only filter), its prompt with the parts it was composed from and where each came from, and its
   settings.
 - **Files**: a tree per loop (inputs, plan, each milestone's trials and evidence, prompts, outputs,
   run state), with a path filter and type filters. A file opens in a large viewer that can be
@@ -566,7 +568,7 @@ The sidebar switches between workspaces.
   copy, download, wrapping, and line numbers. Markdown is rendered (or shown as source), JSON is
   indented and highlighted (or shown as a collapsible tree), JSON lines are shown one record per
   row, code and logs are highlighted, and images fit the window or show at full size.
-- **Questions** (open questions, planning assumptions, retries granted) and **Events**.
+- **Questions** (open questions and planning assumptions, filtered by loop) and **Events**.
 
 `Ctrl K` (or `/`) jumps to any page, call, or file, and from three characters also searches the
 text of every file and conversation. The theme button switches light and dark.

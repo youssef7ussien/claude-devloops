@@ -74,3 +74,13 @@ test('the now panel lists the last 20 tools, or all', () => {
   assert.equal(DL.now.visible(tools.slice(0, 3), false).length, 3);
   assert.equal(DL.now.visible(null, false).length, 0);
 });
+
+test('refTip: what a plan id says, or null (FR-020d)', () => {
+  const DL = load();
+  const refs = { 'FR-1': 'List items', 'M01-T01': 'GET /items', 'M01-AC1': 'GET /items returns 200' };
+  assert.equal(DL.refTip('FR-1', refs), 'List items');
+  assert.equal(DL.refTip('M01-AC1', refs), 'GET /items returns 200');
+  assert.equal(DL.refTip('FR-9', refs), null);
+  assert.equal(DL.refTip('FR-1', undefined), null);
+  assert.equal(DL.refTip('toString', refs), null);
+});

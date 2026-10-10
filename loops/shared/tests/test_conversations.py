@@ -162,11 +162,22 @@ class ParseConversationTest(unittest.TestCase):
             tool_use("Edit", file_path="/t/a.py", old_string="x", new_string="y"),
             tool_use("MultiEdit", file_path="/t/d.py", edits=[]),
             tool_use("NotebookEdit", notebook_path="/t/e.ipynb", new_source="")))
-        self.assertEqual(parsed["files_changed"], [
-            {"path": "/t/b.py", "tool": "Edit", "block": 1},
-            {"path": "/t/a.py", "tool": "Edit", "block": 3},
-            {"path": "/t/d.py", "tool": "MultiEdit", "block": 4},
-            {"path": "/t/e.ipynb", "tool": "NotebookEdit", "block": 5}])
+        self.assertEqual(parsed["files_changed"], [  # lines of all of a path's changes
+            {"path": "/t/b.py", "tool": "Edit", "block": 1, "added": 1, "removed": 1},
+            {"path": "/t/a.py", "tool": "Edit", "block": 3, "added": 2, "removed": 1},
+            {"path": "/t/d.py", "tool": "MultiEdit", "block": 4, "added": 0, "removed": 0},
+            {"path": "/t/e.ipynb", "tool": "NotebookEdit", "block": 5, "added": 0, "removed": 0}])
+
+    def test_change_counts(self):
+        self.assertEqual(artifacts.diff_counts("a\nb\nc\nd", "a\nx\nc\nd\ne"), (2, 1))
+        self.assertEqual(artifacts.diff_counts("", "n\n"), (1, 0))
+        self.assertEqual(artifacts.diff_counts("same", "same"), (0, 0))
+        big = "\n".join(str(k) for k in range(600))
+        self.assertEqual(artifacts.diff_counts(big, big[::-1]), (600, 600))  # over DIFF_CELLS
+        self.assertEqual(artifacts.edit_counts("MultiEdit", {"edits": [
+            {"old_string": "a", "new_string": "b\nc"}, "junk", {"old_string": "x"}]}), (2, 2))
+        self.assertEqual(artifacts.edit_counts("Write", {"content": "1\n2\n"}), (2, 0))
+        self.assertEqual(artifacts.edit_counts("NotebookEdit", {"new_source": "x"}), (0, 0))
 
 
 if __name__ == "__main__":

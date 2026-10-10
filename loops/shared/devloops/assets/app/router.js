@@ -15,7 +15,7 @@
     ['overview', /^$/, []],
     ['run', /^run$/, []],
     ['loop', /^loop\/([^/]+)$/, ['loop']],
-    ['plan', /^loop\/([^/]+)\/plan$/, ['loop']],
+    ['loop', /^loop\/([^/]+)\/plan$/, ['loop']],  /* the plan view's old address (FR-020a) */
     ['trial', /^loop\/([^/]+)\/m\/([^/]+)\/t\/([^/]+)$/, ['loop', 'milestone', 'key']],
     ['calls', /^calls$/, []],
     ['call', /^call\/([^/]+)\/([^/]+)$/, ['loop', 'seq']],
@@ -25,7 +25,7 @@
     ['events', /^events$/, []]
   ];
   var BY_NAME = {};
-  ROUTES.forEach(function (r) { BY_NAME[r[0]] = r; });
+  ROUTES.forEach(function (r) { if (!BY_NAME[r[0]]) BY_NAME[r[0]] = r; });  /* an alias never makes an href */
 
   function decode(s) { try { return decodeURIComponent(s); } catch (e) { return s; } }
 

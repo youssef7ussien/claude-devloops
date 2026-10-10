@@ -165,16 +165,19 @@
     for (var i = 0; i < list.length; i++) if (list[i].id === current.id) return i;
     return -1;
   }
+  function position() {
+    var nav = parts['v-nav'], k = index();
+    DL.$('[data-step="-1"]', nav).disabled = k <= 0;
+    DL.$('[data-step="1"]', nav).disabled = k < 0 || k >= list.length - 1;
+    DL.$('.pos', nav).textContent = list.length > 1 && k >= 0 ? (k + 1) + ' / ' + list.length : '';
+  }
   function frame(ref, tools) {
     setPath(ref.path || ref.id || '');
     setMeta([ref.kind === 'code' ? ref.lang : ref.kind, ref.size != null ? DL.fmt.bytes(ref.size) : '', ref.meta || '']);
     parts['v-tools'].textContent = '';
     parts.tabs.textContent = '';
     parts.tabs.hidden = true;
-    var nav = parts['v-nav'], k = index();
-    DL.$('[data-step="-1"]', nav).disabled = k <= 0;
-    DL.$('[data-step="1"]', nav).disabled = k < 0 || k >= list.length - 1;
-    DL.$('.pos', nav).textContent = list.length > 1 && k >= 0 ? (k + 1) + ' / ' + list.length : '';
+    position();
     (tools || []).forEach(function (t) { parts['v-tools'].appendChild(t); });
   }
   function show(node) { var b = parts['v-body']; b.textContent = ''; b.appendChild(node); }
@@ -277,6 +280,13 @@
       if (after) after();
     }
     if (ref.missing) { frame(ref, []); show(pane(DL.el('p', 't-err', 'Missing: ' + (ref.path || ref.id)))); return; }
+    if (ref.inline) { draw(ref, ref.inline, done, opts.line); return; } /* data in hand: an image from a conversation */
+    if (ref.panel) { /* a built node (DL.viewer.panel) */
+      frame(ref, ref.tools ? ref.tools() : []);
+      show(ref.panel());
+      done();
+      return;
+    }
     var hit = cached(ref.id);
     if (hit && hit.v === (ref.version || '')) { draw(ref, hit.data, done, opts.line); return; }
     if (ref.size > BIG && !bigOk[ref.id] && ref.kind !== 'image' && ref.kind !== 'binary') {
@@ -317,6 +327,25 @@
   }
   function close() { if (dlg && dlg.open) dlg.close(); }
 
+  /* A longer list for what is shown (the trial view's changes once all its calls are read):
+     taken only while the item shown is in it. */
+  function relist(items) {
+    if (!dlg || !dlg.open || !current) return;
+    if (!(items || []).some(function (x) { return x.id === current.id; })) return;
+    list = options.list = items;
+    position();
+  }
+
+  /* A built node in the viewer's frame, with its keys and previous/next (FR-018d): `title` is
+     shown as the path, `node` as the body. `opts.list` steps through items like
+     `{id, path, meta, panel: () => node, tools: () => [elements]}`, `opts.item` is the one shown
+     (default: the node itself as one item); `opts.opener` gets the focus back. */
+  function panel(title, node, opts) {
+    opts = opts || {};
+    var item = opts.item || { id: 'panel:' + title, path: title, meta: opts.meta, panel: function () { return node; } };
+    open(item, opts);
+  }
+
   /* A link to a file that opens it in the viewer (with `list` to step through), or a "missing"
      label for a file that cannot be read. Its address is the file's route, so it opens in a new
      tab too. */
@@ -354,6 +383,8 @@
 
   DL.viewer = {
     open: open,
+    panel: panel,
+    relist: relist,
     close: close,
     link: link,
     isOpen: function () { return !!(dlg && dlg.open); },

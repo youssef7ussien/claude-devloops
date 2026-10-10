@@ -1,0 +1,5 @@
+Prism 1.30.0 (MIT, see LICENSE), copied unchanged: the minified core and the components listed in
+../../scripts.txt, from the npm package prismjs@1.30.0
+(https://registry.npmjs.org/prismjs/-/prismjs-1.30.0.tgz, sha1 d9709969d9d4e16403f6f348c63553b19f0975a9),
+on 2026-10-10. The app calls only Prism.tokenize (specs/005-dashboard-redesign FR-033, research R-16).
+To upgrade: replace these files from the new release, update this note, and run test_app_js.

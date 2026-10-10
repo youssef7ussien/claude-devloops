@@ -466,16 +466,68 @@ def _blocks(record):
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
 
 
+DIFF_CELLS = 250000  # as the app's line diff (assets/app/actions.js): above it, all lines changed
+
+
+def _lines(text):
+    """The lines of `text` as the app splits them (one trailing newline ignored)."""
+    if not isinstance(text, str) or not text:
+        return []
+    return (text[:-1] if text.endswith("\n") else text).split("\n")
+
+
+def diff_counts(old, new):
+    """`(added, removed)`: the line counts of the app's diff of `old` and `new` (a longest common
+    subsequence after the common first and last lines, or every line when it would take more
+    than DIFF_CELLS cells), so the trial view's counts match its change dialog (FR-018d)."""
+    x, y = _lines(old), _lines(new)
+    pre = 0
+    while pre < len(x) and pre < len(y) and x[pre] == y[pre]:
+        pre += 1
+    post = 0
+    while post < len(x) - pre and post < len(y) - pre and x[-1 - post] == y[-1 - post]:
+        post += 1
+    xs, ys = x[pre:len(x) - post], y[pre:len(y) - post]
+    if len(xs) * len(ys) > DIFF_CELLS:
+        return len(ys), len(xs)
+    prev = [0] * (len(ys) + 1)
+    for a in xs:
+        row = [0]
+        for j, b in enumerate(ys):
+            row.append(prev[j] + 1 if a == b else max(prev[j + 1], row[j]))
+        prev = row
+    common = prev[-1]
+    return len(ys) - common, len(xs) - common
+
+
+def edit_counts(tool, data):
+    """`(added, removed)` lines of one edit tool use, by its input (Write: every line added)."""
+    def text(v):
+        return v if isinstance(v, str) else ""
+    if tool == "MultiEdit" and isinstance(data.get("edits"), list):
+        pairs = [(text(e.get("old_string")), text(e.get("new_string")))
+                 for e in data["edits"] if isinstance(e, dict)]
+    elif tool == "Edit":
+        pairs = [(text(data.get("old_string")), text(data.get("new_string")))]
+    elif tool == "Write":
+        pairs = [("", text(data.get("content")))]
+    else:
+        pairs = []
+    counts = [diff_counts(a, b) for a, b in pairs]
+    return sum(c[0] for c in counts), sum(c[1] for c in counts)
+
+
 def parse_conversation(text, redactor):
     """A transcript's records, parsed and redacted: `{records, errors, files_changed}`.
 
     Each non-blank line is one record (split on "\\n" only: a U+2028 inside a string is not a
     line break); a line that is not JSON is `{"raw": <redacted text>}`. `errors` are the indexes
-    of records holding a failed tool result; `files_changed` is `[{path, tool, block}]`, one per
-    path (its last change, in the order of last changes), from the edit tools' uses, where
-    `block` is the index of the record holding the tool use.
+    of records holding a failed tool result; `files_changed` is `[{path, tool, block, added,
+    removed}]`, one per path (its last change, in the order of last changes), from the edit
+    tools' uses, where `block` is the index of the record holding the tool use and `added` and
+    `removed` are the lines of all its changes (`diff_counts`).
     """
-    records, errors, changed = [], [], {}
+    records, errors, changed, counts = [], [], {}, {}
     for line in text.split("\n"):
         if not line.strip():
             continue
@@ -493,8 +545,12 @@ def parse_conversation(text, redactor):
                 data = block.get("input") if isinstance(block.get("input"), dict) else {}
                 path = data.get("file_path") or data.get("notebook_path")
                 if isinstance(path, str) and path:
+                    added, removed = edit_counts(block["name"], data)
+                    total = counts.get(path, (0, 0))
+                    counts[path] = (total[0] + added, total[1] + removed)
                     changed.pop(path, None)
-                    changed[path] = {"path": path, "tool": block["name"], "block": k}
+                    changed[path] = {"path": path, "tool": block["name"], "block": k,
+                                     "added": counts[path][0], "removed": counts[path][1]}
     return {"records": records, "errors": errors, "files_changed": list(changed.values())}
 
 

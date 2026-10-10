@@ -157,6 +157,9 @@
     var tip = DL.$('#tip');
     if (!tip) return;
     function show(n, x, y) {
+      /* inside a modal dialog (the top layer), the tip must be in it to show above it */
+      var host = n.closest('dialog[open]') || document.body;
+      if (tip.parentNode !== host) host.appendChild(tip);
       tip.textContent = n.getAttribute('data-tip');
       tip.style.display = 'block';
       var w = tip.offsetWidth, h = tip.offsetHeight;
@@ -271,6 +274,31 @@
     if (cell.partial) DL.add(span, ' ', DL.el('span', 'partial', 'partial'));
     return span;
   };
+  /* What a requirement, task, or criterion id says in the plan (FR-020d): `refs` is a loop's
+     `{id: text}`; null when the plan does not have the id. */
+  DL.refTip = function (id, refs) {
+    var t = refs && Object.prototype.hasOwnProperty.call(refs, id) ? refs[id] : null;
+    return t ? String(t) : null;
+  };
+  /* An id shown like a token count: its text in the same tooltip, on hover and on focus; plain
+     text when the plan does not have it. */
+  DL.ref = function (id, refs) {
+    var tip = DL.refTip(id, refs);
+    if (!tip) return document.createTextNode(String(id));
+    var span = DL.el('span', 'tok ref', String(id));
+    span.setAttribute('data-tip', tip);
+    span.tabIndex = 0;
+    return span;
+  };
+  /* Ids joined by commas, each through DL.ref. */
+  DL.refList = function (ids, refs) {
+    var out = [];
+    (ids || []).forEach(function (id, i) {
+      if (i) out.push(', ');
+      out.push(DL.ref(id, refs));
+    });
+    return out;
+  };
   /* A table cell; content is text, an element, or a list of them. */
   DL.td = function (content, cls) { return DL.add(DL.el('td', cls || null), content); };
   /* A bordered table: head `[[label, numeric]]`, rows `<tr>` elements; `opts.empty` is said
@@ -293,44 +321,57 @@
     });
     return tr;
   };
-  /* A filter over `rows`: a search box and, with `chips` ([[value, label]]), chips selecting
-     the rows whose `data-<attr>` is that value (at most one pressed). Returns the toolbar. */
+  /* Whether a row passes the filter: its text holds `q` (lower case), and each chosen value
+     (`{attr: value or null}`) equals the row's `get(attr)`. */
+  DL.filterMatch = function (text, get, q, chosen) {
+    if (q && String(text).toLowerCase().indexOf(q) < 0) return false;
+    return Object.keys(chosen || {}).every(function (attr) { return chosen[attr] == null || get(attr) === chosen[attr]; });
+  };
+  /* A filter over `rows`: a search box and, per group of `groups` ([{attr, label, chips:
+     [[value, label]]}]), chips selecting the rows whose `data-<attr>` is that value (at most one
+     pressed per group; a group with one choice shows no chips). Returns the toolbar;
+     `bar.choose(attr, value)` presses a chip from the address, its group shown or not. */
   DL.filter = function (rows, opts) {
     opts = opts || {};
-    var bar = DL.el('div', 'toolbar'), input = DL.el('input', 'input'), chosen = null;
+    var bar = DL.el('div', 'toolbar'), input = DL.el('input', 'input'), chosen = {}, buttons = {};
     input.type = 'search';
     input.placeholder = opts.placeholder || 'Filter…';
     input.setAttribute('aria-label', opts.placeholder || 'Filter');
     function apply() {
       var q = input.value.toLowerCase().trim();
       rows.forEach(function (r) {
-        var ok = (!q || r.textContent.toLowerCase().indexOf(q) >= 0) &&
-          (chosen === null || r.getAttribute('data-' + opts.attr) === chosen);
+        var ok = DL.filterMatch(r.textContent, function (attr) { return r.getAttribute('data-' + attr); }, q, chosen);
         r.classList.toggle('hidden-by-filter', !ok);
       });
     }
+    function press(attr, value) {
+      chosen[attr] = value;
+      (buttons[attr] || []).forEach(function (x) { x.setAttribute('aria-pressed', String(x.dataset.chip === value)); });
+      apply();
+    }
     input.addEventListener('input', apply);
     bar.appendChild(input);
-    if (opts.chips && opts.chips.length > 1) {
-      var group = DL.el('div', 'chips'), buttons = [];
+    (opts.groups || []).forEach(function (g) {
+      chosen[g.attr] = null;
+      buttons[g.attr] = [];
+      if (!g.chips || g.chips.length < 2) return;
+      var group = DL.el('div', 'chips');
       group.setAttribute('role', 'group');
-      group.setAttribute('aria-label', opts.chipsLabel || 'Filter');
-      opts.chips.forEach(function (c) {
+      group.setAttribute('aria-label', g.label || 'Filter');
+      g.chips.forEach(function (c) {
         var b = DL.el('button', 'chip', c[1]);
         b.type = 'button';
         b.dataset.chip = c[0];
+        b.dataset.group = g.attr;
         b.setAttribute('aria-pressed', 'false');
-        b.addEventListener('click', function () {
-          chosen = chosen === c[0] ? null : c[0];
-          buttons.forEach(function (x) { x.setAttribute('aria-pressed', String(x.dataset.chip === chosen)); });
-          apply();
-        });
-        buttons.push(b);
+        b.addEventListener('click', function () { press(g.attr, chosen[g.attr] === c[0] ? null : c[0]); });
+        buttons[g.attr].push(b);
         group.appendChild(b);
       });
       bar.appendChild(group);
-    }
+    });
     bar.filterInput = input;
+    bar.choose = function (attr, value) { if (value != null && attr in chosen) press(attr, String(value)); };
     return bar;
   };
 })(window.DL = window.DL || {});

@@ -62,7 +62,10 @@ class PackagingTest(unittest.TestCase):
                       "devloops/assets/dashboard.css",
                       "devloops/assets/app/scripts.txt",
                       "devloops/assets/app/index.html",
-                      "devloops/assets/app/core.js"):
+                      "devloops/assets/app/core.js",
+                      "devloops/assets/app/vendor/prism-config.js",
+                      "devloops/assets/app/vendor/prism/prism-core.min.js",
+                      "devloops/assets/app/vendor/prism/LICENSE"):
             self.assertIn(asset, names)
         self.assertFalse([n for n in names if "/tests/" in n or n.startswith("tests/")])
 
