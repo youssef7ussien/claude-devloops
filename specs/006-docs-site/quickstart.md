@@ -80,17 +80,19 @@ project setting (30); that `backend.*` settings are always replaced by the hando
 `replan` approval value is never recorded; when a final report is written; and the example
 `check` output showing a Claude Code version below the minimum.
 
-Code issues the review found, left for a later change (not documentation):
+Code issues the review found, fixed on 2026-10-11 (after the review's commit):
 
-- `validators/curl.py` stops a loop with the reason `validation-failed`, which the run-state
-  schema's stop reasons do not list.
-- `approval.action` lists `replan`, which nothing records.
-- The `input-changed` message says to restore the file, but the stop cannot be resumed.
-- A missing tool met while resuming outside `devloops run` (e.g. `retry --no-continue`) can end
-  a loop as `stopped-on-input-error`.
-- `backend.*` settings never take effect (the handoff overrides them); `runtime` is shared by
-  both loops.
-- The installed `.devloops/prompts/README.md` and the `status` line say an override applies
-  from the next start; it applies from the next call.
-- `outputs/openapi.json` is not written atomically.
-- `checkcmd` links Claude Code's documentation at a different address than the site.
+- The stop when an achieved milestone's OpenAPI document no longer loads now has its own reason,
+  `publish-failed`, which the run-state schema lists (it used `validation-failed`, which it did
+  not); a test now checks every stop reason the driver raises against the schema.
+- `approval.action` no longer lists `replan`, which nothing recorded.
+- The `input-changed` message no longer says restoring the file resumes the run (the stop is
+  final, spec 001 FR-028).
+- A missing tool met while resuming a loop run alone (outside `devloops run`'s own check) no
+  longer ends the loop as `stopped-on-input-error`: it exits 30 and records nothing.
+- `outputs/openapi.json` is written atomically.
+- The `backend` settings' description says the handoff replaces them in a run.
+
+Left as designed: `runtime` is one setting shared by both loops (no per-loop override); the
+`backend` settings take effect only for a frontend run without a handoff, which `devloops run`
+does not offer.

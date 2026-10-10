@@ -187,7 +187,7 @@ Where the backend writes its OpenAPI document, relative to the target.
 
 ### `backend` {#backend}
 
-For the frontend loop only: the backend its pages call while they are validated.
+For the frontend loop only: the backend its pages call while they are validated. In a run, devloops sets these from the backend loop's handoff, which replaces any value set here.
 
 - **Type:** object
 

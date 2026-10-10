@@ -147,7 +147,8 @@ is told they exist, and that it must not call them.
 devloops publishes again after every achieved milestone, from the operations of every achieved
 milestone, so the last one leaves the final document. It reads the target's document again to
 do so. If the document no longer loads at that moment, even though the milestone has just passed
-against it, devloops fails the milestone again and the loop stops, with
+against it, devloops fails the milestone again and the loop stops, with the reason
+[`publish-failed`](../reference/statuses.md#stop-publish-failed) and
 [exit code 20](../reference/exit-codes.md#exit-20), rather than leave an older document in
 place. Fix the document, then [`devloops retry`](../reference/commands.md#retry) validates the
 milestone and publishes it again.

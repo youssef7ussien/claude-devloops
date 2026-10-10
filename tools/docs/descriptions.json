@@ -91,7 +91,6 @@
     },
     "approval": {
       "approve": "You approved the plan with devloops approve.",
-      "replan": "You asked for a new plan with devloops replan.",
       "auto-approve": "devloops approved the plan by itself and accepted Claude's suggested answers (questions: accept-suggested)."
     }
   },
@@ -100,6 +99,7 @@
     "planning-trials-exhausted": "The plan step did not produce a usable plan within its trials.",
     "invocation-cap": "The run reached its limit of calls to Claude Code (max_invocations_per_run).",
     "needs-input": "Claude Code asked a question that needs your answer before the work can go on.",
+    "publish-failed": "An achieved milestone's OpenAPI document no longer loads, so it could not be published; the milestone is failed again and devloops retry validates it again.",
     "missing-input": "A file the run needs, such as the requirements, is missing or empty.",
     "story-not-found": "The story named with --story-id is not in the requirements.",
     "invalid-api-spec": "The OpenAPI document the frontend loop builds against is not a valid OpenAPI document.",

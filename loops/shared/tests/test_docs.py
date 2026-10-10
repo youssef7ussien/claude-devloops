@@ -422,6 +422,29 @@ class StatusDiagramsTest(unittest.TestCase):
                              {"task": "stateDiagram-v2\n  [*] --> pending\n"})
 
 
+class StopReasonsTest(unittest.TestCase):
+    """Every stop reason the driver raises is one the run state's schema lists, so the reference
+    describes it and a stopped `run.json` stays valid."""
+
+    RAISED = re.compile(r'(?:StopRun\(\s*"stopped-on-[a-z-]+",\s*|input_error\(\s*)"([a-z-]+)"')
+
+    # Raised before any loop's run state exists (choosing the loops; `init`): never recorded.
+    NEVER_RECORDED = {"no-loop", "frontend-needs-backend", "settings-unreadable"}
+
+    def test_every_raised_stop_reason_is_in_the_schema(self):
+        from devloops import schema
+        codes = set(schema.load("run-state.schema.json")["properties"]["status_reason"][
+            "properties"]["code"]["enum"]) | self.NEVER_RECORDED
+        raised = []
+        for path in sorted(glob.glob(os.path.join(ROOT, "loops", "shared", "devloops", "**",
+                                                  "*.py"), recursive=True)):
+            with open(path, encoding="utf-8") as f:
+                raised += [(os.path.relpath(path, ROOT), c) for c in self.RAISED.findall(f.read())]
+        self.assertTrue(raised)
+        self.assertEqual([f"{p}: {c!r}" for p, c in raised if c not in codes], [],
+                         "stop reasons the run-state schema does not list")
+
+
 @unittest.skipUnless(zensical(),"needs zensical (pip install -r tools/docs/requirements.txt)")
 class SiteBuildTest(unittest.TestCase):
     """Check 7: Zensical has no output-folder option, so this writes the git-ignored `site/`."""

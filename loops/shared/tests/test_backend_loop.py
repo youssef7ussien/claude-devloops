@@ -154,6 +154,33 @@ class BackendLoopTest(unittest.TestCase):
                   encoding="utf-8") as f:
             self.assertIn("Left out of the OpenAPI artifact", f.read())
 
+    def test_a_document_that_no_longer_loads_stops_with_publish_failed(self):
+        """`_publish` after an achieved milestone: a document that no longer loads fails the
+        milestone again with a stop reason the run state's schema lists; one that loads is
+        written as a whole file (atomically) and recorded."""
+        from types import SimpleNamespace
+        from devloops import schema
+        from devloops.validators import curl
+        run_state = {"milestones": {"M01": {"status": "achieved", "tasks": {"M01-T01": "achieved"},
+                                            "trials": []}}}
+        ctx = SimpleNamespace(runtime=self.plan()["runtime"], target_dir=self.t.target_dir,
+                              milestone={"id": "M01"}, run_state=run_state,
+                              loop_dir=self.loop_dir)
+        with self.assertRaises(state.StopRun) as cm:
+            curl._publish(ctx)
+        codes = schema.load("run-state.schema.json")["properties"]["status_reason"][
+            "properties"]["code"]["enum"]
+        self.assertEqual(cm.exception.code, "publish-failed")
+        self.assertIn(cm.exception.code, codes)
+        self.assertEqual(run_state["milestones"]["M01"],
+                         {"status": "failed", "tasks": {"M01-T01": "failed"}, "trials": []})
+        with open(os.path.join(self.t.target_dir, "openapi.json"), "w", encoding="utf-8") as f:
+            json.dump(M01_OPENAPI, f)
+        curl._publish(ctx)
+        self.assertEqual(sorted(self.published_openapi()["paths"]), [])  # no check called it yet
+        self.assertEqual(run_state["openapi_artifact"]["path"], os.path.join("outputs",
+                                                                             "openapi.json"))
+
     # --- input and tool errors, independent of the validator ----------------------------------
 
     def test_plan_missing_runtime_openapi_path_is_rejected(self):

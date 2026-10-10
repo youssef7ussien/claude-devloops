@@ -469,7 +469,7 @@ def _publish(ctx):
         ms = ctx.run_state["milestones"][mid]
         ms["status"] = "failed"
         ms["tasks"] = {tid: "failed" for tid in ms.get("tasks", {})}
-        raise state.StopRun("stopped-on-failure", "validation-failed",
+        raise state.StopRun("stopped-on-failure", "publish-failed",
                             f"the OpenAPI document at {runtime.get('openapi_path')} no longer "
                             f"loads after {mid} passed, so nothing was published; fix it, then "
                             f"`devloops retry` {mid}", milestone_id=mid)
@@ -478,9 +478,7 @@ def _publish(ctx):
     doc, omitted = verified_document(spec, covered)
     content = (json.dumps(doc, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     dest = os.path.join(ctx.loop_dir, "outputs", "openapi.json")
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with open(dest, "wb") as f:
-        f.write(content)
+    state.write_text_atomic(dest, content.decode("utf-8"), mode=0o644)
     ctx.run_state["openapi_artifact"] = {
         "path": os.path.relpath(dest, ctx.loop_dir),
         "sha256": hashlib.sha256(content).hexdigest(),

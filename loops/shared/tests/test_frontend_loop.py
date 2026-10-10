@@ -101,6 +101,20 @@ class FrontendLoopTest(unittest.TestCase):
 
     # --- input errors (exit 30) ------------------------------------------------------------------
 
+    def test_a_missing_tool_on_resume_changes_nothing(self):
+        """Run alone (no orchestrator check first), a resume that finds Claude Code missing exits
+        30 and records nothing: the run stays resumable, not `stopped-on-input-error`."""
+        self.scenario({"plan": {"structured_output": self.plan()}})
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        code, out, err = helpers.run_frontend_engine(
+            self.t, workspace=WS, extra_env={"DEVLOOPS_CLAUDE_BIN": "/nonexistent/claude"})
+        self.assertEqual(code, 30, out + err)
+        self.assertIn("nothing was changed", out + err)
+        rs = self.run_state()
+        self.assertEqual(rs["status"], "awaiting-approval")
+        self.assertIsNone(rs.get("status_reason"))
+        self.assertEqual(self.engine(), 10, self.last_output)  # Claude Code back: it resumes
+
     def test_missing_api_spec_is_a_missing_input(self):
         self.scenario({"plan": {"structured_output": self.plan()}})
         self.assertEqual(self.first_run(api_spec=False), 30, self.last_output)

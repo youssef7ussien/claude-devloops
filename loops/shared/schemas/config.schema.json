@@ -175,7 +175,7 @@
     "backend": {
       "type": "object",
       "additionalProperties": false,
-      "description": "For the frontend loop only: the backend its pages call while they are validated.",
+      "description": "For the frontend loop only: the backend its pages call while they are validated. In a run, devloops sets these from the backend loop's handoff, which replaces any value set here.",
       "$comment": "FR-039, R-12",
       "properties": {
         "base_url": {

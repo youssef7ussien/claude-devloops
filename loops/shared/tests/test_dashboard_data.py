@@ -311,6 +311,14 @@ class BuildersTest(StubLoopMixin, unittest.TestCase):
         self.assertIn("`devloops run`", card["next_action"]["text"])
         self.assertEqual(s["attention"][0]["kind"], "loop")
 
+    def test_a_publish_stop_asks_for_a_retry(self):
+        d = {"status": "stopped-on-failure", "milestones": [],
+             "status_reason": {"code": "publish-failed", "milestone_id": "M02"}}
+        action = dashboard.next_action("backend-dev", d)
+        self.assertIn("`devloops retry --milestone M02`", action["text"])
+        self.assertEqual(action["route"], "#/loop/backend-dev")
+        self.assertEqual(dashboard._waiting_for(d), "retry")
+
     def test_questions(self):
         loops = {"backend-dev": {
             "plan": {"open_questions": [{"id": "OQ1", "question": "Port?", "context": "the API",

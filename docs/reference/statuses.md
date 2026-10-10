@@ -79,7 +79,6 @@ How the plan was approved, or sent back.
 | Status | Meaning |
 |---|---|
 | <span id="approval-approve"></span>`approve` | You approved the plan with devloops approve. |
-| <span id="approval-replan"></span>`replan` | You asked for a new plan with devloops replan. |
 | <span id="approval-auto-approve"></span>`auto-approve` | devloops approved the plan by itself and accepted Claude's suggested answers (questions: accept-suggested). |
 
 ## Stop reasons {#stop-reasons}
@@ -92,6 +91,7 @@ When a loop stops, its status says how (`stopped-on-…`) and its reason says wh
 | <span id="stop-planning-trials-exhausted"></span>`planning-trials-exhausted` | The plan step did not produce a usable plan within its trials. |
 | <span id="stop-invocation-cap"></span>`invocation-cap` | The run reached its limit of calls to Claude Code (max_invocations_per_run). |
 | <span id="stop-needs-input"></span>`needs-input` | Claude Code asked a question that needs your answer before the work can go on. |
+| <span id="stop-publish-failed"></span>`publish-failed` | An achieved milestone's OpenAPI document no longer loads, so it could not be published; the milestone is failed again and devloops retry validates it again. |
 | <span id="stop-missing-input"></span>`missing-input` | A file the run needs, such as the requirements, is missing or empty. |
 | <span id="stop-story-not-found"></span>`story-not-found` | The story named with --story-id is not in the requirements. |
 | <span id="stop-invalid-api-spec"></span>`invalid-api-spec` | The OpenAPI document the frontend loop builds against is not a valid OpenAPI document. |

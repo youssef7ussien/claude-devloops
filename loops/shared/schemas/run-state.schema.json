@@ -43,6 +43,7 @@
             "planning-trials-exhausted",
             "invocation-cap",
             "needs-input",
+            "publish-failed",
             "missing-input",
             "story-not-found",
             "invalid-api-spec",
@@ -184,7 +185,6 @@
         "action": {
           "enum": [
             "approve",
-            "replan",
             "auto-approve"
           ]
         },

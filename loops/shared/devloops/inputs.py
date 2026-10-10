@@ -234,5 +234,6 @@ def compare_fingerprints(run_state, current, skip=()):
             raise input_error(
                 "input-changed",
                 f"the {name} input changed since it was recorded (sha256 {recorded[name]}, now "
-                f"{current.get(name) or 'missing'}); restore it or start a new workspace",
+                f"{current.get(name) or 'missing'}); this stop is final, so restoring it does not "
+                f"resume the run: start a new workspace",
                 input=name)

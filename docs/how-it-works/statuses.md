@@ -210,8 +210,6 @@ stateDiagram-v2
   state "auto-approve" as auto
   [*] --> auto: questions accept-suggested
   [*] --> approve: devloops approve
-  [*] --> replan: never recorded
-  replan --> [*]
   auto --> [*]
   approve --> [*]
 ```
@@ -222,10 +220,10 @@ stateDiagram-v2
   default) and every question has an answer or a suggestion.
 - [`approve`](../reference/statuses.md#approval-approve): you approved it with
   [`devloops approve`](../reference/commands.md#approve).
-- [`replan`](../reference/statuses.md#approval-replan): a possible value that devloops never
-  records. [`devloops replan`](../reference/commands.md#replan) clears the recorded approval, and
-  Claude Code plans again with your answers. The new plan is then approved like the first, and
-  recorded as `auto-approve` or `approve`.
+
+[`devloops replan`](../reference/commands.md#replan) sends a plan back instead: it clears the
+recorded approval, and Claude Code plans again with your answers. The new plan is then approved
+like the first, and recorded as `auto-approve` or `approve`.
 
 See [approval and questions](../guides/approval-and-questions.md).
 
@@ -237,6 +235,7 @@ When a loop stops, its status says how (`stopped-on-…`), and its reason says w
 |---|---|---|
 | [`trials-exhausted`](../reference/statuses.md#stop-trials-exhausted) | `stopped-on-failure` | Read the last trial's evidence, then `devloops retry` |
 | [`needs-input`](../reference/statuses.md#stop-needs-input) | `stopped-on-failure` | Answer in `outputs/open-questions.md`, then `devloops retry` |
+| [`publish-failed`](../reference/statuses.md#stop-publish-failed) | `stopped-on-failure` | Fix the target's OpenAPI document, then `devloops retry` |
 | [`planning-trials-exhausted`](../reference/statuses.md#stop-planning-trials-exhausted) | `stopped-on-failure` | Final: start a new workspace, perhaps with clearer requirements |
 | [`invocation-cap`](../reference/statuses.md#stop-invocation-cap) | `stopped-on-failure` | Final: start a new workspace with a higher limit |
 | [`missing-input`](../reference/statuses.md#stop-missing-input) | `stopped-on-input-error` | Give the missing file |

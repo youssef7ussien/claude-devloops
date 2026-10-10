@@ -420,6 +420,9 @@ def next_action(loop, d):
         return {"text": f"Answer the new questions in `open-questions.md` (an empty answer accepts "
                         f"Claude's suggestion), then `devloops retry --milestone {mid} "
                         f"--reason \"…\"`.", "route": route("questions")}
+    if status == "stopped-on-failure" and code == "publish-failed":
+        return {"text": f"Fix the target's OpenAPI document so it loads, then `devloops retry "
+                        f"--milestone {mid}`.", "route": route("loop", loop=loop)}
     if status == "stopped-on-failure" and code in ("trials-exhausted",):
         trials = next((m["trials"] for m in d["milestones"] if m["id"] == mid), [])
         return {"text": f"Read the last trial's validation and evidence, then `devloops retry "
@@ -1109,7 +1112,8 @@ def _waiting_for(d):
         return "approval"
     if d["status"] == "stopped-on-failure" and reason.get("code") == "needs-input":
         return "questions"
-    if d["status"] == "stopped-on-failure" and reason.get("code") == "trials-exhausted":
+    if d["status"] == "stopped-on-failure" and reason.get("code") in ("trials-exhausted",
+                                                                       "publish-failed"):
         return "retry"  # as next_action: an invocation cap also names a milestone, but no retry
     return None
 

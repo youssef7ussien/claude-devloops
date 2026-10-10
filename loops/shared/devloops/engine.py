@@ -421,8 +421,8 @@ class Engine:
         try:
             self._check_tools(self.config)
         except StopRun as stop:
-            if not terminal:
-                raise
+            # A missing tool changes nothing, as when `devloops run` checks it first: recording
+            # it would end a resumable run as `stopped-on-input-error`, which is final.
             self.message = f"{stop.message} (the run is {status}; nothing was changed)"
             return stop.exit_code
         if terminal:
