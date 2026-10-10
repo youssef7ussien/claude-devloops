@@ -19,7 +19,7 @@ APP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "app")
 SEPARATOR = "\n;\n"  # a file that ends without a semicolon cannot run into the next one
 PROJECT_URL = "https://github.com/youssef7ussien/claude-devloops"
 OWNER = "youssef7ussien"
-PLACEHOLDER = re.compile(r"\{\{(title|attrs|styles|scripts|icons|version|project_url|owner)\}\}")
+PLACEHOLDER = re.compile(r"\{\{(title|head|attrs|styles|scripts|icons|version|project_url|owner)\}\}")
 
 
 def _read(name):
@@ -73,12 +73,13 @@ def _attrs(attrs):
                    for k, v in (attrs or {}).items() if v is not None)
 
 
-def shell(title, attrs=None, inline=False, data=""):
+def shell(title, attrs=None, inline=False, data="", head=""):
     """The app's page.
 
     `attrs` are the root element's `data-*` attributes (HTML-escaped). Served, the page links
     `/assets/app.css` and `/assets/app.js`; `inline` (the export) puts both in the page, with
-    `data` (the embedded `<script type="application/json">` elements) before the script."""
+    `data` (the embedded `<script type="application/json">` elements) before the script; `head`
+    is markup put first in the head (the export's Content-Security-Policy)."""
     if inline:
         styles = f"<style>{stylesheet()}</style>"
         # Inside a script element, `</script` would end it; `<\/` reads the same in JavaScript.
@@ -87,7 +88,7 @@ def shell(title, attrs=None, inline=False, data=""):
         v = html.escape(assets_version(), quote=True)
         styles = f'<link rel="stylesheet" href="/assets/app.css?v={v}">'
         scripts = f'{data}<script src="/assets/app.js?v={v}" defer></script>'
-    values = {"title": html.escape(title), "attrs": _attrs(attrs), "styles": styles,
+    values = {"title": html.escape(title), "head": head, "attrs": _attrs(attrs), "styles": styles,
               "scripts": scripts, "icons": icons(), "version": html.escape(__version__),
               "project_url": html.escape(PROJECT_URL, quote=True), "owner": html.escape(OWNER)}
     # One pass, so a placeholder-like text inside the script or the styles is left alone.

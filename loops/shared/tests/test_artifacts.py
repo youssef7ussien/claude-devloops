@@ -3,16 +3,17 @@ redesign data-model "Files")."""
 import base64
 import json
 import os
+import re
 import tempfile
 import unittest
 from unittest import mock
 
 import helpers  # noqa: F401 - puts the package on sys.path
 import samples
-from devloops import artifacts, dashboard, fulldash, workspace
+from devloops import artifacts, dashboard, workspace
 from devloops.redact import Redactor
 from stub_loop import WS, StubLoopMixin, implemented
-from test_full_dashboard import PNG
+from samples import PNG
 
 SECRET = "S3CR3T-artifacts-value"
 
@@ -87,17 +88,13 @@ class FileIndexTest(StubLoopMixin, unittest.TestCase):
         return artifacts.file_index(ws, dashboard.collect(ws))
 
     def test_the_ids_and_files_are_todays(self):
-        ws = self.ws()
         index = self.index()
-        embedder = fulldash.LazyEmbedder(ws, fulldash.workspace_redactor(ws, self.t.env))
-        fulldash.render_full(dashboard.collect(ws), ws, embedder, self.t.env,
-                             serve={"workspaces": [WS], "attrs": {}})
         files = list(walk(index["trees"]))
         self.assertEqual(index["count"], len(files))
-        self.assertEqual(index["by_id"], embedder.files)
-        self.assertEqual(index["inputs"], embedder.inputs)
+        self.assertEqual(set(index["by_id"]), {ref["id"] for ref in files})
         for ref in files:
-            self.assertEqual(ref["id"], embedder.anchors[os.path.normpath(ref["path"])], ref)
+            slug = re.sub(r"[^A-Za-z0-9]+", "-", ref["path"]).strip("-").lower()
+            self.assertRegex(ref["id"], rf"^f-{re.escape(slug)}(-\d+)?$", ref)
         self.assertFalse([f for f in files if f["path"].endswith(".jsonl")
                           and "/conversations/" in f["path"]])
 

@@ -30,6 +30,8 @@ def _dashboard():
 # A file larger than this is listed with its size and path but not embedded in an export, so one
 # big log or recording cannot swell the page. Conversations are always embedded whole.
 MAX_EMBED_BYTES = 5 * 1024 * 1024
+# The workspace's exports (dashboard_export.py): never listed, so an export holds no earlier one.
+EXPORTS = "exports"
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 CALL_FILE = re.compile(r"^(\d{4,})-([a-z-]+?)(\.settings\.json|\.md|\.jsonl)$")
 PLAN_OUTPUTS = re.compile(r"^(plan-summary\.md|open-questions\.md|milestone-.*\.md)$")
@@ -393,7 +395,8 @@ def file_index(ws, data):
         return None
 
     artifacts = {loop: collect_artifacts(ws, loop) for loop in data["loops"]}
-    paths = list(_walk(ws.path))  # walked once: for the ids, then for the run's and own files
+    # walked once: for the ids, then for the run's and own files
+    paths = [p for p in _walk(ws.path) if relative(p, ws.path).split(os.sep)[0] != EXPORTS]
     for items in artifacts.values():  # ids in the order the old pages gave them
         for item in items:
             ids(item["rel"], key(item))

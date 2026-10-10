@@ -8,8 +8,8 @@ import shlex
 import subprocess
 import sys
 
-from . import (__version__, checkcmd, dashboard, engine, fulldash, initcmd, orchestrator, prompts,
-               render, serve, state, workspace)
+from . import (__version__, artifacts, checkcmd, dashboard, dashboard_export, engine,
+               initcmd, orchestrator, prompts, render, serve, state, workspace)
 from . import config as config_mod
 from . import progress as progress_mod
 from . import project as project_mod
@@ -371,11 +371,9 @@ def _files_hint(args, ws):
     return f"files and conversations: {dashboard.serve_command(ws)}"
 
 
-def _emit(args, ws, loop, message, code, full=None):
+def _emit(args, ws, loop, message, code):
     obj = engine.status_object(ws, loop)
     obj["dashboard"] = _dashboard_path(ws)
-    if full:
-        obj["full_dashboard"] = {"path": full["path"], "bytes": full["bytes"]}
     if args.json:
         obj["exit_code"] = code
         if message:
@@ -383,16 +381,13 @@ def _emit(args, ws, loop, message, code, full=None):
         _dump(args, obj)
     else:
         _print_status(obj, message)
-        _print_dashboards(args, ws, obj["dashboard"], full)
+        _print_dashboards(args, ws, obj["dashboard"])
 
 
-def _print_dashboards(args, ws, path, full):
-    """Where to look next: the summary page, a full dashboard written at the stop, and where
-    files and conversations are."""
+def _print_dashboards(args, ws, path):
+    """Where to look next: the summary page, and where files and conversations are."""
     if path:
         print(f"dashboard: {path}")
-    if full:
-        _print_full(full)
     print(_files_hint(args, ws))
 
 
@@ -405,60 +400,20 @@ def _start_hint(progress, args, ws, loops):
                       f"{progress_mod.log_path(ws.loop_dir(loop))}")
 
 
-def _full_on_stop(ws, project, kit):
-    """Whether to write a full dashboard at a final status (`dashboard.full_on_stop`, off by
-    default: `devloops dashboard` writes one on demand). A view preference, so it is read from the
-    configuration files as they are now (config.LIVE_KEYS), not from the run's frozen copy."""
-    return bool(config_mod.live_value(project, ws.config_path(), "dashboard.full_on_stop",
-                                      kit.path("shared", "config", "defaults.json")))
-
-
-def _print_full(full, largest=False):
-    if not full:
-        return
-    print(f"full dashboard: {full['path']} ({fulldash.human_bytes(full['bytes'])})")
-    if largest and full["largest"]:
+def _print_export(report):
+    """The export's report (contracts/export.md "Output report")."""
+    hb = artifacts.human_bytes
+    print(f"export: {report['path']} ({hb(report['bytes'])})")
+    if report["largest"]:
         print("  largest embedded items:")
-        for item in full["largest"]:
-            print(f"    {item['path']} ({fulldash.human_bytes(item['bytes'])})")
-    if full["unavailable"]:
-        print(f"  {full['unavailable']} conversation(s) unavailable")
-    if full.get("not_embedded"):
-        print(f"  not embedded (over {fulldash.human_bytes(fulldash.MAX_EMBED_BYTES)}):")
-        for item in full["not_embedded"]:
-            print(f"    {item['path']} ({fulldash.human_bytes(item['bytes'])})")
-
-
-def _ends_final(error, status):
-    """Whether a command ended in a final status (FR-039).
-
-    Not when it was refused (a lock or a usage error) or interrupted: an interrupt must not wait
-    for a page that embeds every conversation.
-    """
-    if error is not None and (not isinstance(error, DevloopsError) or
-                              isinstance(error, (state.LockHeld, state.UsageError))):
-        return False
-    return fulldash.is_final(status)
-
-
-def _event_marks(ws, loops):
-    """The size of each loop's event log: a command that changed a run recorded an event, so a
-    command that did nothing (a run already ended) writes no new full dashboard."""
-    def size(loop):
-        try:
-            return os.path.getsize(os.path.join(ws.loop_dir(loop), "state", "events.jsonl"))
-        except OSError:
-            return 0
-    return [size(loop) for loop in loops]
-
-
-def _write_full_dashboard(ws, trigger, env, out=None):
-    """Write a new full dashboard; a failure only warns, like the lightweight one (FR-039)."""
-    try:
-        return fulldash.write(ws, trigger=trigger, env=env, out=out)
-    except Exception as e:  # noqa: BLE001 - a view; the command's result stands
-        print(f"devloops: warning: could not write the full dashboard: {e}", file=sys.stderr)
-        return None
+        for item in report["largest"]:
+            print(f"    {item['path']} ({hb(item['bytes'])})")
+    if report["unavailable"]:
+        print(f"  {report['unavailable']} conversation(s) unavailable")
+    if report["not_embedded"]:
+        print(f"  not embedded (over {hb(artifacts.MAX_EMBED_BYTES)}):")
+        for item in report["not_embedded"]:
+            print(f"    {item['path']} ({hb(item['bytes'])})")
 
 
 def _speckit_flag(value):
@@ -537,22 +492,12 @@ def _run(args, kit, project, env, action=None, selected=None):
     orch.workspace_flag = getattr(args, "workspace_flag", "")
     loops = list(selected)
     _start_hint(orch.progress, args, ws, loops)
-    error = full = None
-    before = _event_marks(ws, loops)
     try:
         code = orch.run(action)
-    except BaseException as e:
-        error = e
+    except BaseException:
         args.decision_recorded = action is None or not orch.deciding  # for the Ctrl+C hint
         raise
     finally:
-        # Once, at the end, covering every loop, when the loop this command ran last ended in a
-        # final status: a loop skipped because an earlier run completed it does not count (FR-039).
-        last = orch.last_run
-        if last and _ends_final(error, engine.status_object(ws, last)["status"]) \
-                and _event_marks(ws, loops) != before \
-                and _full_on_stop(ws, project, kit):
-            full = _write_full_dashboard(ws, "run", env)
         _write_dashboard(ws, announce=False, light=True)
     statuses = {loop: engine.status_object(ws, loop) for loop in loops}
     if args.json:
@@ -560,8 +505,6 @@ def _run(args, kit, project, env, action=None, selected=None):
                "exit_code": code, "message": orch.message, "dashboard": _dashboard_path(ws)}
         if action:
             obj["decision"] = {"command": args.command, "loop": action[0]}
-        if full:
-            obj["full_dashboard"] = {"path": full["path"], "bytes": full["bytes"]}
         _dump(args, obj)
     else:
         if orch.message:
@@ -569,7 +512,7 @@ def _run(args, kit, project, env, action=None, selected=None):
         print(f"run: {orch.state['status']}")
         for obj in statuses.values():
             _print_status(obj)
-        _print_dashboards(args, ws, _dashboard_path(ws), full)
+        _print_dashboards(args, ws, _dashboard_path(ws))
     if code == state.EXIT_CODES["awaiting-approval"] and orch.last_run and _interactive(args):
         return _review(args, kit, project, env, ws, orch.last_run)
     return code
@@ -697,22 +640,15 @@ def _decide(args, kit, project, env):
     eng.progress = progress_mod.from_args(args, env)
     eng.resume_command = "devloops run"
     eng.workspace_flag = getattr(args, "workspace_flag", "")
-    error = full = None
-    before = _event_marks(ws, [loop])
     try:
         code = decide(eng)
-    except BaseException as e:
-        error = e
+    except BaseException:
         args.decision_recorded = eng.decided  # for the Ctrl+C hint
         raise
     finally:
-        if _ends_final(error, engine.status_object(ws, loop)["status"]) \
-                and _event_marks(ws, [loop]) != before \
-                and _full_on_stop(ws, project, kit):
-            full = _write_full_dashboard(ws, args.command, env)
         _write_dashboard(ws, announce=False, light=True)
     orchestrator.Orchestrator(ws, kit=kit, env=env).sync_step(loop)
-    _emit(args, ws, loop, eng.message, code, full)
+    _emit(args, ws, loop, eng.message, code)
     return code
 
 
@@ -759,15 +695,18 @@ def _dashboard(args, kit, project, env):
             raise
         ws = workspace.open_workspace(next(iter(names)), project, kit, create=False)
     if args.export is not None:
-        out = None if args.export is True else args.export
-        full = _write_full_dashboard(ws, "dashboard command", env, out=out)
-        _write_dashboard(ws, announce=False, light=True)  # it lists the full dashboards
+        try:
+            report = dashboard_export.write(ws, None if args.export is True else args.export,
+                                            env=env)
+        except OSError as e:
+            print(f"devloops: could not write the export: {e}", file=sys.stderr)
+            return 1
         if args.json:
-            _dump(args, {"workspace": ws.name, "export": full and {
-                k: full[k] for k in ("path", "bytes", "largest", "unavailable", "not_embedded")}})
+            _dump(args, {"workspace": ws.name, "export": {
+                k: report[k] for k in ("path", "bytes", "largest", "unavailable", "not_embedded")}})
         else:
-            _print_full(full, largest=True)
-        return 0 if full else 1
+            _print_export(report)
+        return 0
     host = args.host or "127.0.0.1"
     if args.daemon:
         token = serve.choose_token(host, args.token, False if args.no_token else None)
@@ -928,7 +867,7 @@ def main(argv=None, kit=None, project=None, env=None):
                 full = engine.full_dashboards(ws)
                 if full["count"]:
                     print(f"full dashboards: {full['count']} "
-                          f"({fulldash.human_bytes(full['bytes'])}), latest {full['latest']}")
+                          f"({artifacts.human_bytes(full['bytes'])}), latest {full['latest']}")
                 if large:
                     print("evidence files over 1 MB (review them for secrets before committing "
                           "the workspace):")

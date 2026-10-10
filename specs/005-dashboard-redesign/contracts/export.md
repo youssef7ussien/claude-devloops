@@ -39,8 +39,12 @@ workspace folder is git-ignored, so exports are too.
 
 - Keys are the API paths without the `/w/<ws>/api/` prefix (e.g. `d:calls/backend-dev/12`,
   `d:files/f-backend-dev-progress-md`), plus `d:search-corpus`.
-- Inside each element, `</` is written `<\/`. Text files are JSON strings; images and other binary
-  files are `{type, base64}`; files over 5 MB are `{not_embedded: true, size, path}`.
+- Inside each element, `<` is written `\u003c` (JSON reads it the same), so no `</script` or
+  `<!--` in a file or a conversation can end or change the element. A text file is
+  `{kind, lang, size, text}` (the text as the server sends it); images and other binary files are
+  `{kind, size, type, base64}`; files over 5 MB are `{not_embedded: true, size, path}`.
+- The workspace's `exports/` folder is never listed (nor part of the workspace version), so an
+  export holds no earlier export.
 - Every value has passed through the workspace's redactor (SC-008). Conversations are embedded
   whole.
 - The app reads an element only when that data is first asked for; nothing is fetched and nothing

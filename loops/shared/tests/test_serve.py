@@ -269,7 +269,7 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(len(body), size)
 
     def test_images_and_binary_files(self):
-        from test_full_dashboard import PNG
+        from samples import PNG
         self.completed()
         evidence = self.path(os.path.join("state", "milestones", "M01", "trials", "1", "evidence"))
         with open(os.path.join(evidence, "shot.png"), "wb") as f:

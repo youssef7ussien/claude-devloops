@@ -172,10 +172,12 @@ calls (their next action is then null). Worked out on every request, not kept pe
 
 ## Export (FR-011–FR-015)
 
-One HTML file: the app shell, stylesheet, and joined script inline; one
-`<script type="application/json" id="d:<route key>">` per API response; a root
+One HTML file: the app shell, stylesheet, and joined script (without `vendor/`) inline; one
+`<script type="application/json" id="d:<API path>">` per API response, each file's content
+(`files/<id>`), and `d:search-corpus` (`{items: [{kind, id, label, route, text}]}`); a root
 `data-source="embedded"`, `data-exported-at`, `data-devloops-version`, `data-workspace`,
-`data-running` (bool). File contents over 5 MB are replaced by `{not_embedded: true, size}`.
+`data-running` (`true` when a loop was running). File contents over 5 MB are replaced by
+`{not_embedded: true, size, path}` (contracts/export.md).
 
 **Naming**: `<workspace>/exports/<YYYYMMDDTHHMMSSZ>.html`, `-2`, `-3`, … on a same-second collision,
 created exclusively; or the given path, replaced.

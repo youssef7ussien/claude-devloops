@@ -206,7 +206,7 @@ class Site:
         h = hashlib.sha1()
         for path in artifacts._walk(ws.path):
             rel = artifacts.relative(path, ws.path)
-            if rel == dashboard.FILENAME:
+            if rel == dashboard.FILENAME or rel.split(os.sep)[0] == artifacts.EXPORTS:
                 continue
             try:
                 st = os.stat(path)
@@ -247,30 +247,17 @@ class Site:
         values (`{name: value}`); for one that does not, the query does not change the answer.
         An unknown path, or a builder's `NotFound`, is a 404."""
         version, entry = self.current(ws)
-        ctx = entry["ctx"]
-        for pattern, builder in API:
-            match = pattern.match(path)
-            if match:
-                break
-        else:
+        found = route_api(path, query)
+        if found is None:
             return 404, json.dumps({"error": "not found"}), version
-        build = getattr(dashboard, builder) if isinstance(builder, str) else builder
-        args = match.groupdict()
-        params = {}
-        if _takes_query(build):
-            params = {k: v[-1] for k, v in sorted(urllib.parse.parse_qs(query).items())}
-            args["query"] = params
-        key = (path, tuple(params.items()))
+        build, args, key = found
         cached = getattr(build, "cached", True)  # False: worked out on every request (api/now)
         with self._lock:
             hit = entry["answers"].get(key) if cached else None
         if hit:
             return hit + (version,)
-        try:
-            status, data = 200, build(ctx, **args)
-        except dashboard.NotFound as e:
-            status, data = 404, {"error": str(e)}
-        body = json.dumps(ctx.redactor.redact_obj(data)[0], ensure_ascii=False)
+        status, data = build_answer(entry["ctx"], build, args)
+        body = json.dumps(data, ensure_ascii=False)
         if cached:
             with self._lock:
                 entry["answers"][key] = (status, body)
@@ -306,6 +293,35 @@ class Site:
                 continue
             hits.append(ctx.redactor.redact_obj(hit)[0])
         return hits
+
+
+def route_api(path, query=""):
+    """`(builder function, its arguments, cache key)` of API path `path` with query string
+    `query`, or None for an unknown path. A builder that takes `query` gets the query's values
+    (`{name: value}`); for one that does not, the query does not change the answer."""
+    for pattern, builder in API:
+        match = pattern.match(path)
+        if match:
+            break
+    else:
+        return None
+    build = getattr(dashboard, builder) if isinstance(builder, str) else builder
+    args = match.groupdict()
+    params = {}
+    if _takes_query(build):
+        params = {k: v[-1] for k, v in sorted(urllib.parse.parse_qs(query).items())}
+        args["query"] = params
+    return build, args, (path, tuple(params.items()))
+
+
+def build_answer(ctx, build, args):
+    """`(status, data)`: the builder's answer, redacted with the workspace's redactor; a
+    `NotFound` is a 404. The server and the export (dashboard_export.py) answer alike."""
+    try:
+        status, data = 200, build(ctx, **args)
+    except dashboard.NotFound as e:
+        status, data = 404, {"error": str(e)}
+    return status, ctx.redactor.redact_obj(data)[0]
 
 
 def _sendable(index, root, file_id):

@@ -116,11 +116,6 @@ class ProjectRunsTest(unittest.TestCase):
         cfg = self.run_state()["effective_config"]
         self.assertEqual((cfg["max_trials"], cfg["max_invocations_per_run"]), (2, 60))
 
-    def test_a_view_setting_is_applied_live_and_is_not_drift(self):
-        self.assertEqual(self.cli("run"), 10, self.output)
-        self.configure(config={"dashboard": {"full_on_stop": True}})
-        self.assertEqual(self.status_json()["config_drift"], [])
-
     def test_a_target_edit_after_the_first_run_is_drift_not_a_mismatch(self):
         self.assertEqual(self.cli("run"), 10, self.output)
         self.configure(targets={"backend-dev": "api", "frontend-dev": "frontend"})

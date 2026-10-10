@@ -222,25 +222,15 @@ class RunCommandTest(unittest.TestCase):
         self.assertEqual(self.run_cmd(), 0, self.last_output)
         self.assertEqual(len(self.t.fake_calls()), 5)
 
-    def test_one_full_dashboard_when_the_loop_it_ran_ends_final(self):
-        directory = os.path.join(self.t.root, ".devloops", "dashboards", WS)
-
-        def count():
-            return len(os.listdir(directory)) if os.path.isdir(directory) else 0
-        config = self.t.write_file("config.json", json.dumps({"dashboard": {"full_on_stop": True}}))
-        self.assertEqual(self.run_cmd("--config", config), 10, self.last_output)
+    def test_each_loops_log_is_named(self):
+        self.assertEqual(self.run_cmd(), 10, self.last_output)
         self.approve("backend-dev")
         self.assertEqual(self.run_cmd(), 10, self.last_output)
-        self.assertEqual(count(), 0)  # the backend completed, but the frontend paused (FR-039)
         self.approve("frontend-dev")
         self.assertEqual(self.run_cmd(), 0, self.last_output)
-        self.assertEqual(count(), 1)
-        self.assertIn("full dashboard: ", self.last_output)
         for loop in ("backend-dev", "frontend-dev"):  # each loop's own log, a real path
             self.assertIn(f"log ({loop}): {os.path.join(self.t.workspace_dir, loop)}",
                           self.last_output)
-        self.assertEqual(self.run_cmd(), 0, self.last_output)
-        self.assertEqual(count(), 1)  # nothing ran: no new full dashboard
 
     def test_resuming_with_no_flags_starts_the_frontend_from_the_recorded_inputs(self):
         self.assertEqual(self.run_cmd(), 10, self.last_output)

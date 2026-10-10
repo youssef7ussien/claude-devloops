@@ -2,7 +2,12 @@
 
 Each function returns a fresh copy, so a test can mutate it freely.
 """
+import base64
 import copy
+
+# The smallest valid PNG: one transparent pixel.
+PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA"
+                       "60e6kgAAAABJRU5ErkJggg==")
 
 _PLAN = {
     "requirements_inventory": [

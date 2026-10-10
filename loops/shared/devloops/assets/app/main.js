@@ -1,10 +1,27 @@
 /* main.js: starts the app once the page is parsed. Binds the shell (theme, menu, workspace
    switcher, Live button), builds the navigation and the status from `summary`, starts following
-   the run (served), and mounts the address's view. Listed last in scripts.txt. */
+   the run (served) or says what the snapshot is (an export, contracts/export.md), and mounts the
+   address's view. Listed last in scripts.txt. */
 (function (DL) {
   'use strict';
 
   var root, summary = null;
+  var NOTICE = 'Contains full Claude Code conversations — review before sharing';
+
+  /* An export's top bar text, from the root's data-* attributes: "Snapshot · <exported-at> ·
+     devloops <version>", and "run in progress" when it was exported during a run. */
+  function snapshotLabel(ds) {
+    var parts = ['Snapshot', DL.fmt.time(ds.exportedAt)];
+    if (ds.devloopsVersion) parts.push('devloops ' + ds.devloopsVersion);
+    if (ds.running === 'true') parts.push('run in progress');
+    return parts.join(' · ');
+  }
+
+  function showSnapshot() {
+    var label = DL.$('[data-snapshot]'), notice = DL.$('[data-notice]');
+    if (label) { label.textContent = snapshotLabel(root.dataset); label.hidden = false; }
+    if (notice) { notice.textContent = NOTICE; notice.hidden = false; }
+  }
 
   /* The navigation entry a route belongs to. */
   function navKey(route) {
@@ -116,8 +133,9 @@
     if (DL.api.source() === 'api') {
       if (live) live.addEventListener('click', function () { DL.api.setPaused(!DL.api.paused()); });
       ['live', 'offline', 'online'].forEach(function (name) { DL.bus.on(name, setLive); });
-    } else if (live) {
-      live.hidden = true;
+    } else {
+      if (live) live.hidden = true;
+      showSnapshot();
     }
     if (DL.palette) {
       DL.$$('[data-action="palette"]').forEach(function (b) { b.addEventListener('click', function () { DL.palette.open(); }); });
@@ -149,7 +167,7 @@
     DL.router.start(DL.$('#view'));
   }
 
-  DL.main = { start: start, navKey: navKey };
+  DL.main = { start: start, navKey: navKey, snapshotLabel: snapshotLabel, NOTICE: NOTICE };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })(window.DL = window.DL || {});
