@@ -16,9 +16,8 @@ GET and HEAD only; any other method gets 501 (FR-006, FR-030: writing routes are
 | `/w/<ws>/api/summary` | Workspace summary |
 | `/w/<ws>/api/now` | Now |
 | `/w/<ws>/api/loops/<loop>` | Loop |
-| `/w/<ws>/api/loops/<loop>/plan` | Plan |
 | `/w/<ws>/api/loops/<loop>/milestones/<id>/trials/<key>` | Trial |
-| `/w/<ws>/api/calls` | `{calls: [CallRef]}` |
+| `/w/<ws>/api/calls` | `{calls: [CallRef], by_model, loops, steps}` (`steps`: the driver's step order, FR-020i) |
 | `/w/<ws>/api/calls/<loop>/<seq>` | Call |
 | `/w/<ws>/api/files` | `{trees: [Tree], count}` |
 | `/w/<ws>/api/files/<id>` | the file's content (as today's `file/<anchor>`) |

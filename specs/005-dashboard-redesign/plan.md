@@ -108,6 +108,10 @@ about Claude Code's tools and the browser tools the loops use, never an applicat
 tool falls back to a generic rule. VI and VII: no API change; one new pure script
 (`actions.js`) beside the conversation view. VIII: its rules are tested under Node.
 
+**Re-check for syntax highlighting (2026-10-10, R-16)**: all pass. VII: Prism is a new dependency
+with a documented purpose (Complexity Tracking); it is copied in, so nothing is installed or built
+and the Python runtime stays standard-library only. X: it replaces hand-written language rules.
+
 ## Project Structure
 
 ### Documentation (this feature)
@@ -150,13 +154,14 @@ loops/shared/devloops/
         ├── api.js       # fetch or embedded source, response cache, version polling, offline
         ├── router.js    # route table, hash routing, view lifecycle, keep/restore
         ├── md.js        # Markdown → tree → DOM (bug fix)
-        ├── highlight.js # syntax highlighting, JSON tree
+        ├── highlight.js # syntax highlighting (Prism's tokens; R-16), JSON tree
+        ├── vendor/prism # Prism 1.30.0, copied in (served page only; not in the export)
         ├── viewer.js    # file viewer dialog and kinds
         ├── charts.js    # bar chart, trial timeline
         ├── palette.js   # go to + search
         ├── actions.js   # conversation records → turns and actions (User Story 8, R-15)
         ├── now.js       # the now panel
-        ├── views/       # overview, run, loop, plan, trial, calls, conversation, files,
+        ├── views/       # overview, run, loop, trial, calls, conversation, files,
         │                #   questions, events (one file each)
         └── tests/       # node --test: md, router, format, totals, search
 loops/shared/tests/
@@ -187,6 +192,9 @@ package; its browser code is package data under `assets/app/`.
    2026-10-10): readable conversations, before the export so it embeds the final view. Then
    (added 2026-10-10) the plan view as the readable plan with the planning attempts, and the loop
    view without the plan's tasks, the Planning section, or the four token tiles (FR-020a/b).
+   Revised the same day: the plan view is merged into the loop view, with a Steps card, a
+   questions line opening the filtered Questions view, and the text of every id on hover
+   (FR-020–FR-020e).
 5. **US7**: export. Then `--daemon`/`--stop`, removal of the summary page, full dashboards, old
    modules and keys, and docs/skills.
 
@@ -196,4 +204,5 @@ package; its browser code is package data under `assets/app/`.
 |----------|------------|-------------------------------------|
 | `live.json` view file (R-8) | The now panel needs the running call and its tools as they happen | Parsing `run.log` ties the UI to a human-readable format; reading Claude Code's own files depends on its internals |
 | Node as an optional test tool (R-13) | The Markdown parser, router, and search are logic worth unit tests | No browser test runner in the standard library; a headless browser is a far heavier test dependency |
+| Prism, copied into `assets/app/vendor/` (R-16) | Highlighting any language the plan's stack uses (FR-033), without inserting markup | Hand-written rules per language are code to maintain for every new stack; highlight.js returns HTML strings |
 | Server-side search index (R-10) | SC-006 (≤ 1 s) on tens of MB | Today's per-search re-read and re-redaction of every file is what makes search slow |

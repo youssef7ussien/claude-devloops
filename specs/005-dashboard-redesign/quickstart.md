@@ -33,7 +33,7 @@ devloops dashboard                     # foreground; Ctrl+C stops it
 In the browser (SC-001–SC-003), with the developer tools' network panel open:
 1. Refresh on `#/`: only `summary`, `now`, and `version` (and the two assets) are requested; the
    overview is usable within 1 s.
-2. Open a loop, its plan, a trial, the calls, a conversation, the files: each requests only its
+2. Open a loop, a trial, the calls, a conversation, the files: each requests only its
    own data and shows within 1 s.
 3. Start a run (`devloops run` in another terminal): the now panel shows the call and its tools as
    they happen; when a trial ends, the open view updates in place, keeping scroll and open
@@ -49,8 +49,12 @@ On a workspace with a failed backend trial and a failed frontend trial (e.g. qui
 - **Trial** (SC-005): from the timeline, open each failed trial: every failing check, criterion,
   contract problem, unit-test result, and boundary violation in its `validation.json` is listed
   with its evidence; screenshots show as images.
-- **Plan**: every milestone, criterion (passing/failing/unchecked), task, and dependency.
-- **Conversation**: tool calls folded; the error count in the header and next/previous error;
+- **Plan** (in the loop view since 2026-10-10): every milestone, criterion (passed, failed, not
+  checked), task, and dependency; ids show their text on hover; the questions line opens Questions filtered to the loop;
+  the Steps card has a row per planning attempt (opening its call); each milestone shows its tasks,
+  then its acceptance criteria as a table.
+- **Conversation**: tool calls folded; the error count in the summary line and "Errors only (N)";
+  "System records" shows each record in its place;
   "Files changed" jumps to the tool call.
 - **Markdown** (FR-025): open a Markdown file with a list item that continues on the next line —
   the whole item shows.

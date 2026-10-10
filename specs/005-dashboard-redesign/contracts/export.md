@@ -32,7 +32,7 @@ workspace folder is git-ignored, so exports are too.
   <script type="application/json" id="d:summary">{…}</script>
   <script type="application/json" id="d:loops/backend-dev">{…}</script>
   <!-- one element per API response: every view, trial, call, file, index, and the search corpus -->
-  <script>/* the joined app script */</script>
+  <script>/* the joined app script, without vendor/ (no syntax highlighting, FR-033) */</script>
 </body>
 </html>
 ```

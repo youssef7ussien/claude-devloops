@@ -37,43 +37,58 @@ workspaces: [name], running: [loop]}`
 
 ## Loop (`api/loops/<loop>`)
 
-`{loop, status, status_reason, next_action, approval, grants, inputs, ui_url, openapi_artifact,
-totals (with cache_hit_rate, cost_per_achieved), milestones: [MilestoneSummary], by_step: {<step>: Totals}, outputs: [FileRef]}`
+`{loop, status, status_reason, next_action, approval, grants (each shown on its milestone,
+FR-020j), inputs, ui_url, openapi_artifact,
+target_dir, stack, runtime, totals (with cache_hit_rate, cost_per_achieved), stats, milestones:
+[MilestoneSummary], steps: [StepRow], refs: {<id>:
+text}, questions: {open, unanswered, assumptions, route}, outputs: [FileRef]}`
 
-- **MilestoneSummary**: `{id, title, status, trials: [TrialSummary], totals, seconds}`.
-- **TrialSummary**: `{key, n, attempt, kind, status, reason, started_at, ended_at, seconds, totals,
-  route}`. `key` is `n` or `n.k` for an earlier, voided attempt that shares the number.
+*Revised 2026-10-10 (FR-020–FR-020e): the plan view and its data request (`api/loops/<loop>/plan`)
+are removed; the loop data holds what only the plan data had.*
 
-## Plan (`api/loops/<loop>/plan`)
-
-`{loop, status, approval, milestones: [PlanMilestone], open_questions: [Question],
-assumptions: [{id, text, source}], planning: {trials: [TrialSummary], totals}, stack, runtime,
-routes: {loop}}`
-
-- **planning** (moved from Loop on 2026-10-10, FR-020a/FR-020b): the planning attempts and their
-  totals; the loop view no longer shows them.
-
+- **MilestoneSummary**: `{id, title, goal, status, depends_on: [id], tasks: [{id, title,
+  description, requirement_refs, status}], criteria: [{id, text, requirement_refs, result:
+  "passed"|"failed"|null, observed, evidence: [FileRef], trial_route?}], criteria_trial, trials:
+  [TrialSummary], totals, seconds, route}`. A criterion's result comes from the milestone's latest
+  counted (not voided) trial with a validation result, so a trial still running, or one that
+  failed before validating, leaves the last result shown: none without one, failed when the
+  result does not mention it (FR-068); `trial_route` links a failed one to that trial.
+- **TrialSummary**: `{key, n, attempt, kind, status, reason, detail, started_at, ended_at, seconds,
+  totals, route}`. `key` is `n` or `n.k` for an earlier, voided attempt that shares the number;
+- **StepRow** (replaces `by_step`): `{step, calls, started_at, seconds, totals, share}`, one per
+  step with calls, ordered by `started_at`, the row's first call's start (revised 2026-10-10;
+  a row without a known start last, then by the driver's step order `claude.STEPS`); `seconds` sums
+  the calls' durations; `share` is the row's cost over the loop's (null when either is unknown).
+  Each planning attempt (step `plan` or `replan`) is a row of its own with `{attempt, status,
+  reason, detail, route}`: `attempt` numbers it among its step's attempts (null when the step has
+  one), `route` is its call (revised 2026-10-10; the loop's `planning` field is removed).
+- **refs** (FR-020d): every id the plan defines, with its text: each `requirements_inventory`
+  entry's `ref` → `summary`, each task id → its title, each criterion id → its text.
+- **questions** (FR-020e): the loop's open questions, how many are unanswered, its assumptions,
+  and `route` (`#/questions?loop=<loop>`).
 - **approval**: `{status: "waiting", commands: [approve, replan]}` while the plan waits (each
   command with `--workspace` when the workspace is not the default), `{status: "approved",
   approved_at, action}` once approved, else `{status: "none"}`.
-- **PlanMilestone**: `{id, title, goal, status, trials_used, depends_on: [id], criteria:
-  [{id, text, requirement_refs, state: "passing"|"failing"|"unchecked", trial_route?}], tasks:
-  [{id, title, description, requirement_refs, status}], route}`. A criterion's `state` comes from
-  the milestone's latest counted (not voided) trial with a validation result, so a trial still
-  running, or one that failed before validating, leaves the last result shown: unchecked without
-  one, failing when the result does not mention it (FR-068); `trial_route` links a failing one to
-  that trial. The loop view's criteria come from the same trial, read the same way.
-  `trials_used` counts the counted trials; `route` is the milestone in the loop view.
 
 ## Trial (`api/loops/<loop>/milestones/<id>/trials/<key>`)
 
 `{loop, milestone, title, key, n, attempt, kind, status, reason, detail, started_at, ended_at,
 seconds, totals, steps: [Step], validation: Validation|null, why: [Reason], evidence: [FileRef],
-files_changed: [{path, step, tool, call_route, block}], routes: {loop, trials: [{key, status,
-route}]}}`. `evidence` is every file in the trial's folder (none for an earlier voided attempt,
+files_changed: [{path, step, seq, tool, call_route, block, added, removed}], refs, target_dir,
+routes: {loop, trials: [{key, status, route}]}}`. `refs` is the loop's (FR-020d) and `target_dir`
+the loop's target, so the view does not fetch `api/loops/<loop>` for them. `evidence` is every file in the trial's folder (none for an earlier voided attempt,
 whose folder holds the later attempt's files).
 
-- **Step**: `{step, totals, calls: [CallRef]}` in the order the calls ran.
+- **Step**: `{step, totals, calls: [CallRef]}` in the order the calls ran. A step makes one call per
+  trial; the steps table (FR-018a, revised 2026-10-10) shows one row per call, its start as the
+  time since the trial started, and its result from the CallRef's `failure_class` and the call's
+  failure reason.
+- **files_changed** (FR-018d): `added` and `removed` are the lines of all the trial's changes of
+  that path, worked out by the server with the app's diff rule (`artifacts.diff_counts`, checked
+  against `actions.js` by test_app_js); `seq` (the call) lets the view ask for the call when a
+  change is opened, to show its diff.
+- **evidence**: also each file's `size` and `kind` (FileRef), drawn as the Files view's tree
+  (FR-018b).
 - **Validation**: the trial's `validation.json` as recorded (schema `validation-result`), redacted.
 - **Reason** (FR-019), one per cause, in this order:
   `{kind: "check", check_id, command, status, failures, evidence: [FileRef]}` |
@@ -89,18 +104,21 @@ whose folder holds the later attempt's files).
 ## Call list and call (`api/calls`, `api/calls/<loop>/<seq>`)
 
 - **CallRef**: `{loop, seq, step, milestone_id, trial, model, started_at, duration_ms, totals,
-  failure_class, conversation: "copied"|"history"|"unavailable", route}`.
-- **Call**: `CallRef` + `{ended_at, num_turns, is_error, subtype, api_error_status, timed_out,
-  permission_denials, prompt: FileRef|null, settings: FileRef|null, prompt_sources, routes:
+  failure_class, timed_out, is_error, subtype, api_error_status, conversation:
+  "copied"|"history"|"unavailable", route}` (the four fields after `failure_class` added
+  2026-10-10: how a failed call ended, for the trial's Result column, FR-018b).
+- **Call**: `CallRef` + `{ended_at, num_turns, permission_denials, prompt: FileRef|null, settings: FileRef|null, prompt_sources, refs, routes:
   {loop, trial|null}, records: [Record], errors: [record index], files_changed: [{path, tool,
-  block}], unavailable_reason?}`. `files_changed` paths are relative to the loop's target when
+  block, added, removed}], unavailable_reason?}`. `refs` is the loop's (FR-020d), for the call's
+  answer. `files_changed` paths are relative to the loop's target when
   inside it; `block` is the record index of the tool use. A conversation that cannot be read
   makes `conversation` "unavailable", with `unavailable_reason` and no records.
 - **Record**: one non-blank transcript line parsed and redacted (`{"raw": text}` when it is not
   JSON); its index is what `?at=` and `errors` refer to.
-- **Action** (browser side, `assets/app/actions.js`, research R-15; not sent by the server): `{use,
-  result, name, family, summary, outcome: "ok"|"error"|"unfinished", duration_ms|null, kind,
-  failure_lines, added, removed, records: [record index]}`, a tool use paired with its result by
+- **Action** (browser side, `assets/app/actions.js`, research R-15; not sent by the server): `{index,
+  tool, input, name, family, summary, outcome: "ok"|"error"|"unfinished", duration_ms|null,
+  text, images: [{media_type, data}], kind_of, info (browser), console_new, exit_code (shell),
+  failure_lines: [line index], added, removed, rec, result_rec, records: [record index]}`, a tool use paired with its result by
   `tool_use_id`. The view groups actions into turns (Claude's text, its time since the call
   started) and shows the call's answer (its last `StructuredOutput` input) first.
 

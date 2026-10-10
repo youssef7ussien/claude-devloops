@@ -74,7 +74,10 @@ node --test loops/shared/devloops/assets/app/tests/
   model-written text is only ever `textContent`); no `style=` attributes or inline scripts (the
   page's CSP is `script-src 'self'; style-src 'self'`); nothing loads from outside the page. Each
   file is an IIFE over `window.DL` and touches no DOM when it loads, so its pure parts run under
-  `node --test` (`tests/load.js`).
+  `node --test` (`tests/load.js`). The exception is `assets/app/vendor/` (Prism, copied in
+  unchanged, research R-16): listed in `scripts.txt` and loading nothing from outside, but exempt
+  from the markup and IIFE rules; it is left out of the export, and the app uses it only through
+  `DL.hl.tokenize` (never Prism's own HTML highlighting).
 
 ## Specs and process
 

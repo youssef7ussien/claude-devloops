@@ -93,14 +93,90 @@ Markdown file also shows only its first line.
 - Q: Keep both the plan view and the loop view, though both list every milestone's tasks and
   criteria? → A: Yes, with separate jobs. The plan view becomes the readable plan ("what was
   agreed"); the loop view shows progress, and a milestone's tasks shrink to one line linking to the
-  plan (FR-020a, FR-020b).
+  plan (FR-020a, FR-020b). *(Superseded later the same day: the plan view is merged into the loop
+  view; see below.)*
 - Q: Keep the loop view's "Planning" section, given "Cost by step" already has the plan step's
   cost? → A: No. The planning attempts (each try, its result, and why it failed) move to the plan
-  view (FR-020a).
+  view (FR-020a). *(Superseded later the same day: they open from the plan row of the "Steps"
+  card, FR-020c.)*
 - Q: Add "Expand all" and "Collapse all" for the loop view's milestones? → A: Yes (FR-020b).
 - Q: Keep tiles for input, output, cache write, and cache read in the loop view? → A: No. The
   Tokens tile shows the split on hover or focus, as at every other level, and the cache-hit rate as
   its second line (FR-017).
+- Q: Keep a separate plan view after its rework? → A: No. It is merged into the loop view: one page
+  per loop with the progress bar, the milestone strip, and each milestone's goal, dependencies,
+  "Done when" (criteria with result, observed, and evidence), tasks in full, and trials. The plan
+  view, its address, and its data request are removed; an old plan address opens the loop view at
+  the same milestone (FR-020, FR-020a, FR-020b revised).
+- Q: Where do a loop's open questions and assumptions show after the merge? → A: As one line on the
+  loop view ("6 open questions (1 unanswered) · 12 assumptions → Questions") that opens the
+  Questions view filtered to that loop; the Questions view gains a loop filter like Claude calls
+  (FR-020e).
+- Q: Where does the loop view's "Files" button go? → A: To the Files view filtered to that loop's
+  folder. The filter is a folder path (`?dir=<path>`), not a loop, so other folders (a milestone,
+  a trial, `run`) can use it later; it also keeps the files the tree shows inside that folder
+  even when they live elsewhere, such as a loop's inputs (FR-020f).
+- Q: Where do the planning attempts show? → A: In one "Steps" card that replaces "Cost by step":
+  one row per step in the driver's step order (sortable), with its calls, time, cost, tokens, and
+  share of the cost; the plan row opens to the planning attempts, by itself when one failed
+  (FR-020c).
+- Q: Show what a requirement, task, or criterion id means? → A: Yes, in every view that shows one:
+  hovering or focusing the id shows its text in the same tooltip as the token breakdown (FR-020d).
+- Q: How should the trial view show its steps? → A: One table, one row per call in time order,
+  with a heading row and subtotal per step, a total row, and a time bar showing when each call ran
+  within the trial (FR-018a).
+- Q: Show the trial folder's files on the trial view, or send the developer to Files? → A: On the
+  trial view, drawn with the Files view's tree (shared code), folded, with the count and size;
+  no link to Files, since every file is already there (FR-018b).
+- Q: Improve "Other checks"? → A: Yes: the HTTP checks, the API contract, the unit tests, and the
+  boundary are one "Checks" table, each row with its result, a detail line, and its evidence
+  (FR-018c).
+- Q: Can "Open the change" open in a popup? → A: Yes: a dialog with that change's diff, its path and
+  lines added and removed, previous and next change across the trial, and a link to the change in
+  its conversation; "Files changed" shows the lines added and removed per file (FR-018d).
+- Q: Keep the Steps card sortable? → A: No. The steps are in the order their first call started
+  (plan first) (FR-020c revised).
+- Q: How do the planning attempts show in the Steps card? → A: Not in a dialog: each planning
+  attempt (plan or replan) is a row of its own in start order, numbered ("plan · attempt 2")
+  when its step has more than one, a failed one marked with why on hover, and each row opening
+  its call (FR-020c revised).
+- Q: Keep the milestone strip above the milestones? → A: No. Only the folded milestone cards stay;
+  each still links its dependencies (FR-020a revised).
+- Q: Where does a step's row in the Steps card lead? → A: To Claude calls filtered to that loop
+  and that step (a new step filter on Claude calls, `?step=<step>`), not the loop alone (FR-020c,
+  FR-020i).
+- Q: Does a conversation need previous and next error? → A: No. Failed actions stay marked, and
+  "Errors only (N)" shows only them; the arrows, the `[` and `]` keys, and the toolbar's error
+  counter are removed (FR-021, FR-021f revised).
+- Q: Where do system records show when turned on? → A: Each in its place in the conversation, in
+  record order (those before the prompt above it), not in a list after the last turn (FR-021f).
+- Q: Where do the retries granted show? → A: On the milestone they were granted to, as a row of
+  its trials table just before the trials it allowed, not on the Questions view, which holds only questions and assumptions
+  (FR-020j). The navigation's "Questions" entry counts open questions and assumptions ("15 & 21").
+- Q: What should "Done when" be called? → A: "Acceptance Criteria" (FR-020).
+- Q: How is a milestone laid out on the loop view? → A: As before the merge: its tasks first,
+  then its acceptance criteria as a table (Criterion, Result, Observed, Evidence), then its
+  trials; not two columns side by side (FR-020a revised).
+- Q: How should a criterion's evidence show on the loop view? → A: Grouped by check (a chip "C1"
+  holding "body" and "headers", each with its kind's icon), screenshots as thumbnails, the size on
+  hover, each opening in the viewer with previous and next across the criterion's files (FR-020g).
+- Q: Keep the frontend loop's "UI <address>" tag? → A: No, remove it: the address is where the
+  loop ran the app to check it, and it points at nothing once the run ends (FR-020h).
+- Q: Where do the open questions and assumptions show on the loop view? → A: As a button in the
+  outputs toolbar beside "Final report", not a line of its own (FR-020e revised).
+- Q: Can a step make more than one call in a trial? → A: No: each step (implement or fix,
+  author-checks, validate-ui) makes one call per trial, and a trial run again is a separate
+  trial. The trial's steps table has one row per call with no step heading rows, and no time
+  line column (FR-018a revised).
+- Q: What does the steps table's "Result" show? → A: How the call ended: "ok", or its failure
+  (timeout, invalid output, Claude error, service error, interrupted) with the detail on hover
+  (FR-018a).
+- Q: Where does "Files changed" go on the trial view? → A: Before "Files in the trial's folder"
+  (FR-018b).
+- Q: Syntax highlighting: keep the hand-written rules or use a library? → A: Prism, copied into
+  the package at a pinned version (no install, no build, nothing loaded from the network), used
+  only through `Prism.tokenize` so text is still never inserted as markup; code inside diffs is
+  highlighted too; the export holds no syntax highlighting (FR-033, research R-16).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -195,40 +271,64 @@ that each step's calls open their conversations.
    violations are listed as a reason it failed.
 5. **Given** a trial that was voided or interrupted, **When** its trial view opens, **Then** it
    says so and why, instead of a validation result.
+6. *(Added 2026-10-10, revised the same day)* **Given** a trial with several steps, **When** its
+   trial view opens, **Then** one table lists every call in time order, one row each (step, call,
+   model, start, duration, cost, tokens, and how the call ended), and a total row.
+7. *(Added 2026-10-10)* **Given** a trial folder with files, **When** the trial view opens,
+   **Then** a folded section with the count and total size holds them as the Files view's tree,
+   each opening in the viewer with previous and next across the folder.
+8. *(Added 2026-10-10)* **Given** a validated trial, **When** its trial view opens, **Then** one
+   "Checks" table shows each HTTP check, the API contract, the unit tests, and the boundary with
+   its result, a detail line, and its evidence (the unit-test log with its failure lines counted).
+9. *(Added 2026-10-10)* **Given** a trial whose calls changed files, **When** the developer selects
+   "Open the change", **Then** a dialog shows that change's diff with its path and lines added and
+   removed, moves to the previous or next change of the trial, and links to the change in its
+   conversation.
 
 ---
 
 ### User Story 4 - Read the plan and its progress (Priority: P2)
 
-The developer opens a loop's plan view: each milestone with its goal, acceptance criteria, tasks,
-and the milestones it depends on, and its status. Open questions and assumptions are listed with
-their answers.
+The developer opens a loop's view: each milestone with its goal, acceptance criteria, tasks,
+and the milestones it depends on, and its status, next to its trials and cost. Every requirement,
+task, and criterion id shows its text on hover. The open questions and assumptions are one click
+away. *(Revised 2026-10-10: the plan view was merged into the loop view.)*
 
 **Why this priority**: The plan is the contract for the whole run, but today it can only be read as
 raw files.
 
-**Independent Test**: Open the plan view of a workspace with an approved plan and some achieved
+**Independent Test**: Open the loop view of a workspace with an approved plan and some achieved
 milestones; confirm that every milestone, criterion, task, and dependency in the plan is shown
-with the right status.
+with the right status, that ids show their text on hover, and that the questions line opens the
+Questions view filtered to the loop.
 
 **Acceptance Scenarios**:
 
-1. **Given** a loop with a stored plan, **When** the developer opens its plan view, **Then** every
+1. **Given** a loop with a stored plan, **When** the developer opens its loop view, **Then** every
    milestone is shown in plan order with its goal, status, trials used, dependencies, acceptance
    criteria, and tasks with their requirement references.
-2. **Given** a milestone whose latest trial failed some criteria, **When** the plan view shows it,
+2. **Given** a milestone whose latest trial failed some criteria, **When** the loop view shows it,
    **Then** each of those criteria is marked failing and links to the trial view.
-3. **Given** the plan is waiting for approval, **When** the developer opens the plan view, **Then**
+3. **Given** the plan is waiting for approval, **When** the developer opens the loop view, **Then**
    it says the plan is waiting for approval and which command approves or replans it.
-4. *(Added 2026-10-10)* **Given** a stored plan, **When** the developer opens the plan view,
-   **Then** it reads as a document: the approval notice and open questions first, a summary
-   (milestones, tasks, criteria, questions, assumptions, achieved so far), the milestones in
-   dependency order as a strip that jumps to each, each milestone as its goal, "Done when"
-   (criteria) and tasks, then the assumptions and the planning attempts (each try, its result, why
-   it failed, cost, and tokens).
-5. *(Added 2026-10-10)* **Given** a loop view, **When** it shows the milestones, **Then** each
-   milestone's tasks are one line (counts and a link to the plan), there is no "Planning" section,
-   and "Expand all" and "Collapse all" open or close every milestone.
+4. *(Added 2026-10-10)* **Given** a stored plan, **When** the developer opens the loop view,
+   **Then** it shows a progress bar, then each milestone in plan order (folded unless not yet
+   achieved, with "Expand all" and "Collapse all") with its goal, dependencies, "Acceptance
+   Criteria" (each criterion with its result, what was observed, and its evidence grouped by check,
+   screenshots as thumbnails), its tasks, and its trials.
+5. *(Added 2026-10-10)* **Given** a requirement, task, or criterion id anywhere in the dashboard
+   (loop view, Questions, a conversation's result card, a trial), **When** the developer hovers or
+   focuses it, **Then** a tooltip like the token breakdown shows what the id says in the plan.
+6. *(Added 2026-10-10)* **Given** a loop with open questions or assumptions, **When** the developer
+   selects the questions button in its loop view's toolbar, **Then** the Questions view opens with
+   only that loop's questions and assumptions.
+7. *(Added 2026-10-10, revised the same day)* **Given** a loop view, **When** it shows the steps,
+   **Then** one "Steps" card lists each step in the order its first call started with its calls,
+   time, cost, tokens, and share of the cost, each planning attempt a row of its own (a failed one
+   marked) that opens its call.
+8. *(Added 2026-10-10)* **Given** a loop view, **When** the developer selects its "Files" button,
+   **Then** the Files view opens with only that loop's folder shown, its inputs included, and a
+   "Folder: <loop>" chip; removing the chip shows every file again.
 
 ---
 
@@ -474,27 +574,98 @@ shows a readable row.
   failures; failing criteria with their steps, what was observed, and their evidence (screenshots
   shown as images); the API contract's problem or unmatched operations with the network requests;
   the unit tests' exit code with a link to their log; boundary violations; or why it was voided or
-  interrupted.
-- **FR-020** (A5): Each loop MUST have a plan view showing, in plan order, every milestone with its
-  goal, status, trials used, dependencies, acceptance criteria (each marked passing, failing, or
-  not yet checked, from the latest trial), and tasks with their requirement references; and the
-  plan's open questions with their answers and its assumptions. When the plan waits for approval,
-  the view MUST say so and name the command that approves or replans it.
-- **FR-020a** (A5, added 2026-10-10): The plan view MUST read as the agreed plan: the approval
-  notice and the open questions first; a summary of the counts of milestones (and how many are
-  achieved), tasks, criteria, open questions, and assumptions; the milestones in plan order as a
-  strip marked with their status, each jumping to its section; each milestone with its goal, its
-  criteria under "Done when", its tasks, and links to the milestones it depends on; then the
-  assumptions; then the planning attempts, each with its result, why it failed, duration, cost, and
-  tokens.
-- **FR-020b** (added 2026-10-10): The loop view MUST NOT repeat the plan: a milestone's tasks show as
-  one line (how many, how many done, and a link to that milestone in the plan view), and the
-  planning attempts are not shown (the plan step's cost is in "Cost by step"). The loop view MUST
-  offer "Expand all" and "Collapse all" for its milestones; by default the milestones not yet
-  achieved are open, and the developer's choice is kept while the view refreshes.
+  interrupted. A failed criterion in the validation's criteria MUST link to its reason.
+- **FR-018a** (A3, added and revised 2026-10-10): The trial view MUST show its steps as one table:
+  one row per call in the order the calls ran (step, call, model, start time since the trial
+  started, duration, cost, tokens with the split on hover, result), and a total row. A step makes
+  one call per trial, so there are no step heading rows, and there is no time line column. The
+  result is how the call ended: "ok", or its failure (timeout, invalid output, Claude error,
+  service error, interrupted, or a void reason) with its detail on hover. Selecting a row opens
+  the call.
+- **FR-018b** (added 2026-10-10): The files in the trial's folder MUST be shown on the trial view,
+  after "Files changed", folded, with their count and total size, drawn with the same tree as the Files view (icons, kinds,
+  sizes, folders that fold), each opening in the viewer with previous and next across the folder.
+- **FR-018c** (B6, added 2026-10-10): The trial's validation MUST show one "Checks" table holding
+  each HTTP check (command, response status, failures, evidence) and the API contract (met, or its
+  problem and the operations missing from the API document), the unit tests (command, exit code,
+  the number of failure lines in the log by the rule of FR-021c, the log opening in the viewer; or
+  "not run"), and the boundary (all writes inside the target, or the files written outside it),
+  each with its result.
+- **FR-018d** (B8, added 2026-10-10): "Files changed" in the trial view MUST show the lines added and
+  removed per file, and "Open the change" MUST open a dialog over the trial view with that change's
+  diff (as in the conversation view), its path, its call and step, and lines added and removed, with
+  previous and next change across the trial's changes and a link to the change in its
+  conversation (`?at=`). The counts MUST come with the trial (worked out by the server by the
+  app's diff rule), and the trial's conversations MUST be read only when a change is opened, so a
+  refresh during a live run does not download them.
+- **FR-020** (A5; revised 2026-10-10: the plan view is merged into the loop view): Each loop's view
+  MUST show, in plan order, every milestone with its goal, status, trials used, dependencies,
+  acceptance criteria under "Acceptance Criteria" (each marked passing, failing, or not yet
+  checked, from the latest trial, with what was observed and its evidence), and tasks with their status and requirement
+  references. When the plan waits for approval, the view MUST say so and name the command that
+  approves or replans it.
+- **FR-020a** (A5, added and revised 2026-10-10): The loop view MUST show a progress bar (milestones
+  achieved of all) and no milestone strip: each milestone card links the milestones it depends on.
+  An open milestone MUST show its goal, its tasks, then its acceptance criteria as a table
+  (Criterion with its requirement references, Result with a link to the trial when it failed,
+  Observed, Evidence), then its trials.
+  There is no separate plan view: its address
+  (`#/loop/<loop>/plan`, with `?m=`) MUST open the loop view at the same milestone.
+- **FR-020b** (added and revised 2026-10-10): The loop view MUST offer "Expand all" and "Collapse
+  all" for its milestones; by default the milestones not yet achieved are open, and the developer's
+  choice is kept while the view refreshes. The loop totals MUST be one Tokens tile (the split on
+  hover or focus, the cache-hit rate as its second line), not one tile per token kind.
+- **FR-020c** (added 2026-10-10): The loop view MUST show one "Steps" card instead of "Cost by step"
+  and the planning trials: one row per step that has calls, in the order each step's first call
+  started (not sortable), with its calls, time, cost, tokens (split on hover), and share of the
+  loop's cost. Each planning attempt (plan or replan) MUST be a row of its own, numbered when its
+  step has more than one attempt, a failed one marked with why it failed on hover, and opening its
+  call; every other row links to Claude calls filtered to the loop and that step (revised
+  2026-10-10, FR-020i).
+- **FR-020d** (added 2026-10-10): Every requirement reference, task id, and criterion id shown by the
+  dashboard (loop view, Questions, a conversation's result card, a trial view) MUST show, on hover
+  and on keyboard focus, the tooltip used for the token breakdown with what the id says in the
+  plan: a requirement's summary from the plan's requirements inventory, a task's title, or a
+  criterion's text. An id the plan does not have stays plain text.
+- **FR-020e** (added and revised 2026-10-10): The loop view MUST show the loop's open questions and
+  assumptions as one button in its outputs toolbar, beside "Final report" (counts, marked while the
+  plan waits for approval with questions unanswered), that opens the Questions view filtered to
+  that loop. The Questions view MUST have a loop filter like
+  Claude calls (chips, `?loop=<loop>` starting with that loop's chip pressed) that applies to both
+  the questions and the assumptions. The retries granted are not on the Questions view (FR-020j).
+- **FR-020f** (added 2026-10-10): The Files view MUST accept a folder filter, `?dir=<path>`, shown
+  as a removable "Folder: <path>" chip. A file is shown when its path or its place in the tree
+  (the folders above it as shown, starting with the top folder's name) starts with that folder,
+  so `backend-dev` keeps that loop's inputs that live outside its folder, `workspace` keeps the
+  workspace's own files, and a real folder such as
+  `backend-dev/state/milestones/M03/trials/2` works too. Folders with nothing shown are hidden.
+  It combines with the path filter and the kind chips, so the shown count, "Expand all", and the
+  viewer's previous and next cover only the shown files. The loop view's "Files" button MUST
+  open the Files view with `?dir=<loop>`.
+- **FR-020g** (added 2026-10-10): A criterion's evidence on the loop view MUST be grouped by the
+  check it belongs to (the file name before its first dot, e.g. `C1` for `C1.body` and
+  `C1.headers`), each file shown with its kind's icon and its size on hover; images MUST show as
+  thumbnails. Each opens in the viewer with previous and next across that criterion's files.
+  (Revised 2026-10-10:) a check with one file shows that file alone (a screenshot's thumbnail, or
+  the file's full name), with no label; a check with several files has a short label (cut with
+  "…", the whole name on hover) before them.
+- **FR-020h** (added 2026-10-10): The loop view MUST NOT show the frontend loop's UI address (the
+  address the loop ran the application at to check it).
+- **FR-020i** (added 2026-10-10): Claude calls MUST have a step filter beside its loop filter
+  (chips of the steps that have calls, in the driver's order, which the server sends so the
+  chips and the loop view's Steps card agree), combining with the loop filter and
+  the text filter; `?step=<step>` starts with that step's chip pressed, as `?loop=<loop>` does.
+  An address filter MUST apply even when its chips are not shown (a workspace with one loop or
+  one step).
+- **FR-020j** (added 2026-10-10): Each retry granted to a milestone (`devloops continue` with more
+  trials) MUST show on that milestone in the loop view as a row of its trials table, just before
+  the first trial that started after it (at the end when none did yet): how many more trials,
+  when, the reason given, and how many suggested answers it accepted. A retry granted to a
+  milestone the plan no longer has (a replan dropped it) MUST still show, after the milestones,
+  in "Retries granted for milestones no longer in the plan".
 - **FR-021** (B8): A conversation MUST show each tool call as one folded line (tool name and a hint)
   that unfolds on demand; MUST show the number of failed tool results in its header, mark each one,
-  and let the developer move between them; and MUST list the files Claude wrote or edited, each
+  and let the developer show only them (revised 2026-10-10: no previous/next error); and MUST list the files Claude wrote or edited, each
   once, jumping to the tool call that last changed it.
 - **FR-021a** (B8, User Story 8): A conversation MUST show each tool use together with its result
   (matched by the tool use's id) as one action row: a readable tool name, a one-line summary, the
@@ -518,10 +689,12 @@ shows a readable row.
   changed, assumptions, and questions; or the criteria, each passed or failed, with what was
   observed; any other answer as its fields. The first user message MUST show as one "Prompt" row
   that opens the prompt file (or unfolds the text when the call has no prompt file).
-- **FR-021f**: The conversation MUST show a summary line (actions of each kind, errors, duration),
-  filters ("Errors only" and each kind of action), and the lines added and removed per file in
-  "Files changed". `?at=`, moving between errors (FR-021), and "System records" MUST keep working,
-  each pointing at the action that holds the record.
+- **FR-021f** (revised 2026-10-10): The conversation MUST show a summary line (actions of each
+  kind, errors, duration), filters ("Errors only (N)", disabled with no errors, and each kind of
+  action), and the lines added and removed per file in "Files changed". `?at=` and "System
+  records" MUST keep working, each pointing at what holds the record. System records, when shown,
+  MUST appear in their place in the conversation (in record order, those before the prompt above
+  it), not after it.
 - **FR-022** (B10): The "go to" palette MUST match names of views, loops, milestones, trials, calls,
   and files as the developer types, and from three characters MUST add matches in file contents,
   conversations, and events, each opening at its line.
@@ -541,6 +714,14 @@ shows a readable row.
   except to items in the dashboard (as today).
 - **FR-027**: The served page and the export MUST load nothing from outside them (no network
   resources), as today.
+- **FR-033** (added 2026-10-10): The served dashboard MUST highlight code by its language with a
+  syntax-highlighting library copied into devloops at a pinned version (Prism; research R-16): in
+  the file viewer, Read results, Markdown code blocks, and the code inside diffs (keeping the lines
+  added and removed marked). At least JavaScript, JSX, TypeScript, TSX, JSON, Python, shell, YAML,
+  HTML/XML, CSS, Markdown, C#, Go, Java, and SQL MUST be highlighted; `.mjs` and `.cjs` count as
+  JavaScript. The library MUST only turn text into tokens, which the app puts on the page as text
+  (FR-026). Logs and HTTP responses keep their own small rules. The export MUST NOT contain the
+  library or any syntax highlighting: its code shows as plain text.
 
 #### Constraints and future
 
@@ -568,7 +749,7 @@ shows a readable row.
 
 - **Dashboard app**: the page and its scripts and styles, shipped with devloops; the same for the
   served dashboard and the export.
-- **View**: one screen of the app (overview, run, loop, plan, trial, calls, conversation, files,
+- **View**: one screen of the app (overview, run, loop, trial, calls, conversation, files,
   questions, events), with its own address and its own data.
 - **View data**: what one view shows, worked out by the server from the workspace's records when
   asked, with secrets hidden; embedded in the export instead.

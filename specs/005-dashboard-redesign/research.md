@@ -89,11 +89,11 @@ cheap once cached).
 | `#/` | Overview |
 | `#/run` | Run |
 | `#/loop/<loop>` | Loop |
-| `#/loop/<loop>/plan` | Plan |
+| `#/loop/<loop>/plan` | Loop (`?m=` kept): the plan view was merged into the loop view on 2026-10-10 (FR-020a) |
 | `#/loop/<loop>/m/<milestone>/t/<n>` | Trial (`n` with a `.k` suffix for a voided re-run's earlier attempt) |
 | `#/calls`, `#/call/<loop>/<seq>` | Calls; one conversation (`?at=<block>` jumps to a tool call) |
-| `#/files`, `#/file/<id>` | Files; one file in the viewer (`?line=<n>`) |
-| `#/questions`, `#/events` | Questions, events |
+| `#/files`, `#/file/<id>` | Files (`?dir=<path>` filters to a folder, by its path or its place in the tree, FR-020f); one file in the viewer (`?line=<n>`) |
+| `#/questions`, `#/events` | Questions (`?loop=<loop>` filters, FR-020e), events |
 
 A route names a view and its parameters; the router keeps a table `route → view module`, so a
 new view is one entry (FR-029, FR-030).
@@ -346,3 +346,38 @@ exit code (backend call #3).
 every export, and the browser still needs the records for "System records"); rendering every
 tool's result as Markdown (shell output and diffs lose their meaning); hiding images behind a link
 (the screenshots are what the validator saw; the trial view already shows them).
+
+## R-16 Syntax highlighting with Prism, copied in, used through its tokenizer
+
+Added 2026-10-10 (FR-033).
+
+**Decision**: replace the hand-written language rules of `assets/app/highlight.js` with Prism
+1.30.0 (MIT), copied into `assets/app/vendor/prism/` (`prism-core.js` and the components for
+markup, css, clike, javascript, jsx, typescript, tsx, json, python, bash, yaml, markdown, csharp,
+go, java, sql; `LICENSE`; a `VERSION` note naming the release and where it came from). A one-line
+`vendor/prism-config.js` sets `window.Prism = {manual: true, disableWorkerMessageHandler: true}`
+before the core loads, so Prism never scans or changes the page on its own. The app calls only
+`Prism.tokenize(text, grammar)` and turns the token tree into `[type, text]` pairs, which
+`codeView` and the diff views put on the page as text nodes in classed spans, as today. Logs,
+HTTP, and diff markers keep their own small rules; the pretty JSON and the JSON tree stay.
+`appbundle.script()` joins the vendor files for the served page; the export (`dashboard_export`)
+joins the app without them, and `highlight.js` falls back to plain text when `Prism` is absent.
+
+**Rationale**: devloops builds whatever stack the plan picks (.NET, Go, Java, …), and a
+hand-written rule set per language is where highlighting goes wrong (JSX in JS, template strings,
+generics, nested comments). Prism covers about 300 languages, each a small file. Its tokenizer
+returns data, not markup, so the rule that text is never inserted as markup (FR-026) still holds
+without trusting the library's escaping. Copying it in keeps the Python runtime standard-library
+only, needs no build, and loads nothing from the network (FR-027, FR-028). The export leaves it
+out to stay smaller; its code shows as plain text.
+
+**Alternatives**: highlight.js (about 190 languages and language guessing, but its API returns HTML
+strings: using them needs `innerHTML`, parsing them, or its private token tree); keeping and
+extending the hand-written rules (no dependency, but every new language is new code to maintain
+and test); loading a library from a CDN (breaks FR-027 and offline use).
+
+**Upkeep**: the version is pinned in `vendor/prism/VERSION`; updating it is copying the new files
+and running the node tests. `test_app_js` exempts `vendor/` from the "own IIFE, no DOM at load,
+no markup" checks only; it checks that the vendor files are listed in `scripts.txt`, load nothing
+from outside, and that the app never calls `Prism.highlight`, `highlightElement`, or
+`highlightAll`.
