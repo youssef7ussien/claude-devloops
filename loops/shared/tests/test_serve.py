@@ -304,19 +304,60 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
 
     # --- search -------------------------------------------------------------------------------------
 
-    def test_search_reads_files_and_conversations_redacted(self):
+    def test_the_index_names_every_item_with_its_route(self):
+        self.completed()
+        self.start()
+        data, _ = self.api("index")
+        items = data["items"]
+        kinds = {item["kind"] for item in items}
+        self.assertEqual(kinds, {"view", "loop", "milestone", "trial", "call", "file"})
+        by_label = {item["label"]: item for item in items}
+        self.assertEqual(by_label["Overview"]["route"], "#/")
+        self.assertEqual(by_label["backend-dev"]["route"], "#/loop/backend-dev")
+        self.assertEqual(by_label["backend-dev plan"]["route"], "#/loop/backend-dev/plan")
+        self.assertEqual(by_label["M01 List items"]["route"], "#/loop/backend-dev?m=M01")
+        self.assertEqual(by_label["M01 trial 1"]["route"], "#/loop/backend-dev/m/M01/t/1")
+        self.assertEqual(by_label["#1 plan"]["route"], "#/call/backend-dev/1")
+        [ref] = [i for i in items if i["detail"] == "backend-dev/progress.md"]
+        self.assertEqual((ref["label"], ref["route"]),
+                         ("progress.md", f"#/file/{self.file_id('backend-dev/progress.md')}"))
+        self.assertNotIn(SECRET, json.dumps(data))
+
+    def test_search_reads_files_conversations_and_events_redacted(self):
         self.completed()
         self.write(os.path.join("outputs", "notes.md"), "one\ntwo needle-word three\n")
         self.start()
         data, _ = self.api("search?q=NEEDLE-word")
         [hit] = data["results"]
-        self.assertEqual(hit, {"id": self.file_id("backend-dev/outputs/notes.md"),
-                               "kind": "file", "line": 2, "before": "two ",
+        fid = self.file_id("backend-dev/outputs/notes.md")
+        self.assertEqual(hit, {"id": fid, "kind": "file", "label": "backend-dev/outputs/notes.md",
+                               "route": f"#/file/{fid}?line=2", "line": 2, "before": "two ",
                                "match": "needle-word", "after": " three"})
-        data, _ = self.api("search?q=fake-internal")
-        self.assertIn("call", {h["kind"] for h in data["results"]})
+        data, _ = self.api("search?q=plan%20done")  # Claude's reply to the plan call
+        calls = [h for h in data["results"] if h["kind"] == "call"]
+        self.assertTrue(calls)
+        self.assertRegex(calls[0]["route"], r"^#/call/backend-dev/\d+\?at=\d+$")
         data, _ = self.api(f"search?q={SECRET}")
         self.assertEqual(data["results"], [])
+        data, _ = self.api("search?q=milestone-achieved")
+        kinds = [h["kind"] for h in data["results"]]
+        self.assertEqual(kinds[-1], "event")
+        self.assertEqual(kinds, sorted(kinds, key=["file", "call", "event"].index))
+        self.assertRegex(data["results"][-1]["route"], r"^#/events\?loop=backend-dev&at=\d+$")
+        n = int(data["results"][-1]["route"].rsplit("=", 1)[1])
+        events, _ = self.api("events")
+        [event] = [e for e in events["events"] if e["loop"] == "backend-dev" and e["n"] == n]
+        self.assertEqual(event["type"], "milestone-achieved")
+        data, _ = self.api("search?q=ne")  # fewer than 3 characters
+        self.assertEqual(data["results"], [])
+
+    def test_search_returns_at_most_40(self):
+        self.completed()
+        for k in range(45):
+            self.write(os.path.join("outputs", f"n{k:02d}.md"), "a common-phrase here\n")
+        self.start()
+        data, _ = self.api("search?q=common-phrase")
+        self.assertEqual(len(data["results"]), serve.SEARCH_LIMIT)
 
     def test_search_decodes_conversation_records(self):
         # The raw JSON line escapes quotes and non-ASCII text; the viewer shows them decoded.
@@ -324,13 +365,103 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         record = {"type": "assistant", "message": {"content": [
             {"type": "text", "text": 'she said "quoted words" in Zürich'}]}}
         path = self.path(os.path.join("state", "conversations", "0001-plan.jsonl"))
+        with open(path, encoding="utf-8") as f:
+            records = sum(1 for line in f if line.strip())
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")  # ensure_ascii: Zürich
         self.start()
         for query in ("%22quoted%20words%22", "z%C3%BCrich"):
             data, _ = self.api(f"search?q={query}")
             hits = [h for h in data["results"] if h["kind"] == "call"]
-            self.assertEqual([h["id"] for h in hits], ["call-backend-dev-1"], query)
+            self.assertEqual([(h["id"], h["route"]) for h in hits],
+                             [("call-backend-dev-1", f"#/call/backend-dev/1?at={records}")], query)
+
+    def test_search_reads_again_only_what_changed(self):
+        self.completed()
+        self.write(os.path.join("outputs", "a.md"), "alpha text\n")
+        self.write(os.path.join("outputs", "b.md"), "beta text\n")
+        site = serve.Site(self.t.project(), self.t.kit(), self.t.env)
+        ws, read, calls = self.ws(), serve._file_text, []
+
+        def counting(path, st, redactor):
+            calls.append(os.path.basename(path))
+            return read(path, st, redactor)
+        with mock.patch.object(serve, "_file_text", counting):
+            self.assertEqual([h["label"] for h in site.search(ws, "alpha")],
+                             ["backend-dev/outputs/a.md"])
+            self.assertIn("a.md", calls)
+            calls.clear()
+            self.assertEqual(site.search(ws, "beta")[0]["label"], "backend-dev/outputs/b.md")
+            self.assertEqual(calls, [])  # nothing changed: nothing read
+            self.write(os.path.join("outputs", "a.md"), "alpha changed\n")
+            self.assertEqual(site.search(ws, "changed")[0]["label"], "backend-dev/outputs/a.md")
+            self.assertEqual(calls, ["a.md"])
+
+    def test_search_reads_what_the_conversation_shows(self):
+        # ids, times, and session set-up are not searched: a hit opens a record that shows it
+        self.completed()
+        path = self.path(os.path.join("state", "conversations", "0001-plan.jsonl"))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "assistant", "uuid": "uuid-zz-hidden", "message": {
+                "role": "assistant", "content": [
+                    {"type": "tool_use", "id": "toolu-zz-hidden", "name": "Bash",
+                     "input": {"command": "echo shown-zz-value"}}]}}) + "\n")
+            f.write(json.dumps({"type": "system", "subtype": "init", "note": "system-zz"}) + "\n")
+        site = serve.Site(self.t.project(), self.t.kit(), self.t.env)
+        for query in ("uuid-zz-hidden", "toolu-zz-hidden", "system-zz"):
+            self.assertEqual([h for h in site.search(self.ws(), query) if h["kind"] == "call"],
+                             [], query)
+        [hit] = [h for h in site.search(self.ws(), "shown-zz-value") if h["kind"] == "call"]
+        self.assertEqual(hit["before"], "Bash echo ")
+
+    def test_a_secret_never_reaches_a_result(self):
+        self.completed()
+        self.write(os.path.join("outputs", "a.md"), "alpha\n")
+        site, ws = serve.Site(self.t.project(), self.t.kit(), self.t.env), self.ws()
+        ctx = site.current(ws)[1]["ctx"]
+        # A search begun before the secrets changed reads with the old redactor: its text is
+        # used, never kept
+        index = serve.SearchIndex()
+        index._secrets = ("the newer secrets",)
+        text = index._text(("file", "a"), self.path(os.path.join("outputs", "a.md")),
+                           serve._file_text, ctx.redactor, ("the older secrets",))
+        self.assertEqual((text, index._texts, index._size), ("alpha\n", {}, 0))
+        # A secret split across the snippet's parts is caught where they are seen together
+        hit = {"kind": "file", "id": "f", "label": "a", "route": "#/file/f", "line": 1,
+               "before": "S3CR3T-ser", "match": "ved", "after": "-value"}
+        with mock.patch.object(serve, "search_corpus", lambda items, q: [hit]):
+            self.assertEqual(site.search(ws, "ved"), [])
+
+    def test_search_keeps_the_texts_of_the_last_workspaces(self):
+        self.completed()
+        site, ws = serve.Site(self.t.project(), self.t.kit(), self.t.env), self.ws()
+        site.search(ws, "anything")
+        site._search["gone-1"] = serve.SearchIndex()
+        site._search["gone-2"] = serve.SearchIndex()
+        site.search(ws, "anything")
+        self.assertEqual(list(site._search), ["gone-2", WS])
+        self.assertEqual(site._search[WS].keep, serve.SEARCH_KEEP_BYTES // serve.SEARCH_WORKSPACES)
+
+    def test_a_streamed_file_is_searched_as_it_is_sent(self):
+        self.completed()
+        self.write(os.path.join("outputs", "big.json"), json.dumps({"a": 1, "b": "find-me"}))
+        site = serve.Site(self.t.project(), self.t.kit(), self.t.env)
+        [hit] = site.search(self.ws(), "find-me")
+        self.assertEqual(hit["line"], 3)  # indented, as the viewer shows it
+        site = serve.Site(self.t.project(), self.t.kit(), self.t.env)
+        with mock.patch.object(serve, "STREAM_BYTES", 10):
+            [hit] = site.search(self.ws(), "find-me")
+        self.assertEqual(hit["line"], 1)  # sent as it is: one line
+
+    def test_search_keeps_no_more_than_its_cap(self):
+        self.completed()
+        self.write(os.path.join("outputs", "a.md"), "alpha text\n")
+        ctx = self.ws()
+        site = serve.Site(self.t.project(), self.t.kit(), self.t.env)
+        index = serve.SearchIndex(keep=0)
+        site._search[WS] = index
+        self.assertEqual(site.search(ctx, "alpha")[0]["label"], "backend-dev/outputs/a.md")
+        self.assertEqual((index._texts, index._size), ({}, 0))
 
     # --- following a run --------------------------------------------------------------------------
 
@@ -436,6 +567,35 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         self.start(host="0.0.0.0", use_token=False)
         self.assertEqual(self.get(f"/w/{WS}/")[0], 200)
         self.assertNotIn("token=", self.out.getvalue())
+
+
+FIXTURE = os.path.join(os.path.dirname(appbundle.__file__), "assets", "app", "tests",
+                       "search-fixture.json")
+
+
+class SearchCorpusTest(unittest.TestCase):
+    """`serve.search_corpus` on the corpus that assets/app/tests/search.test.js searches too: both
+    must return the hits the fixture holds. DEVLOOPS_WRITE_FIXTURE=1 writes them from this one."""
+
+    def test_the_fixture_hits(self):
+        with open(FIXTURE, encoding="utf-8") as f:
+            fixture = json.load(f)
+        limited = fixture["limited"]
+        found = {q: serve.search_corpus(fixture["corpus"], q) for q in fixture["queries"]}
+        hits = serve.search_corpus(fixture["corpus"], limited["query"], limited["limit"])
+        if os.environ.get("DEVLOOPS_WRITE_FIXTURE") == "1":
+            fixture["expected"], limited["hits"] = found, hits
+            with open(FIXTURE, "w", encoding="utf-8") as f:
+                json.dump(fixture, f, indent=1, ensure_ascii=False)
+        self.assertEqual(found, fixture["expected"])
+        self.assertEqual(hits, limited["hits"])
+        self.assertEqual(found["ne"], [])  # fewer than 3 characters
+        self.assertEqual([h["kind"] for h in found["needle"]], ["file", "file", "file", "call"])
+        self.assertEqual(found["milestone-achieved M01"][0]["route"],
+                         "#/events?loop=backend-dev&at=1")
+        # an `İ` before the match (two characters in lower case) does not move the match
+        self.assertEqual([(h["before"], h["match"]) for h in found["letters"]],
+                         [("the needle after İ ", "letters")])
 
 
 class RecordTest(unittest.TestCase):

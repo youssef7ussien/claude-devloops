@@ -1,5 +1,6 @@
-"""How fast the server answers the overview's data for a large workspace (specs/005-dashboard-redesign
-SC-001, server side). Skipped when DEVLOOPS_SKIP_PERF=1 (a slow or busy machine)."""
+"""How fast the server answers the overview's data and a search for a large workspace
+(specs/005-dashboard-redesign SC-001 and SC-006, server side). Skipped when DEVLOOPS_SKIP_PERF=1 (a
+slow or busy machine)."""
 import json
 import os
 import time
@@ -11,6 +12,7 @@ from stub_loop import WS, StubLoopMixin
 
 CALLS = 200
 FILES = 5000
+NEEDLE = "a-rare-needle-42"
 
 
 @unittest.skipIf(os.environ.get("DEVLOOPS_SKIP_PERF") == "1", "DEVLOOPS_SKIP_PERF=1")
@@ -34,7 +36,8 @@ class SummaryPerfTest(StubLoopMixin, unittest.TestCase):
                 rel = os.path.join("state", "conversations", f"{seq:04d}-implement.jsonl")
                 with open(os.path.join(self.loop_dir, rel), "w", encoding="utf-8") as c:
                     c.write("".join(json.dumps({"type": "assistant", "message": {
-                        "role": "assistant", "content": [{"type": "text", "text": f"line {n}"}]}})
+                        "role": "assistant", "content": [{"type": "text", "text": (
+                            f"line {n} {NEEDLE}" if k == CALLS // 2 and n == 7 else f"line {n}")}]}})
                         + "\n" for n in range(20)))
                 f.write(json.dumps({
                     "seq": seq, "step": "implement", "milestone_id": "M02", "trial": 1,
@@ -48,7 +51,7 @@ class SummaryPerfTest(StubLoopMixin, unittest.TestCase):
             folder = os.path.join(notes, f"d{k // 100:02d}")
             os.makedirs(folder, exist_ok=True)
             with open(os.path.join(folder, f"n{k:04d}.md"), "w", encoding="utf-8") as f:
-                f.write(f"# Note {k}\n\nSome text.\n")
+                f.write(f"# Note {k}\n\nSome text{' ' + NEEDLE if k == FILES // 2 else ''}.\n")
 
     def test_summary_cold_and_warm(self):
         ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
@@ -63,6 +66,26 @@ class SummaryPerfTest(StubLoopMixin, unittest.TestCase):
         warm = time.perf_counter() - start
         self.assertLess(cold, 1.0, f"cold summary took {cold:.2f}s")
         self.assertLess(warm, 0.1, f"warm summary took {warm:.3f}s")
+
+
+    def test_search_cold_and_warm(self):
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
+        site = serve.Site(self.t.project(), self.t.kit(), self.t.env)
+        # The palette asks for the names first (api/index, which lists the files), then searches
+        # the contents after a pause in typing: "cold" is the first search, no text read yet.
+        start = time.perf_counter()
+        self.assertEqual(site.answer(ws, "index")[0], 200)
+        names = time.perf_counter() - start
+        start = time.perf_counter()
+        hits = site.search(ws, NEEDLE)
+        cold = time.perf_counter() - start
+        self.assertEqual([(h["kind"], h.get("line")) for h in hits], [("file", 3), ("call", 8)])
+        start = time.perf_counter()
+        self.assertEqual(len(site.search(ws, NEEDLE)), 2)
+        warm = time.perf_counter() - start
+        self.assertLess(names, 1.0, f"the names took {names:.2f}s")
+        self.assertLess(cold, 1.0, f"cold search took {cold:.2f}s")
+        self.assertLess(warm, 0.2, f"warm search took {warm:.3f}s")
 
 
 if __name__ == "__main__":

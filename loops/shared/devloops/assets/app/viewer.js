@@ -54,11 +54,12 @@
   /* --- viewers: one entry per kind; add a kind by adding an entry -------------------------------- */
   function jsonTree(text, lines) { return DL.hl && DL.hl.jsonTree ? DL.hl.jsonTree(text, lines) : null; }
   var VIEWERS = {
-    markdown: { modes: ['Rendered', 'Source'], render: function (c, m) {
+    /* `lines`: the mode that shows numbered lines, used when a file opens at a line */
+    markdown: { modes: ['Rendered', 'Source'], lines: 'Source', render: function (c, m) {
       return m === 'Source' || !DL.md ? code(c.text, 'markdown') : pane(DL.md.render(c.text, { resolve: resolve }));
     } },
-    json: { modes: ['Code', 'Tree'], render: function (c, m) { return m === 'Tree' && jsonTree(c.text) || code(c.text, 'json'); } },
-    jsonl: { modes: ['Records', 'Lines'], render: function (c, m) {
+    json: { modes: ['Code', 'Tree'], lines: 'Code', render: function (c, m) { return m === 'Tree' && jsonTree(c.text) || code(c.text, 'json'); } },
+    jsonl: { modes: ['Records', 'Lines'], lines: 'Lines', render: function (c, m) {
       return m === 'Records' && jsonTree(c.text, true) || code(c.text, 'json');
     } },
     code: { render: function (c) { return code(c.text, c.lang); } },
@@ -233,7 +234,7 @@
   }
 
   /* Draw `ref` with its loaded `data` ({text} | {url} | {not_embedded, size}). */
-  function draw(ref, data, after) {
+  function draw(ref, data, after, line) {
     var c = { kind: ref.kind || 'text', lang: ref.lang, path: ref.path || ref.id, name: nameOf(ref),
               text: data.text != null ? data.text : null, src: data.url || null };
     if (data.not_embedded) {
@@ -248,6 +249,7 @@
     if (c.kind === 'json' && c.text != null && DL.hl && DL.hl.pretty) c.text = DL.hl.pretty(c.text);
     var v = VIEWERS[c.kind] || VIEWERS.text, mode = v.modes ? (DL.store('mode-' + c.kind) || v.modes[0]) : null;
     if (v.modes && v.modes.indexOf(mode) < 0) mode = v.modes[0];
+    if (line && v.lines) mode = v.lines; /* opened at a line: show the lines (not kept as the choice) */
     var codeTools = [], tools = [];
     function render(m) {
       show(v.render(c, m) || code(c.text || '', 'text'));
@@ -276,7 +278,7 @@
     }
     if (ref.missing) { frame(ref, []); show(pane(DL.el('p', 't-err', 'Missing: ' + (ref.path || ref.id)))); return; }
     var hit = cached(ref.id);
-    if (hit && hit.v === (ref.version || '')) { draw(ref, hit.data, done); return; }
+    if (hit && hit.v === (ref.version || '')) { draw(ref, hit.data, done, opts.line); return; }
     if (ref.size > BIG && !bigOk[ref.id] && ref.kind !== 'image' && ref.kind !== 'binary') {
       /* a very large file: loading it all can stall the page, so ask first */
       frame(ref, []);
@@ -292,7 +294,7 @@
     loading();
     DL.api.file(ref).then(function (data) {
       remember(ref.id, { v: ref.version || '', data: data });
-      if (my === seq && current && current.id === ref.id) draw(ref, data, done);
+      if (my === seq && current && current.id === ref.id) draw(ref, data, done, opts.line);
     }, function (err) {
       if (my === seq && current && current.id === ref.id) failed('Could not load ' + (ref.path || ref.id) + ': ' + (err && err.message || err));
     });

@@ -8,11 +8,14 @@ highlight.js
 viewer.js
 charts.js
 now.js
+palette.js
 views/overview.js
 views/run.js
 views/loop.js
+views/plan.js
 views/trial.js
 views/calls.js
+views/conversation.js
 views/questions.js
 views/events.js
 views/files.js

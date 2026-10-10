@@ -42,14 +42,17 @@ import webbrowser
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import appbundle, artifacts, dashboard, state, workspace
+from . import appbundle, artifacts, claude, dashboard, state, workspace
 from .state import DevloopsError
 
 DEFAULT_PORT = 8765
 PORT_TRIES = 20          # without --port, the next free port up to this many after the default
 POLL_SECONDS = 3         # how often a page asks whether its workspace changed
 SEARCH_LIMIT = 40        # results of one search
+SEARCH_MIN = 3           # a shorter query finds nothing (the palette matches names until then)
 SEARCH_MAX_BYTES = 20 * 1024 * 1024  # larger files are not searched (they still open)
+SEARCH_KEEP_BYTES = 256 * 1024 * 1024  # UTF-8 bytes of text the search keeps; more are read per search
+SEARCH_WORKSPACES = 2    # workspaces whose search texts are kept (the most recently searched)
 STREAM_BYTES = 16 * 1024 * 1024      # larger text files are streamed, not read whole
 STREAM_BLOCK = 1024 * 1024
 VERSION_TTL = 1.0                    # seconds a computed version serves every page
@@ -69,11 +72,14 @@ API = [(re.compile(pattern), builder) for pattern, builder in (
     (r"^summary$", "summary"),
     (r"^now$", "now"),
     (r"^loops/(?P<loop>[^/]+)$", "loop"),
+    (r"^loops/(?P<loop>[^/]+)/plan$", "plan"),
     (r"^loops/(?P<loop>[^/]+)/milestones/(?P<milestone>[^/]+)/trials/(?P<key>[^/]+)$", "trial"),
     (r"^calls$", "calls"),
+    (r"^calls/(?P<loop>[^/]+)/(?P<seq>[^/]+)$", "call"),
     (r"^files$", "files"),
     (r"^events$", "events"),
     (r"^questions$", "questions"),
+    (r"^index$", "index"),
 )]
 
 
@@ -162,6 +168,7 @@ class Site:
         # workspace name -> {version, ctx (dashboard.Context), answers: {path: (status, body)}}
         self._cache = {}
         self._versions = {}  # workspace name -> (when, version): one walk serves every tab
+        self._search = {}    # workspace name -> SearchIndex
 
     def workspaces(self):
         """`{name: path}` of every workspace, sorted by name."""
@@ -282,44 +289,24 @@ class Site:
         return _sendable(self.current(ws)[1]["ctx"].index, os.path.realpath(ws.path), file_id)
 
     def search(self, ws, query):
-        """Where `query` appears in the listed text files, then in the conversations: `[{id, kind,
-        line, before, match, after}]`, at most SEARCH_LIMIT."""
-        needle = query.lower()
-        if len(needle) < 2:
-            return []
+        """Where `query` appears in the workspace's files, conversations, and events: SearchHits
+        (`search_corpus`). The texts are kept between searches (SearchIndex) for the
+        SEARCH_WORKSPACES workspaces searched last, sharing SEARCH_KEEP_BYTES."""
         ctx = self.current(ws)[1]["ctx"]  # one listing for the whole search
-        index, root = ctx.index, os.path.realpath(ws.path)
-        redactor, found = ctx.redactor, []
-        for file_id in list(index["by_id"]):
-            if len(found) >= SEARCH_LIMIT:
-                return found
-            path = _sendable(index, root, file_id)
-            try:
-                st = os.stat(path) if path else None
-                if st is None or st.st_size > SEARCH_MAX_BYTES:
-                    continue
-                kind, _, _ = artifacts.sniff(path, st.st_size, st.st_mtime_ns)
-                if kind in ("image", "binary"):
-                    continue
-                with open(path, encoding="utf-8", errors="replace") as f:
-                    text = artifacts.viewer_text(kind, f.read(), redactor)
-            except OSError:
+        with self._lock:
+            index = self._search.pop(ws.name, None) or SearchIndex(
+                SEARCH_KEEP_BYTES // SEARCH_WORKSPACES)
+            self._search[ws.name] = index  # the most recently searched last
+            while len(self._search) > SEARCH_WORKSPACES:
+                self._search.pop(next(iter(self._search)))
+        hits = []
+        for hit in search_corpus(index.corpus(ctx), query):
+            # the texts are redacted already; a secret spanning the snippet's parts is caught
+            # here too, where the parts are seen together
+            if ctx.redactor.redact(hit["before"] + hit["match"] + hit["after"])[1]:
                 continue
-            hit = _hit(text, needle)
-            if hit:
-                found.append(dict(hit, id=file_id, kind="file"))
-        for loop in dashboard.LOOPS:
-            loop_dir = ws.loop_dir(loop)
-            run = state.read_json(os.path.join(loop_dir, "state", "run.json")) or {}
-            for r in state.read_jsonl(os.path.join(loop_dir, "state", "invocations.jsonl")):
-                if len(found) >= SEARCH_LIMIT:
-                    return found
-                text, _, _ = artifacts.read_conversation(ws, loop, r, run.get("target_dir"),
-                                                         self.env)
-                hit = _conversation_hit(text, needle, redactor) if text else None
-                if hit:
-                    found.append(dict(hit, id=artifacts.call_id(loop, r.get("seq")), kind="call"))
-        return found
+            hits.append(ctx.redactor.redact_obj(hit)[0])
+        return hits
 
 
 def _sendable(index, root, file_id):
@@ -340,9 +327,22 @@ def _takes_query(fn):
         return False
 
 
+# --- search (research R-10) -------------------------------------------------------------------------
+
+def fold_case(text):
+    """`text` in lower case, character for character: a character whose lower case is longer
+    (`İ`) is kept, so an offset in the result is the same offset in `text`. assets/app/palette.js
+    `fold` is the same."""
+    low = text.lower()
+    if len(low) == len(text):
+        return low
+    return "".join(c if len(c.lower()) != 1 else c.lower() for c in text)
+
+
 def _hit(text, needle):
-    """The first match of `needle` in `text`: its line number and the text around it."""
-    at = text.lower().find(needle)
+    """The first match of `needle` (folded, `fold_case`) in `text`: its line number and the text
+    around it. assets/app/palette.js `hitOf` is the same."""
+    at = fold_case(text).find(needle)
     if at < 0:
         return None
     start = text.rfind("\n", 0, at) + 1
@@ -354,34 +354,179 @@ def _hit(text, needle):
             "match": line[col:col + len(needle)], "after": line[col + len(needle):col + len(needle) + 80]}
 
 
-def _strings(obj):
-    if isinstance(obj, str):
-        yield obj
-    elif isinstance(obj, dict):
-        for value in obj.values():
-            yield from _strings(value)
-    elif isinstance(obj, list):
-        for value in obj:
-            yield from _strings(value)
-
-
-def _conversation_hit(text, needle, redactor):
-    """The first string of a transcript (as the viewer shows it: decoded and redacted) holding
-    `needle`. Each record is decoded first: its raw JSON escapes quotes, newlines, and non-ASCII
-    text, so the raw line may not hold what the viewer shows."""
-    for line in text.split("\n"):
-        if not line.strip():
+def search_corpus(items, query, limit=SEARCH_LIMIT):
+    """SearchHits of `query` in `items` (`{kind, id, label, route, text}`, in search order: files,
+    calls, events), case-insensitive: the first match in each item, at most `limit`, each with the
+    route that opens it at the match: a file at its line, a call at its record, an event at its
+    place in its loop's events (each call and events text has one line per record or event).
+    Nothing below SEARCH_MIN characters. The export's search (assets/app/palette.js
+    `DL.search.content`) returns the same hits for the same corpus."""
+    needle = fold_case(query)
+    if len(needle) < SEARCH_MIN:
+        return []
+    found = []
+    for item in items:
+        if len(found) >= limit:
+            break
+        hit = _hit(item["text"], needle) if item.get("text") else None
+        if hit is None:
             continue
+        at = {"file": ("line", hit["line"])}.get(item["kind"], ("at", hit["line"] - 1))
+        joiner = "&" if "?" in item["route"] else "?"
+        found.append(dict({"kind": item["kind"], "id": item["id"], "label": item["label"],
+                           "route": f"{item['route']}{joiner}{at[0]}={at[1]}"}, **hit))
+    return found
+
+
+def _file_text(path, st, redactor):
+    """A listed file as the viewer shows it, or None: an image, a binary file, or one over
+    SEARCH_MAX_BYTES is not searched. A text file over STREAM_BYTES is sent as it is (JSON not
+    indented), so it is searched as it is too, keeping its line numbers."""
+    if st.st_size > SEARCH_MAX_BYTES:
+        return None
+    kind, _, _ = artifacts.sniff(path, st.st_size, st.st_mtime_ns)
+    if kind in ("image", "binary"):
+        return None
+    with open(path, "rb") as f:
+        text = f.read().decode("utf-8", errors="replace")
+    if st.st_size > STREAM_BYTES:
+        return redactor.redact(text)[0]
+    return artifacts.viewer_text(kind, text, redactor)
+
+
+def _conversation_text(path, st, redactor):
+    """A transcript as one line per record of `artifacts.parse_conversation` (the conversation
+    view's records), each what the view shows of it (`artifacts.record_text`)."""
+    with open(path, "rb") as f:
+        text = f.read().decode("utf-8", errors="replace")
+    return "\n".join(artifacts.record_text(r)
+                     for r in artifacts.parse_conversation(text, redactor)["records"])
+
+
+def _events_text(path, st, redactor):
+    """events.jsonl as one line per event (as state.read_jsonl reads it, so a line is the event's
+    `n` in api/events): the event's values, redacted."""
+    with open(path, "rb") as f:
+        text = f.read().decode("utf-8", errors="replace")
+    lines = []
+    for line in text.split("\n"):
+        if line.strip():
+            try:
+                value = redactor.redact_obj(json.loads(line))[0]
+            except ValueError:
+                value = redactor.redact(line)[0]
+            lines.append(" ".join(str(v) for v in (value.values() if isinstance(value, dict)
+                                                   else [value])).replace("\n", " "))
+    return "\n".join(lines)
+
+
+class SearchIndex:
+    """One workspace's searchable texts, redacted, kept between searches (research R-10):
+    `{(kind, path): ((size, mtime_ns), text, bytes)}`. Each search checks an item's size and time
+    and reads it again only when they changed; at most `keep` UTF-8 bytes of text are kept, and
+    items beyond that are read on each search. A change of the secrets to hide empties it, and a
+    text redacted with other secrets than the index's is never kept."""
+
+    def __init__(self, keep=SEARCH_KEEP_BYTES):
+        self.keep = keep
+        self._lock = threading.Lock()
+        self._texts = {}
+        self._size = 0
+        self._secrets = None
+        self._sources = (None, None)  # (the workspace version they were listed for, sources)
+
+    def _text(self, key, path, read, redactor, secrets):
         try:
-            strings = _strings(redactor.redact_obj(json.loads(line))[0])
-        except ValueError:
-            strings = [redactor.redact(line)[0]]
-        for value in strings:
-            hit = _hit(value, needle)
-            if hit:
-                hit.pop("line")
-                return hit
-    return None
+            st = os.stat(path)
+        except OSError:
+            return None
+        stamp = (st.st_size, st.st_mtime_ns)
+        with self._lock:
+            hit = self._texts.get(key)
+        if hit and hit[0] == stamp:
+            return hit[1]
+        try:
+            text = read(path, st, redactor)
+        except OSError:
+            text = None
+        size = len(text.encode("utf-8")) if text is not None else 0
+        with self._lock:
+            if secrets != self._secrets:
+                return text  # a search begun before the secrets changed: used, never kept
+            old = self._texts.pop(key, None)
+            if old:
+                self._size -= old[2]
+            if text is not None and self._size + size <= self.keep:
+                self._texts[key] = (stamp, text, size)
+                self._size += size
+        return text
+
+    def sources(self, ctx):
+        """`[(item without its text, key, path, reader)]` of the workspace version `ctx`, in
+        search order: the listed files, each loop's calls, then each loop's events. Listed once
+        per version."""
+        with self._lock:
+            version, sources = self._sources
+        if ctx.version is not None and version == ctx.version:
+            return sources
+        sources = self._list(ctx)
+        with self._lock:
+            self._sources = (ctx.version, sources)
+        return sources
+    def _list(self, ctx):
+        out, refs = [], {ref["id"]: ref["path"] for ref in ctx.refs.values() if ref.get("id")}
+        root = os.path.realpath(ctx.ws.path)
+        folders = {}  # each folder's real path, found once per search
+
+        def real(path):
+            folder, name = os.path.split(path)
+            if folder not in folders:
+                folders[folder] = os.path.realpath(folder)
+            joined = os.path.join(folders[folder], name)
+            return os.path.realpath(joined) if os.path.islink(joined) else joined
+        for file_id, listed in ctx.index["by_id"].items():
+            path = real(listed)  # as _sendable, without a realpath per file
+            inside = path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+            if inside or file_id in ctx.index["inputs"]:
+                out.append(({"kind": "file", "id": file_id, "label": refs.get(file_id, file_id),
+                             "route": dashboard.route("file", id=file_id)},
+                            ("file", path), path, _file_text))
+        for loop, d in ctx.data["loops"].items():
+            for r in sorted(d["invocations"], key=lambda r: r.get("seq") or 0):
+                if r.get("conversation_path"):
+                    path = os.path.join(ctx.ws.loop_dir(loop), r["conversation_path"])
+                elif r.get("conversation") == "unavailable":
+                    continue
+                else:
+                    path = claude.find_transcript(r.get("session_id"), d["target_dir"], ctx.env)
+                    if path is None:
+                        continue
+                out.append(({"kind": "call", "id": artifacts.call_id(loop, r.get("seq")),
+                             "label": f"{loop} · call #{r.get('seq')} {r.get('step')}",
+                             "route": dashboard.route("call", loop=loop, seq=r.get("seq"))},
+                            ("call", path), path, _conversation_text))
+        for loop in ctx.data["loops"]:
+            path = os.path.join(ctx.ws.loop_dir(loop), "state", "events.jsonl")
+            out.append(({"kind": "event", "id": f"events-{loop}", "label": f"{loop} · events",
+                         "route": dashboard.route("events", {"loop": loop})},
+                        ("event", path), path, _events_text))
+        return out
+
+    def corpus(self, ctx):
+        """The searchable items `{kind, id, label, route, text}` of the workspace version `ctx`,
+        read as they are asked for (a search that has its results stops reading)."""
+        sources, redactor = self.sources(ctx), ctx.redactor
+        with self._lock:
+            secrets = tuple(redactor.values)
+            if secrets != self._secrets:
+                self._texts, self._size, self._secrets = {}, 0, secrets
+            keys = {key for _, key, _, _ in sources}
+            for key in [k for k in self._texts if k not in keys]:
+                self._size -= self._texts.pop(key)[2]
+        for item, key, path, read in sources:
+            text = self._text(key, path, read, redactor, secrets)
+            if text is not None:
+                yield dict(item, text=text)
 
 
 # --- HTTP -------------------------------------------------------------------------------------------

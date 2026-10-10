@@ -5,6 +5,7 @@ import os
 import unittest
 
 import helpers
+import samples
 from devloops import dashboard, schema, state, workspace
 from stub_loop import StubLoopMixin, WS, implemented, service_error
 
@@ -472,6 +473,203 @@ class TrialTest(StubLoopMixin, unittest.TestCase):
             with self.assertRaises(dashboard.NotFound):
                 dashboard.trial(ctx, "backend-dev", *args)
 
+
+
+class PlanTest(StubLoopMixin, unittest.TestCase):
+    """`dashboard.plan`: the plan view's data (FR-020, data-model Plan)."""
+
+    def ctx(self):
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
+        return dashboard.Context(ws, self.t.env)
+
+    def test_waiting_for_approval(self):
+        plan = samples.plan()
+        plan["open_questions"] = [{"id": "OQ1", "question": "Which port?", "context": "the API",
+                                   "affects": ["M01"], "suggested_answer": "8080",
+                                   "suggestion_reason": "common"}]
+        self.scenario({"plan": {"structured_output": plan}})
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        p = dashboard.plan(self.ctx(), "backend-dev")
+        # us3 is not the project's default workspace: the commands name it
+        self.assertEqual(p["approval"], {"status": "waiting", "commands": [
+            "devloops approve --workspace us3", "devloops replan --workspace us3"]})
+        self.assertEqual([m["id"] for m in p["milestones"]], ["M01", "M02"])
+        m1, m2 = p["milestones"]
+        self.assertEqual((m1["title"], m1["goal"], m1["status"], m1["trials_used"],
+                          m1["depends_on"], m2["depends_on"], m1["route"]),
+                         ("List items", "Clients can list items", "pending", 0, [], ["M01"],
+                          "#/loop/backend-dev?m=M01"))
+        self.assertEqual(m1["criteria"], [{"id": "M01-AC1", "text": "GET /items returns 200 and "
+                                           "a list", "requirement_refs": ["FR-1"],
+                                           "state": "unchecked"}])
+        self.assertEqual(m1["tasks"], [{"id": "M01-T01", "title": "GET /items",
+                                        "description": "Return all items",
+                                        "requirement_refs": ["FR-1"], "status": "pending"}])
+        [q] = p["open_questions"]
+        self.assertEqual((q["loop"], q["id"], q["question"], q["suggested_answer"], q["status"]),
+                         ("backend-dev", "OQ1", "Which port?", "8080", "suggested"))
+        self.assertEqual(p["assumptions"], [{"id": "A1", "text": "Items are kept in memory",
+                                             "source": "proposed"}])
+        self.assertEqual(p["stack"]["summary"], "Python stdlib HTTP server")
+        self.assertEqual(p["runtime"]["openapi_path"], "openapi.json")
+        with self.assertRaises(dashboard.NotFound):
+            dashboard.plan(self.ctx(), "frontend-dev")
+
+    def test_criteria_from_the_latest_counted_trial(self):
+        self.approved()
+        self.assertEqual(self.cli("run", "--max-trials", "1", env={"DEVLOOPS_STUB": "fail"}), 20,
+                         self.last_output)
+        p = dashboard.plan(self.ctx(), "backend-dev")
+        self.assertEqual((p["approval"]["status"], p["approval"]["action"]), ("approved", "approve"))
+        self.assertNotIn("commands", p["approval"])
+        m1, m2 = p["milestones"]
+        self.assertEqual((m1["status"], m1["trials_used"]), ("failed", 1))
+        self.assertEqual([(c["state"], c["trial_route"]) for c in m1["criteria"]],
+                         [("failing", "#/loop/backend-dev/m/M01/t/1")])
+        self.assertEqual([c["state"] for c in m2["criteria"]], ["unchecked"])
+        self.assertEqual(m1["tasks"][0]["status"], "failed")  # as run.json records it
+        # A criterion the result does not mention fails too (FR-068)
+        trial_dir = os.path.join(self.loop_dir, "state", "milestones", "M01", "trials", "1")
+        doc = state.read_json(os.path.join(trial_dir, "validation.json"))
+        doc["criteria"] = []
+        state.write_json_atomic(os.path.join(trial_dir, "validation.json"), doc)
+        self.assertEqual(dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]["criteria"][0]
+                         ["state"], "failing")
+        # ...in the loop view as well: both read the same trial the same way
+        loop_m1 = dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]
+        self.assertEqual((loop_m1["criteria_trial"], loop_m1["criteria"][0]["result"]), ("1", "failed"))
+        # A trial still running leaves the last result shown
+        run_path = os.path.join(self.loop_dir, "state", "run.json")
+        run = state.read_json(run_path)
+        run["milestones"]["M01"]["trials"].append({"n": 2, "status": "in-progress",
+                                                   "started_at": "2030-01-01T00:00:00Z"})
+        state.write_json_atomic(run_path, run)
+        m1 = dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]
+        self.assertEqual((m1["trials_used"], m1["criteria"][0]["state"], m1["criteria"][0]["trial_route"]),
+                         (2, "failing", "#/loop/backend-dev/m/M01/t/1"))
+        self.assertEqual(dashboard.loop(self.ctx(), "backend-dev")["milestones"][0]["criteria_trial"], "1")
+
+    def test_a_voided_trial_is_not_counted(self):
+        self.approved()
+        self.scenario({"implement": [service_error(429), implemented("M01-T01"),
+                                     implemented("M02-T01")]})
+        self.assertEqual(self.cli("run"), 50, self.last_output)
+        m1 = dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]
+        self.assertEqual((m1["trials_used"], [c["state"] for c in m1["criteria"]]),
+                         (0, ["unchecked"]))
+        self.assertEqual(self.cli("run"), 0, self.last_output)
+        m1 = dashboard.plan(self.ctx(), "backend-dev")["milestones"][0]
+        self.assertEqual((m1["status"], m1["trials_used"], m1["criteria"][0]["state"]),
+                         ("achieved", 1, "passing"))
+        self.assertNotIn("trial_route", m1["criteria"][0])
+
+    def test_the_workspace_flag(self):
+        class Project:
+            default_workspace, workspaces_dir = "main", "/p/workspaces"
+
+        class Ws:
+            project = Project()
+
+            def __init__(self, name, path):
+                self.name, self.path = name, path
+        self.assertEqual(dashboard.workspace_flag(Ws("main", "/p/workspaces/main")), "")
+        self.assertEqual(dashboard.workspace_flag(Ws("us3", "/p/workspaces/us3")),
+                         " --workspace us3")
+        self.assertEqual(dashboard.workspace_flag(Ws("x y", "/elsewhere/x y")),
+                         " --workspace '/elsewhere/x y'")
+
+
+SECRET = "S3CR3T-zürich-value"
+
+
+class CallTest(StubLoopMixin, unittest.TestCase):
+    """`dashboard.call`: one call with its conversation (FR-021, data-model Call)."""
+
+    def setUp(self):
+        super().setUp()
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces",
+                                          "config": {"secrets": {"literals": [SECRET]}}})
+        self.approved()
+        self.assertEqual(self.cli("run"), 0, self.last_output)
+
+    def ctx(self):
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
+        return dashboard.Context(ws, self.t.env)
+
+    def records(self):
+        return state.read_jsonl(self.path(os.path.join("state", "invocations.jsonl")))
+
+    def rewrite(self, seq, **changes):
+        records = self.records()
+        for r in records:
+            if r["seq"] == seq:
+                r.update(changes)
+                for k in [k for k, v in changes.items() if v is None]:
+                    del r[k]
+        with open(self.path(os.path.join("state", "invocations.jsonl")), "w") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in records))
+
+    def test_a_copied_conversation(self):
+        [r] = [r for r in self.records() if r.get("milestone_id") == "M01"]
+        lines = [
+            # a secret as written, and one that JSON escaping changed (ensure_ascii: \u00fc)
+            {"type": "user", "message": {"role": "user", "content": f"use {SECRET}"}},
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "a", "name": "Bash", "input": {"command": "pytest"}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "a", "is_error": True,
+                 "content": f"failed near {SECRET}"}]}},
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "b", "name": "Edit", "input": {
+                    "file_path": os.path.join(self.t.target_dir, "app.py"),
+                    "old_string": "a", "new_string": "b"}}]}}]
+        with open(self.path(r["conversation_path"]), "a", encoding="utf-8") as f:
+            f.write("".join(json.dumps(x) + "\n" for x in lines) + "not json\n")
+        c = dashboard.call(self.ctx(), "backend-dev", str(r["seq"]))
+        self.assertEqual((c["seq"], c["step"], c["milestone_id"], c["trial"], c["session_id"],
+                          c["conversation"], c["route"]),
+                         (r["seq"], "implement", "M01", 1, r["session_id"], "copied",
+                          f"#/call/backend-dev/{r['seq']}"))
+        self.assertEqual(c["totals"], dashboard.totals([r]))
+        self.assertEqual(c["routes"]["trial"], "#/loop/backend-dev/m/M01/t/1")
+        self.assertEqual(c["prompt"]["path"], f"backend-dev/{r['prompt_path']}")
+        self.assertTrue(c["prompt"]["id"])
+        self.assertTrue(c["settings"]["path"].endswith("-implement.settings.json"), c["settings"])
+        self.assertTrue(c["settings"]["id"])
+        self.assertEqual(c["prompt_sources"], r["prompt_sources"])
+        self.assertTrue(c["prompt_sources"])
+        text = json.dumps(c, ensure_ascii=False)
+        self.assertNotIn(SECRET, text)
+        self.assertNotIn("S3CR3T", text)
+        n = len(c["records"])
+        self.assertEqual(c["records"][-1], {"raw": "not json"})
+        self.assertEqual(c["errors"], [n - 3])
+        self.assertIn({"path": "app.py", "tool": "Edit", "block": n - 2}, c["files_changed"])
+        self.assertEqual(c["files_changed"][-1]["path"], "app.py")
+        with self.assertRaises(dashboard.NotFound):
+            dashboard.call(self.ctx(), "backend-dev", "999")
+        with self.assertRaises(dashboard.NotFound):
+            dashboard.call(self.ctx(), "frontend-dev", "1")
+
+    def test_from_history_and_unavailable(self):
+        first, second = self.records()[:2]
+        # The fake keeps each session in its history, as Claude Code does
+        self.assertTrue(self.t.env.get("CLAUDE_CONFIG_DIR"))
+        self.rewrite(first["seq"], conversation_path=None, conversation=None)
+        self.rewrite(second["seq"], conversation_path=None, conversation="unavailable",
+                     conversation_reason="not-found")
+        ctx = self.ctx()
+        c = dashboard.call(ctx, "backend-dev", str(first["seq"]))
+        self.assertEqual(c["conversation"], "history")
+        self.assertTrue(c["records"])
+        self.assertNotIn("S3CR3T", json.dumps(c, ensure_ascii=False))
+        c = dashboard.call(ctx, "backend-dev", str(second["seq"]))
+        self.assertEqual((c["conversation"], c["unavailable_reason"], c["records"]),
+                         ("unavailable", "not-found", []))
+        os.remove(self.path(self.records()[2]["conversation_path"]))
+        c = dashboard.call(ctx, "backend-dev", str(self.records()[2]["seq"]))
+        self.assertEqual(c["conversation"], "unavailable")
+        self.assertTrue(c["unavailable_reason"].startswith("missing: "), c["unavailable_reason"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -129,6 +129,12 @@
       'suggested': ['Suggested, not accepted yet', '◷', 'neutral'],
       'none': ['Unanswered', '•', 'critical']
     },
+    task: {
+      'achieved': ['Achieved', '✓', 'good'],
+      'implemented': ['Implemented, not validated yet', '◷', 'neutral'],
+      'failed': ['Failed', '✕', 'critical'],
+      'pending': ['Pending', '○', 'muted']
+    },
     criterion: {
       'passing': ['Passing', '✓', 'good'],
       'failing': ['Failing', '✕', 'critical'],

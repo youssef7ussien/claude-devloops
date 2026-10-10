@@ -9,7 +9,8 @@
   /* The navigation entry a route belongs to. */
   function navKey(route) {
     var v = route.view;
-    if (v === 'loop' || v === 'plan' || v === 'trial') return 'loop:' + route.params.loop;
+    if (v === 'plan') return 'plan:' + route.params.loop;
+    if (v === 'loop' || v === 'trial') return 'loop:' + route.params.loop;
     if (v === 'call') return 'calls';
     if (v === 'file') return 'files';
     return v;
@@ -33,7 +34,9 @@
     var loops = (s.loops || []).map(function (l) {
       var st = DL.status(l.status, 'run'), dot = DL.el('span', 'dot tone-' + st[2]);
       dot.title = st[0];
-      return navLink('loop:' + l.loop, r.href('loop', { loop: l.loop }), l.loop, 'loop', dot);
+      var plan = navLink('plan:' + l.loop, r.href('plan', { loop: l.loop }), 'Plan', 'plan');
+      plan.classList.add('sub');
+      return [navLink('loop:' + l.loop, r.href('loop', { loop: l.loop }), l.loop, 'loop', dot), plan];
     });
     if (loops.length) groups.push(['Loops', loops]);
     var c = s.counts || {};
@@ -134,6 +137,7 @@
     });
     DL.bus.on('changed', loadSummary);
     loadSummary();
+    if (DL.palette) DL.palette.start();
     if (DL.now) DL.now.start(DL.$('#now'));
     DL.api.follow();
     setLive();

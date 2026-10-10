@@ -496,3 +496,55 @@ def parse_conversation(text, redactor):
                     changed.pop(path, None)
                     changed[path] = {"path": path, "tool": block["name"], "block": k}
     return {"records": records, "errors": errors, "files_changed": list(changed.values())}
+
+
+def _content_text(content):
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return " ".join(p if isinstance(p, str) else p.get("text") or "" for p in content
+                    if isinstance(p, str) or (isinstance(p, dict) and p.get("type") == "text"))
+
+
+def _strings(value, out):
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _strings(v, out)
+    elif isinstance(value, list):
+        for v in value:
+            _strings(v, out)
+    return out
+
+
+def record_text(record):
+    """What the conversation view shows of one parsed record (`parse_conversation`), as one line
+    (search reads conversations this way, so a match's line is its record): the text of a user
+    or Claude message, thinking, a tool's name and input, a tool result; a line that was not JSON
+    as it is. Other records (session set-up, the final result) and the ids, times, and session
+    of every record are left out."""
+    if not isinstance(record, dict):
+        return ""
+    if "raw" in record and len(record) == 1:
+        return str(record["raw"]).replace("\n", " ")
+    message = record.get("message")
+    role = (message.get("role") or record.get("type")) if isinstance(message, dict) else None
+    if role not in ("user", "assistant"):
+        return ""
+    content = message.get("content")
+    parts = [content] if isinstance(content, str) else []
+    for block in content if isinstance(content, list) else []:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if kind == "text":
+            parts.append(block.get("text") or "")
+        elif kind == "thinking":
+            parts.append(block.get("thinking") or "")
+        elif kind == "tool_use":
+            parts += [block.get("name") or ""] + _strings(block.get("input"), [])
+        elif kind == "tool_result":
+            parts.append(_content_text(block.get("content")))
+    return " ".join(p for p in parts if p).replace("\n", " ")

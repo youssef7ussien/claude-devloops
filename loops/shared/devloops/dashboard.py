@@ -637,18 +637,18 @@ def loop(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>; `loop` is 
     d = _loop_data(ctx, loop)
     milestones = []
     for m in d["milestones"]:
-        last = m["trials"][-1] if m["trials"] else None
-        results = {c["criterion_id"]: c for c in ((last or {}).get("validation") or {})
-                   .get("criteria", [])}
+        last = criteria_trial(m)
+        results = {c.get("criterion_id"): c for c in ((last or {}).get("validation") or {})
+                   .get("criteria") or []}
         criteria = []
         for c in m["criteria"]:
             r = results.get(c["id"])
+            state_ = _criterion_state(last, c["id"])
             evidence = [ctx.file_ref(os.path.join(os.path.dirname(last["evidence_dir"]), item))
                         for item in (r or {}).get("evidence") or []] if last else []
             criteria.append({"id": c["id"], "text": c["text"],
                              "requirement_refs": c.get("requirement_refs") or [],
-                             "result": None if r is None else ("passed" if r.get("passed")
-                                                               else "failed"),
+                             "result": {"passing": "passed", "failing": "failed"}.get(state_),
                              "observed": (r or {}).get("observed"), "evidence": evidence})
         milestones.append({
             "id": m["id"], "title": m["title"], "goal": m["goal"], "status": m["status"],
@@ -678,6 +678,79 @@ def loop(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>; `loop` is 
                     ((ctx.file_ref(path), label) for path, label in outputs)
                     if not ref.get("missing")],
     }
+
+
+def workspace_flag(ws):
+    """` --workspace <name or path>` for a command run on `ws`, or "" for the default workspace."""
+    project = getattr(ws, "project", None)
+    if project is None or ws.name == project.default_workspace:
+        return ""
+    elsewhere = os.path.dirname(os.path.realpath(ws.path)) != os.path.realpath(project.workspaces_dir)
+    return f" --workspace {shlex.quote(ws.path if elsewhere else ws.name)}"
+
+
+def criteria_trial(m):
+    """The trial a milestone's criteria are shown from (plan and loop views): its latest counted
+    (not voided) trial with a validation result, so a trial still running, or one that failed
+    before validating, leaves the last result shown; None when no trial validated."""
+    return next((t for t in reversed(m["trials"])
+                 if t["status"] != "void" and t["validation"] is not None), None)
+
+
+def _criterion_state(trial, criterion_id):
+    """`passing`, `failing`, or `unchecked` of a criterion on a trial: unchecked without a trial
+    or a validation result; failing when the result has no entry for it (FR-068)."""
+    if trial is None or trial["validation"] is None:
+        return "unchecked"
+    result = next((c for c in trial["validation"].get("criteria") or []
+                   if c.get("criterion_id") == criterion_id), None)
+    return "passing" if result and result.get("passed") else "failing"
+
+
+def plan(ctx, loop):  # noqa: F811 - the builder of api/loops/<loop>/plan
+    """`api/loops/<loop>/plan` (data-model Plan, FR-020): the stored plan's milestones in plan
+    order, each criterion's state from the milestone's `criteria_trial` (a failing one links to
+    that trial), the open questions with their answers, the assumptions, and the approval:
+    `{status: "waiting"|"approved"|"none", commands?, approved_at?, action?}`, `commands` (approve,
+    replan) while the plan waits, with `--workspace` when it is not the default."""
+    d = _loop_data(ctx, loop)
+    p = d["plan"] or {}
+    milestones = []
+    for m in d["milestones"]:
+        counted = [t for t in m["trials"] if t["status"] != "void"]
+        last = criteria_trial(m)
+        criteria = []
+        for c in m["criteria"]:
+            state_ = _criterion_state(last, c["id"])
+            criteria.append(dict({"id": c["id"], "text": c.get("text", ""),
+                                  "requirement_refs": c.get("requirement_refs") or [],
+                                  "state": state_},
+                                 **({"trial_route": route("trial", loop=loop, milestone=m["id"],
+                                                          key=last["key"])}
+                                    if state_ == "failing" else {})))
+        milestones.append({
+            "id": m["id"], "title": m["title"], "goal": m["goal"], "status": m["status"],
+            "trials_used": len(counted), "depends_on": m["depends_on"], "criteria": criteria,
+            "tasks": [{"id": t["id"], "title": t.get("title", ""),
+                       "description": t.get("description", ""),
+                       "requirement_refs": t.get("requirement_refs") or [],
+                       "status": t["status"]} for t in m["tasks"]],
+            "route": route("loop", {"m": m["id"]}, loop=loop)})
+    if d["status"] == "awaiting-approval":
+        flag = workspace_flag(ctx.ws)
+        approval = {"status": "waiting",
+                    "commands": [f"devloops approve{flag}", f"devloops replan{flag}"]}
+    elif d["approval"]:
+        approval = {"status": "approved", "approved_at": d["approval"].get("approved_at"),
+                    "action": d["approval"].get("action")}
+    else:
+        approval = {"status": "none"}
+    return {"loop": loop, "status": d["status"], "approval": approval, "milestones": milestones,
+            "open_questions": _loop_questions(loop, d),
+            "assumptions": [{"id": a.get("id"), "text": a.get("text", ""),
+                             "source": a.get("source", "")} for a in p.get("assumptions") or []],
+            "stack": p.get("stack"), "runtime": p.get("runtime"),
+            "routes": {"loop": route("loop", loop=loop)}}
 
 
 _PARSED = {}  # conversation path -> ((size, mtime), artifacts.parse_conversation result)
@@ -757,6 +830,14 @@ def _why(t, criteria_text, ref):
     return why
 
 
+def _in_target(path, target):
+    """A changed file's path relative to the loop's target when it lies inside it, else as is."""
+    root = os.path.normpath(target).rstrip(os.sep) if target else None
+    if root and os.path.isabs(path) and os.path.normpath(path).startswith(root + os.sep):
+        return os.path.normpath(path)[len(root) + 1:].replace(os.sep, "/")
+    return path
+
+
 def trial(ctx, loop, milestone, key):  # noqa: F811 - the builder; `loop` is its parameter
     """`api/loops/<loop>/milestones/<id>/trials/<key>` (data-model Trial, FR-018, FR-019): the
     trial's outcome, its steps with their calls, its validation result, why it did not pass, the
@@ -788,12 +869,7 @@ def trial(ctx, loop, milestone, key):  # noqa: F811 - the builder; `loop` is its
             parsed = parsed_conversation(os.path.join(loop_dir, r["conversation_path"]),
                                          ctx.redactor)
             for f in (parsed or {}).get("files_changed") or []:
-                path = f["path"]
-                root = os.path.normpath(target) if target else None
-                if root and os.path.isabs(path) and os.path.normpath(path).startswith(
-                        root.rstrip(os.sep) + os.sep):
-                    path = os.path.normpath(path)[len(root.rstrip(os.sep)) + 1:].replace(
-                        os.sep, "/")
+                path = _in_target(f["path"], target)
                 changed.pop(path, None)
                 changed[path] = {"path": path, "step": r.get("step"), "tool": f["tool"],
                                  "block": f["block"],
@@ -835,6 +911,58 @@ def call_ref(loop, r):
             "conversation": conversation, "route": route("call", loop=loop, seq=r.get("seq"))}
 
 
+def _trial_of(d, r):
+    """The key of the trial a milestone call ran in, or None."""
+    m = next((m for m in d["milestones"] if m["id"] == r.get("milestone_id")), None)
+    same = [t for t in (m or {}).get("trials", []) if t["n"] == r.get("trial")]
+    inside = [t for t in same if _within(r, t)]
+    return (inside or same or [{}])[-1].get("key")
+
+
+def call(ctx, loop, seq):
+    """`api/calls/<loop>/<seq>` (data-model Call, FR-021): the call's record with its prompt and
+    settings files and where each prompt part came from, and its conversation: every record
+    parsed and redacted, the records holding a failed tool result (`errors`), and the files it
+    changed (`files_changed`, each path's last change, relative to the target when inside it).
+    `conversation` says where the transcript was read from: `copied`, `history`, or
+    `unavailable` (with `unavailable_reason`, and no records)."""
+    d = _loop_data(ctx, loop)
+    r = next((r for r in d["invocations"] if str(r.get("seq")) == str(seq)), None)
+    if r is None:
+        raise NotFound(f"no call {seq} in {loop}")
+    out = call_ref(loop, r)
+    prompt = r.get("prompt_path")
+    settings = prompt[:-len(".md")] + ".settings.json" if prompt and prompt.endswith(".md") else None
+    key = _trial_of(d, r)
+    out.update({
+        "ended_at": r.get("ended_at"), "num_turns": r.get("num_turns"),
+        "is_error": r.get("is_error"), "subtype": r.get("subtype"),
+        "api_error_status": r.get("api_error_status"), "timed_out": r.get("timed_out"),
+        "permission_denials": r.get("permission_denials") or [],
+        "prompt": ctx.file_ref(f"{loop}/{prompt}") if prompt else None,
+        "settings": ctx.file_ref(f"{loop}/{settings}") if settings else None,
+        "prompt_sources": r.get("prompt_sources") or [],
+        "routes": {"loop": route("loop", loop=loop),
+                   "trial": route("trial", loop=loop, milestone=r["milestone_id"], key=key)
+                   if key else None}})
+    parsed, reason = None, None
+    if r.get("conversation_path"):
+        path = os.path.join(ctx.ws.loop_dir(loop), r["conversation_path"])
+        parsed = parsed_conversation(path, ctx.redactor)
+        reason = None if parsed else f"missing: {os.path.relpath(path, ctx.ws.path)}"
+    else:
+        text, _, reason = artifacts.read_conversation(ctx.ws, loop, r, d["target_dir"], ctx.env)
+        parsed = artifacts.parse_conversation(text, ctx.redactor) if text is not None else None
+    if parsed is None:
+        out.update(conversation="unavailable", unavailable_reason=reason, records=[], errors=[],
+                   files_changed=[])
+        return out
+    out.update(records=parsed["records"], errors=parsed["errors"],
+               files_changed=[dict(f, path=_in_target(f["path"], d["target_dir"]))
+                              for f in parsed["files_changed"]])
+    return out
+
+
 def calls(ctx):
     """`api/calls`: `{calls: [CallRef], by_model: [{model, calls, cost}], loops}`, calls by loop
     then sequence, models by cost."""
@@ -856,9 +984,27 @@ def files(ctx):
 
 
 def events(ctx):
-    """`api/events`: every loop's events, oldest first, each with its `loop`."""
-    found = [dict(ev, loop=loop) for loop, d in ctx.data["loops"].items() for ev in d["events"]]
+    """`api/events`: every loop's events, oldest first, each with its `loop` and `n`, its place in
+    that loop's events.jsonl (a search result opens `#/events?loop=<loop>&at=<n>`)."""
+    found = [dict(ev, loop=loop, n=n) for loop, d in ctx.data["loops"].items()
+             for n, ev in enumerate(d["events"])]
     return {"events": sorted(found, key=lambda ev: ev.get("at") or "")}
+
+
+def _loop_questions(loop, d):
+    """One loop's open questions as data-model Question, with their answers and where each came
+    from."""
+    found, planned = [], {q["id"]: q for q in (d["plan"] or {}).get("open_questions") or []}
+    for qid in question_ids(d):
+        question, (answer, source), q = question_answer(d, qid)
+        p = planned.get(qid, {})
+        found.append({"loop": loop, "id": qid, "question": question,
+                      "context": q.get("context") or p.get("context") or "",
+                      "affects": p.get("affects") or q.get("affects") or "",
+                      "suggested_answer": q.get("suggested") or p.get("suggested_answer") or "",
+                      "reason": q.get("reason") or "", "answer": answer,
+                      "status": source or "none", "source": q.get("source") or ""})
+    return found
 
 
 def questions(ctx):
@@ -867,19 +1013,46 @@ def questions(ctx):
     retries granted."""
     found, assumptions, grants = [], [], []
     for loop, d in ctx.data["loops"].items():
-        planned = {q["id"]: q for q in (d["plan"] or {}).get("open_questions") or []}
-        for qid in question_ids(d):
-            question, (answer, source), q = question_answer(d, qid)
-            p = planned.get(qid, {})
-            found.append({"loop": loop, "id": qid, "question": question,
-                          "context": q.get("context") or p.get("context") or "",
-                          "affects": p.get("affects") or q.get("affects") or "",
-                          "suggested_answer": q.get("suggested") or p.get("suggested_answer") or "",
-                          "reason": q.get("reason") or "", "answer": answer,
-                          "status": source or "none", "source": q.get("source") or ""})
+        found += _loop_questions(loop, d)
         assumptions += [dict(a, loop=loop) for a in (d["plan"] or {}).get("assumptions") or []]
         grants += [dict(g, loop=loop) for g in d["grants"]]
     return {"questions": found, "assumptions": assumptions, "grants": grants}
+
+
+def index(ctx):
+    """`api/index` (data-model Index, FR-022): what the "go to" palette matches by name, each
+    `{kind, label, detail, route}`: the views, then per loop the loop, its plan, milestones,
+    trials, and calls, then every listed file."""
+    data, items = ctx.data, []
+
+    def add(kind, label, detail, href):
+        items.append({"kind": kind, "label": label, "detail": detail, "route": href})
+    add("view", "Overview", "the workspace", route("overview"))
+    if data["run"]:
+        add("view", "Run", "the loops' order and handoff", route("run"))
+    for name, label in (("calls", "Claude calls"), ("files", "Files"), ("questions", "Questions"),
+                        ("events", "Events")):
+        add("view", label, "", route(name))
+    for loop, d in data["loops"].items():
+        add("loop", loop, RUN_STATUS.get(d["status"], (d["status"],))[0], route("loop", loop=loop))
+        add("view", f"{loop} plan", "milestones, criteria, and tasks", route("plan", loop=loop))
+        for m in d["milestones"]:
+            add("milestone", f"{m['id']} {m['title']}",
+                f"{loop} · {MILESTONE_STATUS.get(m['status'], (m['status'],))[0]}",
+                route("loop", {"m": m["id"]}, loop=loop))
+            for t in m["trials"]:
+                add("trial", f"{m['id']} trial {t['key']}",
+                    f"{loop} · {t['kind']} · {TRIAL_STATUS.get(t['status'], (t['status'],))[0]}",
+                    route("trial", loop=loop, milestone=m["id"], key=t["key"]))
+        for r in sorted(d["invocations"], key=lambda r: r.get("seq") or 0):
+            where = (f"{r['milestone_id']} trial {r.get('trial')}" if r.get("milestone_id")
+                     else "planning")
+            add("call", f"#{r.get('seq')} {r.get('step')}", f"{loop} · {where} · {_model_name(r)}",
+                route("call", loop=loop, seq=r.get("seq")))
+    for ref in sorted(ctx.refs.values(), key=lambda ref: ref["path"]):
+        if not ref.get("missing"):
+            add("file", ref["path"].rsplit("/", 1)[-1], ref["path"], route("file", id=ref["id"]))
+    return {"items": items}
 
 
 def _waiting_for(d):
@@ -1019,11 +1192,7 @@ SUMMARY_LINKS = SummaryLinks()
 
 def serve_command(ws):
     """`devloops dashboard --daemon`, with `--workspace` when `ws` is not the default."""
-    project = getattr(ws, "project", None)
-    if project is None or ws.name == project.default_workspace:
-        return "devloops dashboard --daemon"
-    elsewhere = os.path.dirname(os.path.realpath(ws.path)) != os.path.realpath(project.workspaces_dir)
-    return f"devloops dashboard --daemon --workspace {shlex.quote(ws.path if elsewhere else ws.name)}"
+    return "devloops dashboard --daemon" + workspace_flag(ws)
 
 
 def serve_hint(command):

@@ -1,0 +1,256 @@
+{
+ "corpus": [
+  {
+   "kind": "file",
+   "id": "f-notes-md",
+   "label": "notes.md",
+   "route": "#/file/f-notes-md",
+   "text": "# Notes\n\nThe Needle is here, twice: needle.\nLast line"
+  },
+  {
+   "kind": "file",
+   "id": "f-app-py",
+   "label": "src/app.py",
+   "route": "#/file/f-app-py",
+   "text": "def main():\n    return 'Zürich'  # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx NEEDLE yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+  },
+  {
+   "kind": "file",
+   "id": "f-turkish",
+   "label": "tr.md",
+   "route": "#/file/f-turkish",
+   "text": "İstanbul İzmir\nthe needle after İ letters"
+  },
+  {
+   "kind": "file",
+   "id": "f-empty",
+   "label": "empty.txt",
+   "route": "#/file/f-empty",
+   "text": ""
+  },
+  {
+   "kind": "call",
+   "id": "call-backend-dev-3",
+   "label": "backend-dev · call #3 implement",
+   "route": "#/call/backend-dev/3",
+   "text": "init session\nUser: find the needle\nshe said \"quoted words\" in Zürich"
+  },
+  {
+   "kind": "event",
+   "id": "events-backend-dev",
+   "label": "backend-dev · events",
+   "route": "#/events?loop=backend-dev",
+   "text": "2026-10-01T00:00:00Z trial-started M01\n2026-10-01T00:01:00Z milestone-achieved M01 List items"
+  }
+ ],
+ "queries": [
+  "needle",
+  "NEEDLE",
+  "zürich",
+  "\"quoted words\"",
+  "milestone-achieved M01",
+  "ne",
+  "nope",
+  "list items",
+  "M01",
+  "after i̇",
+  "letters"
+ ],
+ "expected": {
+  "needle": [
+   {
+    "kind": "file",
+    "id": "f-notes-md",
+    "label": "notes.md",
+    "route": "#/file/f-notes-md?line=3",
+    "line": 3,
+    "before": "The ",
+    "match": "Needle",
+    "after": " is here, twice: needle."
+   },
+   {
+    "kind": "file",
+    "id": "f-app-py",
+    "label": "src/app.py",
+    "route": "#/file/f-app-py?line=2",
+    "line": 2,
+    "before": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ",
+    "match": "NEEDLE",
+    "after": " yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+   },
+   {
+    "kind": "file",
+    "id": "f-turkish",
+    "label": "tr.md",
+    "route": "#/file/f-turkish?line=2",
+    "line": 2,
+    "before": "the ",
+    "match": "needle",
+    "after": " after İ letters"
+   },
+   {
+    "kind": "call",
+    "id": "call-backend-dev-3",
+    "label": "backend-dev · call #3 implement",
+    "route": "#/call/backend-dev/3?at=1",
+    "line": 2,
+    "before": "User: find the ",
+    "match": "needle",
+    "after": ""
+   }
+  ],
+  "NEEDLE": [
+   {
+    "kind": "file",
+    "id": "f-notes-md",
+    "label": "notes.md",
+    "route": "#/file/f-notes-md?line=3",
+    "line": 3,
+    "before": "The ",
+    "match": "Needle",
+    "after": " is here, twice: needle."
+   },
+   {
+    "kind": "file",
+    "id": "f-app-py",
+    "label": "src/app.py",
+    "route": "#/file/f-app-py?line=2",
+    "line": 2,
+    "before": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ",
+    "match": "NEEDLE",
+    "after": " yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+   },
+   {
+    "kind": "file",
+    "id": "f-turkish",
+    "label": "tr.md",
+    "route": "#/file/f-turkish?line=2",
+    "line": 2,
+    "before": "the ",
+    "match": "needle",
+    "after": " after İ letters"
+   },
+   {
+    "kind": "call",
+    "id": "call-backend-dev-3",
+    "label": "backend-dev · call #3 implement",
+    "route": "#/call/backend-dev/3?at=1",
+    "line": 2,
+    "before": "User: find the ",
+    "match": "needle",
+    "after": ""
+   }
+  ],
+  "zürich": [
+   {
+    "kind": "file",
+    "id": "f-app-py",
+    "label": "src/app.py",
+    "route": "#/file/f-app-py?line=2",
+    "line": 2,
+    "before": "    return '",
+    "match": "Zürich",
+    "after": "'  # xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "kind": "call",
+    "id": "call-backend-dev-3",
+    "label": "backend-dev · call #3 implement",
+    "route": "#/call/backend-dev/3?at=2",
+    "line": 3,
+    "before": "she said \"quoted words\" in ",
+    "match": "Zürich",
+    "after": ""
+   }
+  ],
+  "\"quoted words\"": [
+   {
+    "kind": "call",
+    "id": "call-backend-dev-3",
+    "label": "backend-dev · call #3 implement",
+    "route": "#/call/backend-dev/3?at=2",
+    "line": 3,
+    "before": "she said ",
+    "match": "\"quoted words\"",
+    "after": " in Zürich"
+   }
+  ],
+  "milestone-achieved M01": [
+   {
+    "kind": "event",
+    "id": "events-backend-dev",
+    "label": "backend-dev · events",
+    "route": "#/events?loop=backend-dev&at=1",
+    "line": 2,
+    "before": "2026-10-01T00:01:00Z ",
+    "match": "milestone-achieved M01",
+    "after": " List items"
+   }
+  ],
+  "ne": [],
+  "nope": [],
+  "list items": [
+   {
+    "kind": "event",
+    "id": "events-backend-dev",
+    "label": "backend-dev · events",
+    "route": "#/events?loop=backend-dev&at=1",
+    "line": 2,
+    "before": "-10-01T00:01:00Z milestone-achieved M01 ",
+    "match": "List items",
+    "after": ""
+   }
+  ],
+  "M01": [
+   {
+    "kind": "event",
+    "id": "events-backend-dev",
+    "label": "backend-dev · events",
+    "route": "#/events?loop=backend-dev&at=0",
+    "line": 1,
+    "before": "2026-10-01T00:00:00Z trial-started ",
+    "match": "M01",
+    "after": ""
+   }
+  ],
+  "after i̇": [],
+  "letters": [
+   {
+    "kind": "file",
+    "id": "f-turkish",
+    "label": "tr.md",
+    "route": "#/file/f-turkish?line=2",
+    "line": 2,
+    "before": "the needle after İ ",
+    "match": "letters",
+    "after": ""
+   }
+  ]
+ },
+ "limited": {
+  "query": "needle",
+  "limit": 2,
+  "hits": [
+   {
+    "kind": "file",
+    "id": "f-notes-md",
+    "label": "notes.md",
+    "route": "#/file/f-notes-md?line=3",
+    "line": 3,
+    "before": "The ",
+    "match": "Needle",
+    "after": " is here, twice: needle."
+   },
+   {
+    "kind": "file",
+    "id": "f-app-py",
+    "label": "src/app.py",
+    "route": "#/file/f-app-py?line=2",
+    "line": 2,
+    "before": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ",
+    "match": "NEEDLE",
+    "after": " yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+   }
+  ]
+ }
+}

@@ -47,13 +47,20 @@ milestones: [MilestoneSummary], by_step: {<step>: Totals}, outputs: [FileRef]}`
 
 ## Plan (`api/loops/<loop>/plan`)
 
-`{loop, approval: {status, command?}, milestones: [PlanMilestone], open_questions: [Question],
-assumptions: [{id, text, source}], stack, runtime}`
+`{loop, status, approval, milestones: [PlanMilestone], open_questions: [Question],
+assumptions: [{id, text, source}], stack, runtime, routes: {loop}}`
 
+- **approval**: `{status: "waiting", commands: [approve, replan]}` while the plan waits (each
+  command with `--workspace` when the workspace is not the default), `{status: "approved",
+  approved_at, action}` once approved, else `{status: "none"}`.
 - **PlanMilestone**: `{id, title, goal, status, trials_used, depends_on: [id], criteria:
   [{id, text, requirement_refs, state: "passing"|"failing"|"unchecked", trial_route?}], tasks:
-  [{id, title, description, requirement_refs, status}]}`. A criterion's `state` comes from the
-  milestone's latest counted trial's validation result.
+  [{id, title, description, requirement_refs, status}], route}`. A criterion's `state` comes from
+  the milestone's latest counted (not voided) trial with a validation result, so a trial still
+  running, or one that failed before validating, leaves the last result shown: unchecked without
+  one, failing when the result does not mention it (FR-068); `trial_route` links a failing one to
+  that trial. The loop view's criteria come from the same trial, read the same way.
+  `trials_used` counts the counted trials; `route` is the milestone in the loop view.
 
 ## Trial (`api/loops/<loop>/milestones/<id>/trials/<key>`)
 
@@ -80,10 +87,14 @@ whose folder holds the later attempt's files).
 
 - **CallRef**: `{loop, seq, step, milestone_id, trial, model, started_at, duration_ms, totals,
   failure_class, conversation: "copied"|"history"|"unavailable", route}`.
-- **Call**: `CallRef` + `{session_id, prompt: FileRef|null, settings: FileRef|null,
-  prompt_sources, records: [Record], errors: [block index], files_changed: [{path, tool,
-  block}], unavailable_reason?}`.
-- **Record**: one transcript line parsed and redacted (`{"raw": text}` when it is not JSON).
+- **Call**: `CallRef` + `{ended_at, num_turns, is_error, subtype, api_error_status, timed_out,
+  permission_denials, prompt: FileRef|null, settings: FileRef|null, prompt_sources, routes:
+  {loop, trial|null}, records: [Record], errors: [record index], files_changed: [{path, tool,
+  block}], unavailable_reason?}`. `files_changed` paths are relative to the loop's target when
+  inside it; `block` is the record index of the tool use. A conversation that cannot be read
+  makes `conversation` "unavailable", with `unavailable_reason` and no records.
+- **Record**: one non-blank transcript line parsed and redacted (`{"raw": text}` when it is not
+  JSON); its index is what `?at=` and `errors` refer to.
 
 ## Files (`api/files`, `api/files/<id>`)
 
@@ -96,11 +107,20 @@ whose folder holds the later attempt's files).
 
 ## Events, questions, index, search
 
-- **Event**: an `events.jsonl` record plus `loop`.
+- **Event**: an `events.jsonl` record plus `loop` and `n`, its place in that loop's file.
 - **Question**: `{loop, id, question, context, affects, suggested_answer, answer?, status}`.
 - **Index** (`api/index`): `[{kind: "view"|"loop"|"milestone"|"trial"|"call"|"file", label,
   detail, route}]`.
-- **SearchHit**: `{kind: "file"|"call"|"event", id, route, line?, before, match, after}`.
+- **Search corpus item**: `{kind: "file"|"call"|"event", id, label, route, text}`, in search
+  order: listed files (viewer text; a file streamed whole, over 16 MB, as it is), each loop's
+  calls (one line per Record: what the conversation view shows of it, without ids, times, or
+  set-up records), each loop's events (one line per event). The served search keeps these texts
+  per item by size and modification time, up to 256 MB (UTF-8) shared by the two workspaces
+  searched last; the export embeds them (`d:search-corpus`).
+- **SearchHit**: `{kind, id, label, route, line, before, match, after}`: the first match in an
+  item, case-insensitive, from 3 characters, at most 40. `route` opens it at the match: a file at
+  `?line=<line>`, a call at `?at=<line - 1>` (its record), an event at
+  `#/events?loop=<loop>&at=<line - 1>` (its `n`).
 
 ## Live call (`<loop>/state/live.json`, research R-8)
 

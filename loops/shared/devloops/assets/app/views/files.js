@@ -1,7 +1,7 @@
 /* views/files.js: `#/files` — the workspace's files as a tree (each loop, then run/ and the
    workspace's own files), filtered by path and by kind, walked with the arrow keys; a file opens
-   in the viewer. `#/file/<id>` is the same explorer with that file open; `?q=<text>` starts
-   filtered. */
+   in the viewer. `#/file/<id>` is the same explorer with that file open (`?line=<n>` at that
+   line); `?q=<text>` starts filtered. */
 (function (DL) {
   'use strict';
 
@@ -135,7 +135,8 @@
       if (!ref) {
         el.insertBefore(DL.el('p', 'callout warn', 'This file is not in the workspace any more.'), bar);
       } else if (!refresh) {
-        setTimeout(function () { DL.viewer.open(ref, { list: files }); }, 0);
+        var line = query && +query.line > 0 ? +query.line : null; /* a search result: at its line */
+        setTimeout(function () { DL.viewer.open(ref, { list: files, line: line }); }, 0);
       }
     }
   }
