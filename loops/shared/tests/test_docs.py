@@ -422,6 +422,24 @@ class StatusDiagramsTest(unittest.TestCase):
                              {"task": "stateDiagram-v2\n  [*] --> pending\n"})
 
 
+class RevisionDatesTest(unittest.TestCase):
+    """`tools/docs/revision_dates.py` (run in CI before the build) stamps the front matter."""
+
+    def test_stamps_once_and_replaces_an_earlier_date(self):
+        import datetime
+        stamp = tool("revision_dates").stamp
+        page = "---\ntitle: T\n---\n\n# T\n"
+        once = stamp(page, datetime.date(2026, 10, 1))
+        self.assertEqual(once, "---\nrevision_date: 'Last updated: 1 October 2026'\ntitle: T\n"
+                               "---\n\n# T\n")
+        self.assertEqual(front_matter(once)[0]["title"], "T")
+        again = stamp(once, datetime.date(2026, 10, 11))
+        self.assertEqual(again.count("revision_date"), 1)
+        self.assertIn("11 October 2026", again)
+        self.assertEqual(stamp("# no front matter\n", datetime.date(2026, 10, 1)),
+                         "# no front matter\n")
+
+
 class StopReasonsTest(unittest.TestCase):
     """Every stop reason the driver raises is one the run state's schema lists, so the reference
     describes it and a stopped `run.json` stays valid."""

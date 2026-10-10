@@ -5,6 +5,7 @@
 [project]
 site_name = "devloops"
 site_description = "Have Claude Code build an application from written requirements, one validated milestone at a time."
+copyright = "devloops turns written requirements into tested code, one validated milestone at a time.<br>© 2026 youssef7ussien"
 site_url = "https://youssef7ussien.github.io/claude-devloops/"
 repo_url = "https://github.com/youssef7ussien/claude-devloops"
 repo_name = "youssef7ussien/claude-devloops"
@@ -59,6 +60,11 @@ nav = [
     "contributing/writing-style.md",
     "contributing/documentation.md",
   ] },
+]
+
+[project.extra]
+social = [
+  { icon = "fontawesome/brands/github", link = "https://github.com/youssef7ussien/claude-devloops", name = "devloops on GitHub" },
 ]
 
 [project.theme]

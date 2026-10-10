@@ -47,6 +47,7 @@ python3 -m venv .venv-docs && .venv-docs/bin/pip install -r tools/docs/requireme
 python3 tools/docs/gen_reference.py      # regenerate docs/reference/ (--check compares)
 python3 tools/docs/examples.py           # regenerate docs-include/examples/ (--check compares)
 node tools/docs/screenshots.mjs          # retake docs/assets/screenshots/ (by hand; needs Chromium)
+# (CI also runs tools/docs/revision_dates.py before the build: "Last updated" dates, not committed)
 .venv-docs/bin/zensical serve            # preview; `zensical build --strict --clean` as CI does
 cd loops/shared/tests && python3 -m unittest test_docs   # the docs checks (part of the suite)
 ```
