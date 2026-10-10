@@ -10,6 +10,7 @@ asked for (assets/app/api.js); nothing is fetched and nothing polls.
 """
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 
 from . import __version__, appbundle, artifacts, dashboard, serve
@@ -72,23 +73,29 @@ def _files(ctx, max_bytes):
     return out
 
 
+def _corpus(ctx, files):
+    """The search corpus, in the server's order (serve.SearchIndex): each file embedded as text,
+    naming its element (`file`) instead of copying the text it holds, then the calls and the
+    events, read as the server reads them."""
+    out = [{"kind": "file", "id": file_id, "label": shown,
+            "route": dashboard.route("file", id=file_id), "file": file_id}
+           for file_id, (shown, content) in files.items() if "text" in content]
+    for item, _, path, read in serve.SearchIndex(keep=0).sources(ctx):
+        if item["kind"] == "file":
+            continue
+        try:
+            text = read(path, os.stat(path), ctx.redactor)
+        except OSError:
+            continue
+        out.append(dict(item, text=text))
+    return out
+
+
 def _element(key, data):
     """One data element. `<` is written `\\u003c` inside it (JSON reads it the same), so no
     `</script` or `<!--` in a file or a conversation can end or change the element."""
     text = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     return f'<script type="application/json" id="d:{key}">{text}</script>\n'
-
-
-def _create(directory, now):
-    """Open a new `<UTC timestamp>[-n].html` exclusively; return `(fd, path)`."""
-    stamp = now.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    n = 1
-    while True:
-        path = os.path.join(directory, f"{stamp}.html" if n == 1 else f"{stamp}-{n}.html")
-        try:
-            return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644), path
-        except FileExistsError:
-            n += 1
 
 
 def render(ws, env=None, now=None, max_bytes=MAX_EMBED_BYTES):
@@ -112,17 +119,7 @@ def render(ws, env=None, now=None, max_bytes=MAX_EMBED_BYTES):
         if content.get("not_embedded"):
             not_embedded.append({"path": shown, "bytes": content["size"]})
         items.append((f"files/{file_id}", content))
-    # A file's text is in its own element: its corpus item names it (`file`) instead of a copy.
-    corpus = []
-    for item in serve.SearchIndex(keep=0).corpus(ctx):
-        if item["kind"] == "file":
-            content = (files.get(item["id"]) or (None, {}))[1]
-            if content.get("text") != item["text"]:
-                continue  # not embedded as text (too large, or unreadable now)
-            item = dict(item, file=item["id"])
-            del item["text"]
-        corpus.append(item)
-    items.append(("search-corpus", {"items": ctx.redactor.redact_obj(corpus)[0]}))
+    items.append(("search-corpus", {"items": ctx.redactor.redact_obj(_corpus(ctx, files))[0]}))
     parts = []
     for key, data in items:
         part = _element(key, data)
@@ -140,28 +137,58 @@ def render(ws, env=None, now=None, max_bytes=MAX_EMBED_BYTES):
                   "not_embedded": sorted(not_embedded, key=lambda i: (-i["bytes"], i["path"]))}
 
 
+def _target(ws, path, now):
+    """`(directory, name or None)` of the export: the given path's, or `<workspace>/exports/`
+    (the name is chosen when writing). The folder is created and must be writable, so a bad path
+    fails before the page is built."""
+    directory = os.path.dirname(os.path.abspath(path)) if path else exports_dir(ws)
+    os.makedirs(directory, exist_ok=True)
+    if not os.access(directory, os.W_OK):
+        raise PermissionError(f"cannot write to {directory}")
+    return directory, os.path.basename(path) if path else None
+
+
+def _publish(tmp, directory, name, now):
+    """Move the written temp file into place: over `name` (replaced atomically), or, without
+    one, to a new `<UTC timestamp>[-n].html` that never replaces an earlier export."""
+    if name:
+        path = os.path.join(directory, name)
+        os.replace(tmp, path)
+        return path
+    stamp = now.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    n = 1
+    while True:
+        path = os.path.join(directory, f"{stamp}.html" if n == 1 else f"{stamp}-{n}.html")
+        try:
+            os.link(tmp, path)  # fails when the name is taken: exclusive, and whole once seen
+        except FileExistsError:
+            n += 1
+            continue
+        os.remove(tmp)
+        return path
+
+
 def write(ws, path=None, env=None, now=None, max_bytes=MAX_EMBED_BYTES):
     """Write the export of `ws`; return `{path, bytes, largest, unavailable, not_embedded}`
     (contracts/export.md "Output report"). Without `path` it is a new file in
-    `<workspace>/exports/`, never replacing an earlier one; a given `path` is written, replacing
-    what is there."""
+    `<workspace>/exports/`, never replacing an earlier one; a given `path` is replaced. The page
+    is written to a temp file beside it and moved into place, so a failed write leaves what was
+    there."""
     now = now or datetime.now(timezone.utc)
+    directory, name = _target(ws, path, now)
     page, report = render(ws, env, now, max_bytes)
     data = page.encode("utf-8")
-    if path:
-        path = os.path.abspath(path)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-    else:
-        directory = exports_dir(ws)
-        os.makedirs(directory, exist_ok=True)
-        fd, path = _create(directory, now)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".export-", suffix=".tmp")
     try:
+        os.fchmod(fd, 0o644)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        path = _publish(tmp, directory, name, now)
     except BaseException:
         try:
-            os.remove(path)
+            os.remove(tmp)
         except OSError:
             pass
         raise

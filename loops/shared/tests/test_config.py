@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import types
 import unittest
 
 import helpers  # noqa: F401
@@ -94,6 +95,23 @@ class ConfigTest(unittest.TestCase):
         config.resolve_for_run(run, self.loop_dir, {"max_trials": 6})
         config.resolve_for_run(run, self.loop_dir, {"max_trials": 6})
         self.assertEqual(state.read_jsonl(os.path.join(self.loop_dir, "state", "events.jsonl")), [])
+
+    def test_a_run_frozen_with_the_removed_dashboard_settings_resumes(self):
+        # Frozen by an earlier devloops from its defaults: not the developer's to delete.
+        frozen = dict(config.load_effective(config.DEFAULTS_PATH, None, {}),
+                      dashboard={"light": True, "full_on_stop": False})
+        run = {"effective_config": frozen}
+        eff = config.resolve_for_run(run, self.loop_dir, {})
+        self.assertNotIn("dashboard", eff)
+        self.assertNotIn("dashboard", run["effective_config"])
+        self.assertFalse(os.path.exists(os.path.join(self.loop_dir, "state", "events.jsonl")))
+        # Nor is it drift once a configuration file changes.
+        project = types.SimpleNamespace(
+            config_path=self.write("devloops.json", "{}"),
+            local_config_path=os.path.join(self.dir, "none.json"),
+            run_config_layers=lambda: [{}, {}])
+        run = {"effective_config": frozen, "config_sources": {"devloops.json": "old"}}
+        self.assertEqual(config.drift(run, project, None), [])
 
     def test_invalid_later_override_exits_2(self):
         run = {}

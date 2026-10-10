@@ -12,7 +12,9 @@ Safety, and Output report sections). Written by `devloops dashboard --export [<p
 <path>                                           # when given: written, replacing a file there
 ```
 
-Created exclusively when no path is given, so an export never replaces an earlier one. The
+Written to a temp file beside the target and moved into place, so a failed write leaves what was
+there; without a path, the name is taken exclusively, so an export never replaces an earlier one.
+The target folder is checked before the page is built. The
 workspace folder is git-ignored, so exports are too.
 
 ## Structure
@@ -43,8 +45,9 @@ workspace folder is git-ignored, so exports are too.
   `<!--` in a file or a conversation can end or change the element. A text file is
   `{kind, lang, size, text}` (the text as the server sends it); images and other binary files are
   `{kind, size, type, base64}`; files over 5 MB are `{not_embedded: true, size, path}`.
-- The workspace's `exports/` folder is never listed (nor part of the workspace version), so an
-  export holds no earlier export.
+- The workspace's `exports/` folder, any other export inside the workspace (known by its root
+  element), and a summary page (`dashboard.html`) left by an earlier devloops are never listed
+  (nor part of the workspace version), so an export holds no earlier export.
 - Every value has passed through the workspace's redactor (SC-008). Conversations are embedded
   whole.
 - The app reads an element only when that data is first asked for; nothing is fetched and nothing

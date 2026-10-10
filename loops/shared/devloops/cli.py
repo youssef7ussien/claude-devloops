@@ -660,7 +660,7 @@ def _dashboard(args, kit, project, env):
         try:
             report = dashboard_export.write(ws, None if args.export is True else args.export,
                                             env=env)
-        except OSError as e:
+        except Exception as e:  # noqa: BLE001 - reported, not a traceback (contracts/cli.md: exit 1)
             print(f"devloops: could not write the export: {e}", file=sys.stderr)
             return 1
         if args.json:

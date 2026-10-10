@@ -206,7 +206,7 @@ class Site:
         h = hashlib.sha1()
         for path in artifacts._walk(ws.path):
             rel = artifacts.relative(path, ws.path)
-            if rel.split(os.sep)[0] == artifacts.EXPORTS:
+            if artifacts.unlisted(rel):
                 continue
             try:
                 st = os.stat(path)

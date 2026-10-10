@@ -33,3 +33,27 @@ test('names: characters in order, the label first, best first', () => {
   assert.equal(s.names(items, '').length, 4);
   assert.deepEqual(plain(s.names(items, 'zzz')), []);
 });
+
+test('embedded: file items read their embedded file, only until the results are found', () => {
+  const read = [];
+  const elements = {};
+  const corpus = fixture.corpus.map((item) => {
+    if (item.kind !== 'file') return item;
+    elements['d:files/' + item.id] = JSON.stringify({ kind: 'text', text: item.text });
+    return { kind: item.kind, id: item.id, label: item.label, route: item.route, file: item.id };
+  });
+  const doc = {
+    readyState: 'loading', documentElement: { dataset: {}, classList: { add() {}, remove() {} } },
+    addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], getElementsByTagName: () => [],
+    getElementById: (id) => { read.push(id); return id in elements ? { textContent: elements[id] } : null; },
+  };
+  const E = load(undefined, { document: doc }).search;
+  for (const q of fixture.queries) {
+    assert.deepEqual(plain(E.embedded({ items: corpus }, q)), fixture.expected[q], q);
+  }
+  const l = fixture.limited;
+  read.length = 0;
+  assert.deepEqual(plain(E.embedded({ items: corpus }, l.query, l.limit)), l.hits);
+  const files = corpus.filter((i) => i.file).length;
+  assert.ok(read.length <= files, 'each file read at most once per search');
+});

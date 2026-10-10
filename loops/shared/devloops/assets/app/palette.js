@@ -77,7 +77,8 @@
     return found;
   }
 
-  DL.search = { score: score, names: names, fold: fold, hitOf: hitOf, content: content, MIN: MIN };
+  DL.search = { score: score, names: names, fold: fold, hitOf: hitOf, content: content,
+    embedded: embeddedHits, MIN: MIN };
 
   /* --- the dialog ------------------------------------------------------------------------------- */
 
@@ -140,27 +141,30 @@
     select(0);
   }
 
-  /* An export's corpus with each file item's text: a file item names its embedded file
-     (`file: id`) instead of holding a copy of its text (contracts/export.md). Read once. */
-  var corpusOnce = null;
-  function embeddedCorpus() {
-    if (!corpusOnce) {
-      corpusOnce = DL.api.get('search-corpus').then(function (corpus) {
-        return Promise.all((corpus.items || corpus).map(function (item) {
-          if (item.text != null || !item.file) return item;
-          return DL.api.get('files/' + item.file).then(function (f) {
-            return { kind: item.kind, id: item.id, label: item.label, route: item.route, text: f.text };
-          }, function () { return item; });
-        }));
-      });
-      corpusOnce.catch(function () { corpusOnce = null; });
+  /* An export's search: as `content`, over the embedded corpus, where a file item names its
+     embedded file (`file: id`) instead of holding a copy of its text (contracts/export.md). A
+     file's text is read from its element only when the search reaches it, and not kept, so a
+     search that has its results reads no more files. */
+  function embeddedText(item) {
+    if (item.text != null || !item.file) return item.text;
+    var node = document.getElementById('d:files/' + item.file);
+    try { return node ? JSON.parse(node.textContent).text : null; } catch (e) { return null; }
+  }
+  function embeddedHits(corpus, q, limit) {
+    var found = [], items = corpus.items || corpus;
+    limit = limit || LIMIT;
+    for (var i = 0; i < items.length && found.length < limit; i++) {
+      var item = items[i], text = embeddedText(item);
+      if (!text) continue;
+      var hit = content([{ kind: item.kind, id: item.id, label: item.label, route: item.route, text: text }], q, 1);
+      if (hit.length) found.push(hit[0]);
     }
-    return corpusOnce;
+    return found;
   }
 
   function contentHits(q) {
     if (DL.api.source() === 'embedded') {
-      return embeddedCorpus().then(function (items) { return content(items, q); });
+      return DL.api.get('search-corpus').then(function (corpus) { return embeddedHits(corpus, q); });
     }
     return DL.api.get('search?q=' + encodeURIComponent(q)).then(function (d) { return d.results; });
   }

@@ -64,6 +64,12 @@ REMOVED = {"dashboard": "the dashboard is served or exported now; dashboard.ligh
                         "dashboard.full_on_stop are gone"}
 
 
+def without_removed(config):
+    """`config` without the REMOVED settings: a run frozen by an earlier devloops holds them
+    from the defaults of its day, not from a file the developer could edit."""
+    return {k: v for k, v in config.items() if k not in REMOVED}
+
+
 def _validated(config):
     errors = schema.explain_removed(schema.validate(config, "config.schema.json"), REMOVED)
     if errors:
@@ -113,6 +119,8 @@ def resolve_for_run(run_state, loop_dir, cli_overrides, defaults_path=DEFAULTS_P
     and recorded as a `config-override` event. The caller persists `run_state`.
     """
     frozen = run_state.get("effective_config")
+    if frozen:
+        frozen = run_state["effective_config"] = without_removed(frozen)
     if not frozen:
         effective = load_effective(defaults_path, workspace_config_path, cli_overrides,
                                    project_layers)
@@ -183,7 +191,7 @@ def drift(run_state, project, workspace_config_path, defaults_path=DEFAULTS_PATH
     applied. Keys the command line set are left out, and so is a run recorded before 002 (no
     `config_sources`) or whose configuration files are byte-identical to the recorded ones."""
     recorded = run_state.get("config_sources")
-    frozen = run_state.get("effective_config")
+    frozen = without_removed(run_state.get("effective_config") or {})
     if not recorded or not frozen or \
             config_sources(project, workspace_config_path) == recorded:
         return []

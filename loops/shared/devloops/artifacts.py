@@ -30,7 +30,28 @@ def _dashboard():
 # big log or recording cannot swell the page. Conversations are always embedded whole.
 MAX_EMBED_BYTES = 5 * 1024 * 1024
 # The workspace's exports (dashboard_export.py): never listed, so an export holds no earlier one.
+# An export written to another path inside the workspace is known by its root element.
 EXPORTS = "exports"
+EXPORT_MARK = b'data-source="embedded"'
+# The summary page an earlier devloops wrote at the workspace's root: stale, so not listed.
+OLD_SUMMARY = "dashboard.html"
+
+
+def is_export(path):
+    """Whether `path` is a dashboard export (its first bytes hold the export's root element)."""
+    if not path.endswith(".html"):
+        return False
+    try:
+        with open(path, "rb") as f:
+            return EXPORT_MARK in f.read(512)
+    except OSError:
+        return False
+
+
+def unlisted(rel):
+    """Whether a workspace-relative path is left out of the listing: the exports folder and the
+    old summary page."""
+    return rel.split(os.sep)[0] == EXPORTS or rel == OLD_SUMMARY
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 CALL_FILE = re.compile(r"^(\d{4,})-([a-z-]+?)(\.settings\.json|\.md|\.jsonl)$")
 PLAN_OUTPUTS = re.compile(r"^(plan-summary\.md|open-questions\.md|milestone-.*\.md)$")
@@ -132,8 +153,9 @@ def _walk(top):
     for dirpath, dirnames, names in os.walk(top):
         dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
         for name in sorted(names):
-            if not name.startswith("."):
-                yield os.path.join(dirpath, name)
+            path = os.path.join(dirpath, name)
+            if not name.startswith(".") and not is_export(path):
+                yield path
 
 
 def collect_artifacts(ws, loop):
@@ -395,7 +417,7 @@ def file_index(ws, data):
 
     artifacts = {loop: collect_artifacts(ws, loop) for loop in data["loops"]}
     # walked once: for the ids, then for the run's and own files
-    paths = [p for p in _walk(ws.path) if relative(p, ws.path).split(os.sep)[0] != EXPORTS]
+    paths = [p for p in _walk(ws.path) if not unlisted(relative(p, ws.path))]
     for items in artifacts.values():  # ids in the order the old pages gave them
         for item in items:
             ids(item["rel"], key(item))

@@ -1,7 +1,9 @@
 """`devloops dashboard --export`: the dashboard app in one file with its data embedded
 (specs/005-dashboard-redesign contracts/export.md, FR-028–FR-030, SC-007, SC-008)."""
 import base64
+import contextlib
 import html
+import io
 import json
 import os
 import re
@@ -176,6 +178,58 @@ class ExportTest(StubLoopMixin, unittest.TestCase):
         with mock.patch.object(dashboard, "running", return_value=True):
             report = dashboard_export.write(self.ws(), env=self.t.env)
         self.assertEqual(self.root_attrs(self.read(report["path"]))["running"], "true")
+
+    def test_earlier_exports_and_the_old_summary_page_are_not_listed(self):
+        self.completed()
+        inside = os.path.join(self.t.workspace_dir, "snap.html")  # an export outside exports/
+        self.export(inside)
+        with open(os.path.join(self.t.workspace_dir, "dashboard.html"), "w") as f:
+            f.write("<!doctype html><title>old summary page</title>")
+        page = self.read(self.export()["path"])
+        paths = [i["detail"] for i in self.data(page)["index"]["items"] if i["kind"] == "file"]
+        self.assertFalse([p for p in paths if p.endswith(".html") and "/" not in p], paths)
+        self.assertNotIn("old summary page", page)
+        self.assertEqual(page.count('<html lang="en" data-source="embedded"'), 1)
+
+    # --- writing ---
+
+    def test_a_failed_write_keeps_the_file_that_was_there(self):
+        self.completed()
+        out = os.path.join(self.t.base, "share", "run.html")
+        self.export(out)
+        before = self.read(out)
+        with mock.patch.object(dashboard_export, "_publish", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                dashboard_export.write(self.ws(), out, env=self.t.env)
+        self.assertEqual(self.read(out), before)
+        self.assertEqual(os.listdir(os.path.dirname(out)), ["run.html"])  # no temp file left
+
+    def test_an_unwritable_path_fails_before_the_page_is_built(self):
+        self.completed()
+        blocker = os.path.join(self.t.base, "a-file")
+        with open(blocker, "w") as f:
+            f.write("x")
+        with mock.patch.object(dashboard_export, "render") as render:
+            code, err = self.main("dashboard", "--export", os.path.join(blocker, "run.html"))
+        self.assertEqual(code, 1)
+        self.assertIn("devloops: could not write the export:", err)
+        render.assert_not_called()
+
+    def test_a_failure_while_building_is_reported_not_a_traceback(self):
+        self.completed()
+        with mock.patch.object(dashboard_export, "render", side_effect=KeyError("trials")):
+            code, err = self.main("dashboard", "--export")
+        self.assertEqual(code, 1)
+        self.assertIn("devloops: could not write the export: 'trials'", err)
+
+    def main(self, *args):
+        """`devloops <args>` in this process (so a patch applies): `(exit code, stderr)`."""
+        from devloops import cli
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = cli.main([*args, "--workspace", WS], kit=self.t.kit(),
+                            project=self.t.project(), env=self.t.env)
+        return code, err.getvalue()
 
     # --- limits and the report ---
 
