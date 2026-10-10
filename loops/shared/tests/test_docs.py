@@ -4,7 +4,7 @@
 2. `tools/docs/descriptions.json` describes exactly the values the code has.
 3. Every hand-written page has `title`, `description` and `sources`, and each source exists.
 4. Commands, options, configuration keys and workspace paths named in the pages exist.
-5. (with the statuses page) Every status appears in its kind's diagram.
+5. Every status of each kind appears in that kind's diagram on the statuses page.
 6. The example outputs are current (`tools/docs/examples.py --check`).
 7. The site builds with `zensical build --strict` (broken links, anchors and snippets fail it,
    research R-2). Zensical is a writers' and CI tool, not a devloops dependency: the check is
@@ -22,6 +22,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 import helpers
@@ -379,6 +380,46 @@ class StatusConstantsTest(unittest.TestCase):
         for kind in ("RUN_STATUSES", "MILESTONE_STATUSES", "TASK_STATUSES", "TRIAL_STATUSES"):
             for value in getattr(state, kind):
                 self.assertIn(value, written, f"state.{kind} lists {value!r}, which no code writes")
+
+
+def status_diagrams(path):
+    """`{kind: text of the first mermaid block}` per `## … {#kind}` section of `path`."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    diagrams = {}
+    for match in re.finditer(r"^## [^\n]*\{#([\w-]+)\}\n(.*?)(?=^## |\Z)", text, re.M | re.S):
+        block = re.search(r"^```mermaid\n(.*?)^```", match.group(2), re.M | re.S)
+        if block:
+            diagrams[match.group(1)] = block.group(1)
+    return diagrams
+
+
+class StatusDiagramsTest(unittest.TestCase):
+    """Check 5: each status of each kind (the constants of state.py and the schema enums, as the
+    reference shows them) appears in that kind's diagram on how-it-works/statuses.md (FR-008)."""
+
+    def test_5_every_status_is_in_its_kinds_diagram(self):
+        page = os.path.join(DOCS, "how-it-works", "statuses.md")
+        diagrams = status_diagrams(page)
+        missing = []
+        for kind, values in tool("gen_reference").code_values()["statuses"].items():
+            if kind not in diagrams:
+                missing.append(f"{kind}: no diagram (a `## … {{#{kind}}}` section with a "
+                               "mermaid block)")
+                continue
+            missing.extend(f"{kind}: {value!r} is not in its diagram" for value in values
+                           if not re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])",
+                                            diagrams[kind]))
+        self.assertEqual(missing, [], os.path.relpath(page, ROOT))
+
+    def test_the_diagram_reader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page = os.path.join(tmp, "statuses.md")
+            with open(page, "w", encoding="utf-8") as f:
+                f.write("## Task {#task}\n\n```mermaid\nstateDiagram-v2\n  [*] --> pending\n"
+                        "```\n\n## Other\n\n```mermaid\nfailed\n```\n")
+            self.assertEqual(status_diagrams(page),
+                             {"task": "stateDiagram-v2\n  [*] --> pending\n"})
 
 
 @unittest.skipUnless(zensical(),"needs zensical (pip install -r tools/docs/requirements.txt)")
