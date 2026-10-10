@@ -38,3 +38,22 @@ Expected: OK; check 7 runs when `zensical` is on PATH (activate `.venv-docs`).
 | How it works (US2, SC-003) | the same readers read `how-it-works/` | each answers what happens after a failed check, out of trials, an interruption, an open question |
 | Manual covered (SC-008) | read `manual-map.md` | every manual heading has a page or a reason |
 | Published (SC-006) | push to `main` | the workflow passes; the change is live within 10 minutes |
+
+## Getting started works
+
+Walked through on 2026-10-10 (T030), following `getting-started/install.md` and
+`getting-started/first-run.md` word for word, with the stand-in Claude Code answering as in the
+examples (`tools/docs/examples.py`: the same plan and checks):
+
+- `uv tool install` from the repository installed `devloops`; `devloops --version` printed
+  `devloops 0.2.0`.
+- In a new folder (`mkdir app`, `requirements.md` copied from the page): `init`, `check`,
+  `run --review-plan` (exit 10), `approve` and `status` exited as the page says, and each output
+  matched the page's (after the examples' normalisation; `check` shows this machine's versions).
+- Every file the page names exists: `.devloops/devloops.json`, `.claude/skills/`, `.gitignore`,
+  the code in `backend/`, and `outputs/` with `final-report.md`, `plan-summary.md`,
+  `open-questions.md`, `openapi.json` and one `milestone-NN-slug.md` per milestone.
+- `devloops dashboard` served the workspace and answered 200.
+
+Fixed on the way: the final report has a "Suggested answers accepted" section only when one was
+accepted; the page said it always has.
