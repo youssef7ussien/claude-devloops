@@ -12,6 +12,8 @@ sources:
   - loops/shared/devloops/runtime.py
   - loops/shared/devloops/claude.py
   - loops/shared/hooks
+  - loops/shared/prompts/steps/validate-ui.md
+  - loops/frontend-dev/Loop-instructions.md
   - spec 001 FR-008
   - spec 001 FR-017
   - spec 001 FR-018
@@ -26,11 +28,11 @@ sources:
 After Claude Code writes or fixes a milestone's code, devloops tests the result itself. This test
 is [validation](../glossary.md#validation), and it alone decides whether the
 [milestone](../glossary.md#milestone) passes. This page explains what validation checks for each
-loop, and every reason a [trial](../glossary.md#trial) can fail.
+[loop](../glossary.md#loop), and every reason a [trial](../glossary.md#trial) can fail.
 
 ## Why Claude's word never counts
 
-Claude Code reports what it did at the end of each call: the tasks it finished, the decisions it
+Claude Code reports what it did at the end of each [call](../glossary.md#call): the tasks it finished, the decisions it
 made, the files it changed. devloops records that report, but never uses it to pass a milestone.
 A model can be wrong about its own work, and it can be sure of it anyway.
 
@@ -52,12 +54,14 @@ Two rules apply to both loops, before validation even starts.
 
 **Nothing written outside the target.** Claude Code may change files only inside the loop's
 [target](../glossary.md#target) folder. A write tool aimed anywhere else is blocked as it
-happens. A write through a shell command is caught afterwards: devloops takes a fingerprint of
-the protected folders before each call and compares it after. Either way, the trial fails with
-the reason `boundary-violation`, and devloops never validates it. Extra places Claude may write
-to can be listed in [`boundary.allowed_extra`](../reference/configuration.md#boundary.allowed_extra).
+happens, so nothing changes and Claude Code is told why. A write through a shell command is
+caught afterwards: devloops takes a fingerprint of the protected folders before Claude Code
+writes the code and compares it after. When something outside the target changed, the trial fails
+with the reason `boundary-violation`, and devloops never validates it. Changes in extra places
+listed in [`boundary.allowed_extra`](../reference/configuration.md#boundary.allowed_extra) do not
+count as a violation (the write tools stay limited to the target).
 
-**The application must start.** devloops starts the application with the plan's
+**The application must start.** devloops starts the application with the [plan](../glossary.md#plan)'s
 [runtime](../glossary.md#runtime): the command in
 [`runtime.start_command`](../reference/configuration.md#runtime.start_command), run in
 [`runtime.cwd`](../reference/configuration.md#runtime.cwd). It then waits for
@@ -94,12 +98,19 @@ change the code, but never the test it has to pass.
 
 With the application running, devloops sends each check's request with curl, in order. Each
 check has 30 seconds to answer. For each one, devloops keeps the command it ran, the answer's
-headers and the answer's body, as evidence in the trial's folder.
+headers and the answer's body, as [evidence](../glossary.md#evidence) in the trial's folder.
 
 A check can save a value from its answer, such as the id of an item it just created, and a later
-check can use it, for example to ask for that item. When the check that should save a value
-fails, every later check that needs the value fails too, without being sent. So when several
-checks fail, fix the first one: the others usually follow from it.
+check can use it, for example to ask for that item. The check names the value and where it is in
+the answer's JSON (its `capture`), and a later check writes `${name}` where the value goes: in
+its path, its headers, its body or its expected answer. When `"${name}"` is the whole of a JSON
+value, it becomes the saved value with its own type, so a saved number stays a number; inside a
+longer piece of text, the value is written in as text.
+
+A value is saved only when the answer has it. When an earlier check did not save it, usually
+because that check failed, every later check that needs the value fails too, without being sent,
+and its failure says which value is missing. So when several checks fail, fix the first one: the
+others usually follow from it.
 
 ### What passes
 
@@ -107,7 +118,7 @@ The milestone passes when all of these hold:
 
 - **Every acceptance criterion passed.** A criterion passes when all the checks that cover it
   passed.
-- **The contract.** No check calls an operation the target's OpenAPI document does not declare.
+- **The [contract](../glossary.md#contract).** No check calls an operation the target's OpenAPI document does not declare.
   devloops reads the document from
   [`runtime.openapi_path`](../reference/configuration.md#runtime.openapi_path); a missing or
   unreadable document fails this rule. A check that expects 404 or 405 on an undeclared path is
@@ -121,10 +132,25 @@ The milestone passes when all of these hold:
 
 When a backend milestone passes, devloops publishes the target's OpenAPI document as
 [`outputs/openapi.json`](../reference/state-files.md#loop-outputs-openapi.json). It publishes
-only the operations that the checks of an achieved milestone really called and got a success
-answer from. An operation the document declares but no check verified does not fail the
-milestone; it is left out of the published document, and listed in it as unverified. A later
-milestone whose checks call that operation adds it back.
+only the operations that the checks of an achieved milestone really called and got the answer they
+expected from. A check that expects 404 or 405 does not count: it shows that a path is absent. An operation the document declares but no check verified does not fail the
+milestone; it is left out of the published document. A later milestone whose checks call that
+operation adds it back. A path whose definition is only a reference to another part of the
+document (a `$ref`) is published as it is.
+
+The operations left out are listed in three places: in the published document itself, under
+`x-devloops-unverified-operations`; in the loop's
+[`run.json`](../reference/state-files.md#loop-state-run.json); and in its
+[`final-report.md`](../reference/state-files.md#loop-outputs-final-report.md). The frontend loop
+is told they exist, and that it must not call them.
+
+devloops publishes again after every achieved milestone, from the operations of every achieved
+milestone, so the last one leaves the final document. It reads the target's document again to
+do so. If the document no longer loads at that moment, even though the milestone has just passed
+against it, devloops fails the milestone again and the loop stops, with
+[exit code 20](../reference/exit-codes.md#exit-20), rather than leave an older document in
+place. Fix the document, then [`devloops retry`](../reference/commands.md#retry) validates the
+milestone and publishes it again.
 
 The [frontend loop](../guides/frontend-loop.md) builds against this document, so it can only
 rely on operations that devloops has seen working.
@@ -246,7 +272,7 @@ Every failed trial is recorded with a reason, a detail, and its evidence. The ne
 | `claude-error` | Claude Code exited with an error. | Yes |
 | `timeout` | The call ran longer than [`invocation_timeout_seconds`](../reference/configuration.md#invocation_timeout_seconds). | Yes |
 | `needs-input` | The call asked a question devloops cannot answer by itself. The run stops at once, with [exit code 20](../reference/exit-codes.md#exit-20). See [approval and questions](../guides/approval-and-questions.md). | Yes |
-| `interrupted` | devloops itself was stopped during the trial: by `Ctrl C`, a crash, or a kill. | Yes |
+| `interrupted` | devloops itself was stopped during the trial: by Ctrl+C, a crash, or a kill. | Yes |
 | `rate-limited`, `service-unavailable`, `auth-failed` | Claude Code could not be used. The trial is [void](../reference/statuses.md#trial-void) and the run stops with [exit code 50](../reference/exit-codes.md#exit-50). | No: the same trial runs again next time |
 
 When a milestone's last trial fails, the run stops with the reason

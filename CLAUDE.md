@@ -9,7 +9,9 @@ requirements into validated code, one milestone at a time: `backend-dev` (valida
 requests, publishes a verified OpenAPI document) and `frontend-dev` (validated in a real browser via
 the Playwright MCP server, checked against that document). `devloops run` runs the loops a project
 uses, in one workspace. The model's own claims are never trusted: a milestone passes only when the
-driver's validation passes. User documentation is `loops/README.md`.
+driver's validation passes. User documentation is the site in `docs/` (Zensical, published to
+https://youssef7ussien.github.io/claude-devloops/ by `.github/workflows/docs.yml`); the root
+`README.md` is the short front door and the package description.
 
 The runtime is Python ≥ 3.10, **standard library only** (no runtime dependencies; setuptools only
 to build). Run it from the checkout with `bin/devloops <command>`. This repository is not itself
@@ -37,6 +39,17 @@ node --test loops/shared/devloops/assets/app/tests/
 - `DEVLOOPS_TEST_PACKAGING=1` (with `uv` on PATH) enables `test_packaging.py` (builds the wheel).
 - `DEVLOOPS_SKIP_PERF=1` skips `test_dashboard_perf.py` on a slow or busy machine.
 - There is no linter or formatter configured.
+
+Documentation (`tools/docs/`; Zensical is a writers' and CI tool, not a devloops dependency):
+
+```sh
+python3 -m venv .venv-docs && .venv-docs/bin/pip install -r tools/docs/requirements.txt  # once
+python3 tools/docs/gen_reference.py      # regenerate docs/reference/ (--check compares)
+python3 tools/docs/examples.py           # regenerate docs-include/examples/ (--check compares)
+node tools/docs/screenshots.mjs          # retake docs/assets/screenshots/ (by hand; needs Chromium)
+.venv-docs/bin/zensical serve            # preview; `zensical build --strict --clean` as CI does
+cd loops/shared/tests && python3 -m unittest test_docs   # the docs checks (part of the suite)
+```
 
 ## Architecture
 
@@ -71,10 +84,11 @@ node --test loops/shared/devloops/assets/app/tests/
   in `specs/<feature>/contracts/` and `loops/shared/schemas/` together.
 - **Browser code** (`test_app_js.py`): every `.js` file is listed in `scripts.txt`; no
   `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write` (build DOM with `DL.el`/`DL.add`;
-  model-written text is only ever `textContent`); no `style=` attributes or inline scripts (the
-  page's CSP is `script-src 'self'; style-src 'self'`); nothing loads from outside the page. Each
-  file is an IIFE over `window.DL` and touches no DOM when it loads, so its pure parts run under
-  `node --test` (`tests/load.js`). The exception is `assets/app/vendor/` (Prism, copied in
+  model-written text is only ever `textContent`); nothing loads from outside the page; the served
+  page shell has no `style=` attribute. Not tested, but required by design: no `style=`
+  attributes or inline scripts in the app either (the page's CSP is `script-src 'self';
+  style-src 'self'`), and each file is an IIFE over `window.DL` that touches no DOM when it
+  loads, so its pure parts run under `node --test` (`tests/load.js`). The exception is `assets/app/vendor/` (Prism, copied in
   unchanged, research R-16): listed in `scripts.txt` and loading nothing from outside, but exempt
   from the markup and IIFE rules; it is left out of the export, and the app uses it only through
   `DL.hl.tokenize` (never Prism's own HTML highlighting).
@@ -86,7 +100,13 @@ node --test loops/shared/devloops/assets/app/tests/
   `[X]` in `tasks.md` as they are done. Code comments and docstrings cite requirement IDs
   (`FR-…`, `SC-…`, research `R-…`) from these specs.
 - `.specify/memory/constitution.md` governs design; plans include a constitution check.
-- When a later spec changes earlier behavior, the earlier spec and `loops/README.md` get a
-  "Changed by / Revised by spec NNN" note in place, and the README must describe the implemented
-  system.
+- When a later spec changes earlier behavior, the earlier spec and the affected `docs/` pages get
+  a "Changed by / Revised by spec NNN" note in place, and the pages must describe the system as
+  built: a change in behavior updates its pages in the same commit. Specs that mention the old
+  `loops/README.md` stay as written (spec 006 FR-025).
+- `docs/reference/` and `docs-include/examples/` are generated: change their sources (`cli.py`
+  help, schema descriptions, `tools/docs/descriptions.json`) and regenerate; never edit them.
+  `test_docs` fails when they are stale, when a page names a command, option, key or workspace
+  path devloops does not have, or when a source in a page's front matter does not exist; writing
+  rules are in `docs/contributing/writing-style.md`.
 - devloops is in development: breaking changes need no migration path (no shims or deprecations).

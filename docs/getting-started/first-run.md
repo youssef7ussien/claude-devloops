@@ -22,7 +22,8 @@ This page takes you from an empty folder to a small, validated backend: a servic
 creates items. It builds the backend only, so you need Python, Claude Code and curl, but not Node
 or a browser. See [Install](install.md) first.
 
-The outputs below come from a real run of devloops on this same example, with times, paths and
+The outputs below come from a real run of devloops on this same example, with a
+[stand-in](../glossary.md#stand-in) answering in place of Claude Code, and with times, paths and
 ids made the same on every run. Yours will show your own folder, times and costs, and Claude Code
 may choose a different number of milestones.
 
@@ -71,11 +72,16 @@ Claude models.
 
 It created:
 
-- `.devloops/devloops.json`, the project's configuration: the requirements, the folder each loop
-  writes its code to (its [target](../glossary.md#target); here `backend`), and the models. See
+- `.devloops/devloops.json`, the project's configuration: the requirements, the folder each
+  [loop](../glossary.md#loop) writes its code to (its [target](../glossary.md#target); here `backend`), and the models. See
   [configuration](../guides/configuration.md).
 - `.claude/skills/`, two skills that let you ask Claude Code, in a normal session, to run devloops
   or report its status. See [skills](../guides/skills.md).
+- `.devloops/manifest.json`, the record of what `devloops init` installed, which
+  [`devloops init --upgrade`](../reference/commands.md#init--upgrade) uses. See
+  [upgrades](../guides/upgrades.md).
+- `.devloops/prompts/README.md`, which explains how to change the instructions devloops gives
+  Claude Code. See [prompts](../guides/prompts.md).
 - `.gitignore` rules that keep devloops' working files out of git.
 
 `devloops init` never overwrites a file, and running it again changes nothing.
@@ -90,7 +96,7 @@ devloops check
 --8<-- "examples/check.txt"
 ```
 
-[`devloops check`](../reference/commands.md#check) lists each tool this project needs. The
+[`devloops check`](../reference/commands.md#check) lists each tool a run can need. The
 browser and the Playwright MCP server are `unused`, because this project has no frontend. If a
 tool is missing, the line under it says how to install it.
 
@@ -123,7 +129,8 @@ tasks of each, the statements each must make true (its
 [acceptance criteria](../glossary.md#acceptance-criterion)), and how the application will be
 started. Questions, if any, are in
 [`open-questions.md`](../reference/state-files.md#loop-outputs-open-questions.md) next to it,
-with Claude's suggested answer; write your own answer under a question to replace it.
+with Claude's [suggested answer](../glossary.md#suggested-answer); write your own answer after a
+question's `**Answer:**` to use it instead.
 
 When the plan looks right, approve it:
 
@@ -140,14 +147,15 @@ run in the same command. For each milestone, devloops asks Claude Code to write 
 [checks](../glossary.md#check) first, then the code. Then devloops starts the application, sends
 the checks' requests to it, and compares each answer with the one expected. Here each milestone
 passed on its first [trial](../glossary.md#trial). When a trial fails, the next one fixes the
-code, up to three trials per milestone.
+code, up to three trials per milestone by default
+([`max_trials`](../reference/configuration.md#max_trials)).
 
 If the plan is not what you want, run [`devloops replan`](../reference/commands.md#replan)
 instead, after writing your answers in `open-questions.md`. Claude Code then plans again.
 
 ## 6. Follow a run
 
-A run prints one line per step, as above. To see more, open the
+A run prints a line for each thing it does, as above. To see more, open the
 [dashboard](../glossary.md#dashboard) in another terminal:
 
 ```sh
@@ -189,8 +197,8 @@ why:
 
 | Exit code | What it means | What to do |
 |---|---|---|
-| [10](../reference/exit-codes.md#exit-10) | The plan waits for your review | Read `plan-summary.md`, then `devloops approve` or `devloops replan` |
-| [20](../reference/exit-codes.md#exit-20) | A milestone used all its trials, or a question needs your answer | `devloops status` says which; read the last trial's evidence, or answer in `open-questions.md`, then `devloops retry` |
+| [10](../reference/exit-codes.md#exit-10) | The plan waits for your review, or a question has no suggested answer | Read `plan-summary.md`, then `devloops approve` or `devloops replan` |
+| [20](../reference/exit-codes.md#exit-20) | A milestone used all its trials, or a question needs your answer | `devloops status` says which; read the last trial's [evidence](../glossary.md#evidence), or answer in `open-questions.md`, then `devloops retry` |
 | [30](../reference/exit-codes.md#exit-30) | Something the run needs is missing or wrong, such as a tool or the requirements | Fix what the message names, then run the same command again |
 | [40](../reference/exit-codes.md#exit-40) | Another devloops command is working in this workspace | Wait for it; if none is running, `devloops status` says how to clear the lock |
 | [50](../reference/exit-codes.md#exit-50) | Claude Code could not be used: an outage, a rate limit, or an expired login | Wait, or log in again, then `devloops run`. No trial was used up |

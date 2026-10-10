@@ -3,6 +3,7 @@
 
     python3 tools/docs/examples.py           # rewrite docs-include/examples/
     python3 tools/docs/examples.py --check   # compare instead; exit 1 naming each differing file
+    python3 tools/docs/examples.py --keep    # write nothing; keep the sample project, print its path
 
 The run is real devloops against the stand-in Claude Code the tests use (`fake_claude.py`), on a
 generic sample application: the curl tests' item server (`fixtures/http_app.py`), a plan with
@@ -112,7 +113,7 @@ class Normaliser:
     HEX = re.compile(r"\b[0-9a-f]{64}\b")
 
     # `devloops check` reports the versions on this machine; the examples show fixed ones.
-    TOOLS = {"python": "3.12.3", "claude": "2.1.0", "curl": "8.5.0", "git": "/usr/bin/git"}
+    TOOLS = {"python": "3.12.3", "claude": "2.1.283", "curl": "8.5.0", "git": "/usr/bin/git"}
 
     def __init__(self, base, port, commands):
         self.base, self.port, self.commands = base, port, commands
@@ -141,13 +142,17 @@ class Normaliser:
         return text.rstrip() + "\n"
 
 
-def sample_run():
-    """Run the sample and return `{name: normalised output}`."""
+def sample_run(keep=False):
+    """Run the sample; return `({name: normalised output}, project path)`. With `keep`, a run that
+    succeeds leaves its temporary folder in place (for the screenshots' dashboard,
+    tools/docs/screenshots.mjs, which removes it; its records name that path); otherwise, and
+    always on a failure, the folder is removed."""
     # A temporary folder whose path has the same length everywhere: the export embeds the
     # workspace's records, so its sizes in `export.txt` would otherwise vary by machine.
     if os.path.isdir("/tmp"):
         tempfile.tempdir = "/tmp"
     t = helpers.TempEnv(workspace="main", symlink=True).__enter__()
+    kept = False
     try:
         port = free_port()
         app_dir = os.path.join(t.base, "app")
@@ -192,9 +197,11 @@ def sample_run():
                 rel = os.path.relpath(os.path.join(directory, name), workspace)
                 files.append(norm(rel.replace(os.sep, "/")).strip())
         outputs["workspace-files"] = "\n".join(sorted(files)) + "\n"
-        return outputs
+        kept = keep
+        return outputs, app_dir
     finally:
-        t.__exit__(None, None, None)
+        if not kept:
+            t.__exit__(None, None, None)
 
 
 # Sizes in `devloops dashboard --export`'s report: the export embeds each call's settings, which
@@ -212,8 +219,14 @@ def main(argv=None):
     parser.add_argument("--check", action="store_true",
                         help="compare with docs-include/examples/ instead of writing; exit 1 "
                              "naming each differing file")
+    parser.add_argument("--keep", action="store_true",
+                        help="write nothing; keep the sample project and print its path (remove "
+                             "its temporary folder when done)")
     args = parser.parse_args(argv)
-    outputs = sample_run()
+    outputs, project = sample_run(args.keep)
+    if args.keep:
+        print(project)
+        return 0
     differing = []
     for name, text in sorted(outputs.items()):
         path = os.path.join(OUT, name + ".txt")

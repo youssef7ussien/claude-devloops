@@ -17,7 +17,7 @@
 *[plan]: The milestones, tasks and acceptance criteria devloops builds from the requirements.
 *[project]: A folder set up for devloops with devloops init.
 *[requirements]: The written description of what to build.
-*[retry grant]: More trials for a milestone that used all its own, given with devloops retry.
+*[retry grant]: More trials for a failed milestone, given with devloops retry.
 *[runtime]: How to start and reach the application while it is validated.
 *[stand-in]: A program that answers in place of Claude Code, for tests and examples.
 *[step]: One kind of call to Claude Code: plan, replan, author-checks, implement, fix or validate-ui.

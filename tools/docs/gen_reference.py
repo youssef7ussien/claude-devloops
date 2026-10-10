@@ -120,13 +120,13 @@ def cell(text):
 
 
 def sentence(text):
-    """`text` as a sentence: a capital (unless it starts with a name such as `backend-dev`'s or
-    an option) and a full stop."""
+    """`text` as a sentence: a capital (unless it starts with a name such as `backend-dev`'s, an
+    option, or a JSON value such as `true`) and a full stop."""
     text = " ".join(text.split())
     if not text:
         return ""
     first = text.split()[0]
-    if first.isalpha() and first.islower():
+    if first.isalpha() and first.islower() and first not in ("true", "false", "null"):
         text = text[0].upper() + text[1:]
     return text if text.endswith(".") else text + "."
 

@@ -133,8 +133,9 @@ or a spec-kit feature. Everything devloops builds traces back to them. See
 
 ## retry grant {#retry-grant}
 
-More trials for a milestone that used all of its own, given with `devloops retry`, optionally with
-guidance for the next attempt. See [trials and recovery](how-it-works/trials-and-recovery.md).
+More trials for a milestone that failed, because it used all of its own or stopped on a question
+that needs your answer. You give them with `devloops retry`, optionally with guidance for the
+next attempt. See [trials and recovery](how-it-works/trials-and-recovery.md).
 
 ## runtime {#runtime}
 
@@ -157,7 +158,7 @@ author-checks, implement, fix and validate-ui. See [steps](how-it-works/steps.md
 
 One user story: a small piece of the requirements written from a user's point of view. A run can
 build one story, either a file that holds just that story or one story picked from a larger
-file. See [the run lifecycle](how-it-works/run-lifecycle.md).
+file or a spec-kit feature. See [the run lifecycle](how-it-works/run-lifecycle.md).
 
 ## suggested answer {#suggested-answer}
 
@@ -168,7 +169,8 @@ stopping and marks it for your review. See
 ## target {#target}
 
 The folder a loop writes the application's code to. Claude Code may change files only inside
-it; a write anywhere else fails the trial. See [security](guides/security.md).
+it: its file tools are blocked anywhere else, and a change found outside it after a call fails
+the trial. See [security](guides/security.md).
 
 ## task {#task}
 

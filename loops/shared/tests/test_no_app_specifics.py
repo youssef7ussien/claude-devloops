@@ -4,8 +4,8 @@ FR-059).
 Scanned: `loops/*/{Loop-instructions.md,task.md,loop.json}`, `loops/shared/prompts/**`,
 `loops/shared/config/defaults.json`, `loops/shared/devloops/**/*.py`, and `bin/devloops`.
 
-Not scanned: `loops/README.md`, `loops/orchestrator/README.md`, and `loops/shared/tests/`, because
-documentation and tests may show example commands and fixtures.
+Not scanned: the documentation (`docs/`, `docs-include/`, `README.md`) and `loops/shared/tests/`,
+because documentation and tests may show example commands and fixtures.
 
 A term matches case-insensitively and as a whole word: no letter, digit, or `_` touches it. So a
 stack default must appear in its stack-specific form (`npm install`, `from 'react'`, `express()`)
@@ -41,7 +41,7 @@ SCANNED_GLOBS = (
     "loops/shared/devloops/**/*.py",
     "bin/devloops",
 )
-NOT_SCANNED = ("loops/README.md", "loops/orchestrator/README.md", "loops/shared/tests/")
+NOT_SCANNED = ("docs/", "docs-include/", "README.md", "loops/shared/tests/")
 
 
 def term_pattern(term):

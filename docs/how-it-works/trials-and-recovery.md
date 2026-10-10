@@ -10,6 +10,7 @@ sources:
   - loops/shared/devloops/claude.py
   - loops/shared/devloops/cli.py
   - loops/shared/hooks/guard_processes.py
+  - loops/shared/devloops/workspace.py
   - loops/shared/prompts/common.md
   - spec 001 FR-005
   - spec 001 FR-006
@@ -33,7 +34,7 @@ trial is given, what happens when it fails, and how a run continues after it sto
 
 Each trial has two parts:
 
-1. **One call to Claude Code.** The first trial of a milestone uses the
+1. **One [call](../glossary.md#call) to Claude Code.** The first trial of a milestone uses the
    [`implement`](../reference/steps.md#step-implement) step: write the milestone's code. Every
    later trial uses the [`fix`](../reference/steps.md#step-fix) step: change the code so that the
    last failure goes away.
@@ -71,15 +72,15 @@ allowed `fix` trial runs on that model.
 
 ## What a trial sees
 
-The first trial gets the milestone itself: its goal, its tasks, and its
-[acceptance criteria](../glossary.md#acceptance-criterion), plus how to start the application.
+Every trial gets the milestone itself: its goal, the [tasks](../glossary.md#task) not yet
+achieved, and its [acceptance criteria](../glossary.md#acceptance-criterion), plus how to start
+the application. It also gets your answers to the [open questions](../glossary.md#open-question),
+and the suggested answers that were accepted.
 
 A `fix` trial also gets:
 
 - **the last failure**: its reason and detail, and where to find that trial's validation result
-  and evidence (the HTTP requests and answers, screenshots, the application's log);
-- **your answers** to the [open questions](../glossary.md#open-question), and the suggested
-  answers that were accepted;
+  and evidence (the HTTP requests and answers, screenshots);
 - **your guidance**: the reason you gave with each [retry grant](../glossary.md#retry-grant) for
   this milestone.
 
@@ -93,10 +94,10 @@ Each failed trial records one reason.
 
 | Reason | What happened | Counts as a trial? |
 |---|---|---|
-| `validation-failed` | Validation found a problem: a check failed, the code broke the OpenAPI document's rules, the unit tests failed, or a page called the backend outside its [contract](../glossary.md#contract). | Yes |
+| `validation-failed` | Validation found a problem: a check failed, a check called an operation the OpenAPI document does not declare, the unit tests failed, or a page called the backend outside its [contract](../glossary.md#contract). | Yes |
 | `needs-input` | Claude Code asked a question the run cannot answer by itself. The run stops at once. | Yes, and the run stops |
-| `boundary-violation` | Something was written outside the loop's [target](../glossary.md#target) folder. | Yes |
-| `claude-error` | Claude Code ended with an error. | Yes |
+| `boundary-violation` | Something was written outside the [loop](../glossary.md#loop)'s [target](../glossary.md#target) folder. | Yes |
+| `claude-error` | Claude Code ended with an error. The detail gives its exit code: 143 means the call was killed, most often by a command it ran itself to stop processes (see [processes Claude starts](#processes-claude-starts)). | Yes |
 | `timeout` | The call ran longer than [`invocation_timeout_seconds`](../reference/configuration.md#invocation_timeout_seconds). | Yes |
 | `invalid-output` | Claude Code's answer did not have the required shape. | Yes |
 | `runtime-start-failed` | The application did not start, or did not answer on its ready address in time ([`runtime.ready_timeout_seconds`](../reference/configuration.md#runtime.ready_timeout_seconds)). | Yes |
@@ -153,9 +154,12 @@ devloops prevents this in four ways:
 - **The instructions.** Claude Code is told to stop only the processes it started, by their
   process number, and to stop them before it answers.
 - **A guard.** devloops reads every command Claude Code runs, and blocks the ones that stop
-  processes by name or pattern (`pkill`, `killall`, or `kill` together with a process search).
-  The message tells Claude Code how to stop its process instead. Stopping a process by its
-  number, or freeing a port, is allowed.
+  processes by name or pattern: `pkill`, `killall`, `kill 0` and `kill -1` (every process of the
+  group or the user), and `kill` in a command that also looks processes up by name (`pgrep`,
+  `pidof`, or `ps` other than `ps -p`). The message tells Claude Code how to stop its process
+  instead. Still allowed: stopping a process by its number (`kill $(cat app.pid)`), checking it
+  stopped (`kill -0`, `ps -p`), freeing a port (`fuser -k 8000/tcp`), and commands that only
+  mention those words, such as a search for `pkill` in the code.
 - **Clean-up after each call.** When a call ends, devloops stops whatever the call left running:
   a server started in the background, a file watcher. It asks them to stop, then forces them a
   few seconds later. A process that detached itself completely (a daemon) escapes this.
@@ -175,12 +179,13 @@ out of trials:
 3. **Trial 3 (fix).** Claude Code tests every criterion by hand, then stops its test server with
    `pkill`, which also stops Claude Code itself. The trial fails with `claude-error`.
 
-Here is how devloops handles each trial today:
+Here is how devloops handles each trial:
 
 1. Trial 1 **passes**. An operation no check called does not fail the milestone. devloops leaves
    it out of the document it publishes and lists it as unverified, so the frontend knows not to
    call it.
-2. A trial that asks a question is still validated, with the suggested answer accepted. Trial 2
+2. Under the default `questions` setting, a trial that asks a question is still validated, with
+   the suggested answer accepted. Trial 2
    would also have passed.
 3. The `pkill` is **blocked**, and Claude Code is told to stop its server by its process number.
 
@@ -202,8 +207,10 @@ validation result and evidence stay in the [workspace](../glossary.md#workspace)
    `max_trials` by default) and continues the run in the same command. The
    [`--reason`](../reference/commands.md#retry--reason) reaches the next `fix` trial as your
    guidance; leave it out when the evidence says enough.
-3. **If the plan itself is wrong**, start a new workspace with clearer requirements. A milestone
-   that already passed is never planned again.
+3. **If the [plan](../glossary.md#plan) itself is wrong**, start a new workspace with clearer
+   requirements. Once building has started, a run cannot plan again:
+   [`devloops replan`](../reference/commands.md#replan) works only while the plan waits for
+   approval.
 
 `retry` works only on a run stopped on a failure, and only for the milestone that failed. With
 [`--no-continue`](../reference/commands.md#retry--no-continue) it only records the grant, and the
@@ -222,6 +229,12 @@ A run keeps everything it does in files, written so that a crash never leaves on
 - **devloops was killed, or the machine stopped.** Run `devloops run` again. devloops finds the
   unfinished trial, records it as `interrupted`, and continues. If the kill left the workspace
   locked, add [`--force-unlock`](../reference/commands.md#run--force-unlock).
+- **Another devloops command holds the lock** ([exit code 40](../reference/exit-codes.md#exit-40)).
+  Only one command works on a loop of a workspace at a time. If the other command is still
+  running, wait for it. If its process is gone (a stale lock, which the message says), run the
+  command again with [`--force-unlock`](../reference/commands.md#run--force-unlock); devloops
+  removes the lock and records a `lock-cleared` event. A lock held from another machine cannot
+  be checked, so it always counts as held.
 - **Claude Code's service failed** (exit code 50). No trial was used: fix the cause and run
   `devloops run` again.
 

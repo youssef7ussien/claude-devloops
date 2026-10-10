@@ -36,21 +36,21 @@ devloops run [--workspace WORKSPACE] [--config CONFIG] [--json]
 | Option | Default | Meaning |
 |---|---|---|
 | <span id="run--workspace"></span>`--workspace WORKSPACE` |  | Workspace name (under the project's workspaces_dir) or path; created on the first run (default: the project's `workspace`, else main). |
-| <span id="run--config"></span>`--config CONFIG` |  | Config file merged over the defaults. |
+| <span id="run--config"></span>`--config CONFIG` |  | A configuration file merged over the defaults. |
 | <span id="run--json"></span>`--json` |  | Print one JSON status object. |
 | <span id="run--requirements"></span>`--requirements REQUIREMENTS` |  | PRD or story Markdown file, passed to every loop (default: the recorded one, then the project's). |
 | <span id="run--speckit-feature"></span>`--speckit-feature [DIR]` |  | A spec-kit feature folder as the requirements (no value: the active feature in .specify/feature.json). |
-| <span id="run--story-id"></span>`--story-id STORY_ID` |  | Implement only this story of --requirements (a PRD). |
+| <span id="run--story-id"></span>`--story-id STORY_ID` |  | Build only this story (of a PRD or a spec-kit feature). |
 | <span id="run--story-file"></span>`--story-file` |  | --requirements is a standalone story file. |
-| <span id="run--target-root"></span>`--target-root TARGET_ROOT` |  | Place the project's loops at <dir>/backend and <dir>/frontend (first run). |
+| <span id="run--target-root"></span>`--target-root TARGET_ROOT` |  | Put the loops' code in TARGET_ROOT/backend and TARGET_ROOT/frontend (first run only). |
 | <span id="run--backend-target"></span>`--backend-target BACKEND_TARGET` |  | backend-dev's target (overrides --target-root). |
 | <span id="run--frontend-target"></span>`--frontend-target FRONTEND_TARGET` |  | frontend-dev's target (overrides --target-root). |
-| <span id="run--max-trials"></span>`--max-trials MAX_TRIALS` |  | Override max_trials for every loop this command runs. |
+| <span id="run--max-trials"></span>`--max-trials MAX_TRIALS` |  | The trials each milestone and each plan gets, for every loop this command runs (overrides max_trials). |
 | <span id="run--review-plan"></span>`--review-plan` |  | Pause after each plan for review, and stop on open questions (sets questions: ask). |
 | <span id="run--accept-suggested"></span>`--accept-suggested` |  | Approve plans and accept Claude's suggested answers without pausing (questions: accept-suggested, the default; review them afterwards). |
 | <span id="run--quiet"></span>`--quiet` |  | Print no progress lines, only the final summary. |
 | <span id="run--verbose"></span>`--verbose` |  | Also print each tool Claude uses. |
-| <span id="run--force-unlock"></span>`--force-unlock` |  | Clear a stale lock. |
+| <span id="run--force-unlock"></span>`--force-unlock` |  | Clear a lock left behind by a command that ended abruptly. |
 
 Options that cannot be used together:
 
@@ -71,14 +71,14 @@ devloops approve [--workspace WORKSPACE] [--config CONFIG] [--json] [--no-contin
 | Option | Default | Meaning |
 |---|---|---|
 | <span id="approve--workspace"></span>`--workspace WORKSPACE` |  | Workspace name (under the project's workspaces_dir) or path; created on the first run (default: the project's `workspace`, else main). |
-| <span id="approve--config"></span>`--config CONFIG` |  | Config file merged over the defaults. |
+| <span id="approve--config"></span>`--config CONFIG` |  | A configuration file merged over the defaults. |
 | <span id="approve--json"></span>`--json` |  | Print one JSON status object. |
 | <span id="approve--no-continue"></span>`--no-continue` |  | Only record the decision; run nothing (the run continues on the next `devloops run`). |
 | <span id="approve--review-plan"></span>`--review-plan` |  | Pause after each plan for review, and stop on open questions (sets questions: ask). |
 | <span id="approve--accept-suggested"></span>`--accept-suggested` |  | Approve plans and accept Claude's suggested answers without pausing (questions: accept-suggested, the default; review them afterwards). |
 | <span id="approve--quiet"></span>`--quiet` |  | Print no progress lines, only the final summary. |
 | <span id="approve--verbose"></span>`--verbose` |  | Also print each tool Claude uses. |
-| <span id="approve--force-unlock"></span>`--force-unlock` |  | Clear a stale lock. |
+| <span id="approve--force-unlock"></span>`--force-unlock` |  | Clear a lock left behind by a command that ended abruptly. |
 
 Options that cannot be used together:
 
@@ -97,14 +97,14 @@ devloops replan [--workspace WORKSPACE] [--config CONFIG] [--json] [--no-continu
 | Option | Default | Meaning |
 |---|---|---|
 | <span id="replan--workspace"></span>`--workspace WORKSPACE` |  | Workspace name (under the project's workspaces_dir) or path; created on the first run (default: the project's `workspace`, else main). |
-| <span id="replan--config"></span>`--config CONFIG` |  | Config file merged over the defaults. |
+| <span id="replan--config"></span>`--config CONFIG` |  | A configuration file merged over the defaults. |
 | <span id="replan--json"></span>`--json` |  | Print one JSON status object. |
 | <span id="replan--no-continue"></span>`--no-continue` |  | Only record the decision; run nothing (the run continues on the next `devloops run`). |
 | <span id="replan--review-plan"></span>`--review-plan` |  | Pause after each plan for review, and stop on open questions (sets questions: ask). |
 | <span id="replan--accept-suggested"></span>`--accept-suggested` |  | Approve plans and accept Claude's suggested answers without pausing (questions: accept-suggested, the default; review them afterwards). |
 | <span id="replan--quiet"></span>`--quiet` |  | Print no progress lines, only the final summary. |
 | <span id="replan--verbose"></span>`--verbose` |  | Also print each tool Claude uses. |
-| <span id="replan--force-unlock"></span>`--force-unlock` |  | Clear a stale lock. |
+| <span id="replan--force-unlock"></span>`--force-unlock` |  | Clear a lock left behind by a command that ended abruptly. |
 
 Options that cannot be used together:
 
@@ -113,7 +113,7 @@ Options that cannot be used together:
 
 ## `retry` {#retry}
 
-Grant a failed milestone more trials, then continue (FR-063).
+Grant a failed milestone more trials, then continue.
 
 ```text
 devloops retry [--workspace WORKSPACE] [--config CONFIG] [--json] --milestone MILESTONE
@@ -124,9 +124,9 @@ devloops retry [--workspace WORKSPACE] [--config CONFIG] [--json] --milestone MI
 | Option | Default | Meaning |
 |---|---|---|
 | <span id="retry--workspace"></span>`--workspace WORKSPACE` |  | Workspace name (under the project's workspaces_dir) or path; created on the first run (default: the project's `workspace`, else main). |
-| <span id="retry--config"></span>`--config CONFIG` |  | Config file merged over the defaults. |
+| <span id="retry--config"></span>`--config CONFIG` |  | A configuration file merged over the defaults. |
 | <span id="retry--json"></span>`--json` |  | Print one JSON status object. |
-| <span id="retry--milestone"></span>`--milestone MILESTONE` |  | required: the failed milestone, e.g. M01. |
+| <span id="retry--milestone"></span>`--milestone MILESTONE` |  | required: the failed milestone, for example M01. |
 | <span id="retry--reason"></span>`--reason REASON` |  | Guidance for the next fix trial; recorded with the grant. |
 | <span id="retry--trials"></span>`--trials TRIALS` |  | Trials to grant (default: max_trials). |
 | <span id="retry--no-continue"></span>`--no-continue` |  | Only record the decision; run nothing (the run continues on the next `devloops run`). |
@@ -134,7 +134,7 @@ devloops retry [--workspace WORKSPACE] [--config CONFIG] [--json] --milestone MI
 | <span id="retry--accept-suggested"></span>`--accept-suggested` |  | Approve plans and accept Claude's suggested answers without pausing (questions: accept-suggested, the default; review them afterwards). |
 | <span id="retry--quiet"></span>`--quiet` |  | Print no progress lines, only the final summary. |
 | <span id="retry--verbose"></span>`--verbose` |  | Also print each tool Claude uses. |
-| <span id="retry--force-unlock"></span>`--force-unlock` |  | Clear a stale lock. |
+| <span id="retry--force-unlock"></span>`--force-unlock` |  | Clear a lock left behind by a command that ended abruptly. |
 
 Options that cannot be used together:
 
@@ -143,7 +143,7 @@ Options that cannot be used together:
 
 ## `export-sessions` {#export-sessions}
 
-Write every Claude invocation as CSV (FR-033).
+Write every call to Claude Code as CSV, with its tokens and cost.
 
 ```text
 devloops export-sessions [--workspace WORKSPACE] [--config CONFIG] [--json] [--csv FILE]
@@ -152,9 +152,9 @@ devloops export-sessions [--workspace WORKSPACE] [--config CONFIG] [--json] [--c
 | Option | Default | Meaning |
 |---|---|---|
 | <span id="export-sessions--workspace"></span>`--workspace WORKSPACE` |  | Workspace name (under the project's workspaces_dir) or path; created on the first run (default: the project's `workspace`, else main). |
-| <span id="export-sessions--config"></span>`--config CONFIG` |  | Config file merged over the defaults. |
+| <span id="export-sessions--config"></span>`--config CONFIG` |  | A configuration file merged over the defaults. |
 | <span id="export-sessions--json"></span>`--json` |  | Print one JSON status object. |
-| <span id="export-sessions--csv"></span>`--csv FILE` |  | Output file (default: standard output). |
+| <span id="export-sessions--csv"></span>`--csv FILE` |  | The file to write (default: standard output). |
 
 ## `dashboard` {#dashboard}
 
@@ -169,7 +169,7 @@ devloops dashboard [--workspace WORKSPACE] [--config CONFIG] [--json]
 | Option | Default | Meaning |
 |---|---|---|
 | <span id="dashboard--workspace"></span>`--workspace WORKSPACE` |  | Workspace name (under the project's workspaces_dir) or path; created on the first run (default: the project's `workspace`, else main). |
-| <span id="dashboard--config"></span>`--config CONFIG` |  | Config file merged over the defaults. |
+| <span id="dashboard--config"></span>`--config CONFIG` |  | A configuration file merged over the defaults. |
 | <span id="dashboard--json"></span>`--json` |  | Print one JSON status object. |
 | <span id="dashboard--daemon"></span>`--daemon` |  | Serve in the background; print the address and the log's path. |
 | <span id="dashboard--stop"></span>`--stop` |  | Stop the project's dashboard server. |
@@ -186,7 +186,7 @@ Options that cannot be used together:
 
 ## `status` {#status}
 
-Show run status (read-only).
+Show where the run stands (changes nothing).
 
 ```text
 devloops status [--workspace WORKSPACE] [--config CONFIG] [--json] [loop]
@@ -195,9 +195,9 @@ devloops status [--workspace WORKSPACE] [--config CONFIG] [--json] [loop]
 | Option | Default | Meaning |
 |---|---|---|
 | <span id="status--workspace"></span>`--workspace WORKSPACE` |  | Workspace name (under the project's workspaces_dir) or path; created on the first run (default: the project's `workspace`, else main). |
-| <span id="status--config"></span>`--config CONFIG` |  | Config file merged over the defaults. |
+| <span id="status--config"></span>`--config CONFIG` |  | A configuration file merged over the defaults. |
 | <span id="status--json"></span>`--json` |  | Print one JSON status object. |
-| <span id="status--loop"></span>`loop` |  | One of `backend-dev`, `frontend-dev`. |
+| <span id="status--loop"></span>`loop` |  | Show only this loop; one of `backend-dev`, `frontend-dev`. |
 
 ## `check` {#check}
 

@@ -34,13 +34,14 @@ that comes from, and why opening it can never change a run. To use the dashboard
 ## It only reads the workspace
 
 A run keeps everything in files in its [workspace](../glossary.md#workspace): the plan, the state
-of each loop, the record of every call to Claude Code, the evidence of each trial, and the
+of each [loop](../glossary.md#loop), the record of every [call](../glossary.md#call) to Claude
+Code, the [evidence](../glossary.md#evidence) of each [trial](../glossary.md#trial), and the
 outputs (see [state and files](state-and-files.md)). The dashboard reads those files, and nothing
 else.
 
 [`devloops dashboard`](../reference/commands.md#dashboard) starts a small web server on your
-machine. It never writes to the project, and it answers only requests that read. It starts no
-other program, so you can open it while a run goes on, or long after.
+machine. It never writes to the project, and it answers only requests that read. It does not
+start Claude Code or your application, so you can open it while a run goes on, or long after.
 
 The server does keep one small file, outside the project: a note of its address and process, in
 your user's runtime folder. Other devloops commands read that note, so they can print the
@@ -63,8 +64,8 @@ Before any answer leaves the server, devloops replaces each value listed under
 [`secrets`](../reference/configuration.md#secrets) with `***`. This applies to every answer,
 every file and every conversation the server sends.
 
-The server sends only the files the workspace's listing holds, named by their place in that
-listing, never by a path the request gives. A listed file must lie inside the workspace, or be
+The server sends only the files the workspace's listing holds. A request names a file by the ID
+the listing gives it, never by a path. A listed file must lie inside the workspace, or be
 one of the run's recorded inputs, such as the requirements.
 
 ## Following a run
@@ -84,7 +85,7 @@ An update keeps your place: the scroll position, open sections and filters stay 
 A file open in the viewer is reloaded only when that file changed, at the same position, or at
 its end when you were reading its end, so a growing log shows its new lines.
 
-**Live**, in the top bar, pauses following. When the server stops answering, the page says
+Pressing **Live**, in the top bar, pauses following; it then says **Paused**. When the server stops answering, the page says
 **Offline** and keeps showing what it has.
 
 ```mermaid
@@ -112,7 +113,7 @@ sequenceDiagram
 Above every view, the "now" panel says what is happening at this moment.
 
 While devloops calls Claude Code, the running command keeps a small file up to date in the
-loop's state folder: the loop, milestone, trial, [step](steps.md) and model of the call, when it
+loop's state folder: the loop, [milestone](../glossary.md#milestone), trial, [step](steps.md) and model of the call, when it
 started, and the tools it used so far. The panel shows that file, but only while the command that
 wrote it is still running. A file left behind by a stopped command is not shown as running.
 
@@ -123,8 +124,9 @@ The server works out this answer on every request, and never keeps it, so it is 
 
 ## Search
 
-`Ctrl K` jumps to any view, loop, milestone, trial, call or file by its name. From three
-characters on, it also searches the text of every file and conversation in the workspace.
+Ctrl+K jumps to any view, loop, milestone, trial, call or file by its name. From three
+characters on, it also searches the text of every file (text files up to 20 MB), conversation
+and event in the workspace.
 
 The server reads those texts, with secrets replaced, and keeps them between searches. Before each
 search it checks each file's size and time, and reads again only the files that changed.
@@ -132,7 +134,7 @@ search it checks each file's size and time, and reads again only the files that 
 ## The export
 
 [`devloops dashboard --export`](../reference/commands.md#dashboard--export) writes the same app
-into one HTML file, with the data inside it. It opens in a browser anywhere, without devloops,
+into one HTML file, the [export](../glossary.md#export), with the data inside it. It opens in a browser anywhere, without devloops,
 without a network, and without any other file.
 
 To build it, devloops works out every answer the app could ask the server for, with the same
@@ -142,7 +144,7 @@ looks through goes in as well, so the export searches its own data in the browse
 
 When the exported app asks for data, it reads it from the page instead of the server. Nothing
 asks for a version, because an export never changes: its top bar says it is a snapshot, when it
-was taken, and with which devloops version.
+was taken, with which devloops version, and whether a run was in progress then.
 
 The command prints where it wrote the file, its size, and the largest items inside it:
 

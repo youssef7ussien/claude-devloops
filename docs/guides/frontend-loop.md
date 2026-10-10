@@ -22,9 +22,9 @@ sources:
 # The frontend loop
 
 `frontend-dev` is the [loop](../glossary.md#loop) that builds the user interface: the pages a
-person uses. It plans from the same requirements as the [backend loop](backend-loop.md), then
-builds its [milestones](../glossary.md#milestone) one at a time, usually one feature or one page
-each. A milestone passes only when its pages work in a real browser.
+person uses. It plans from the same [requirements](../glossary.md#requirements) as the
+[backend loop](backend-loop.md), then builds its [milestones](../glossary.md#milestone) one at a
+time, usually one feature or one page each. A milestone passes only when its pages work in a real browser.
 
 Every request a page sends to the backend must be an operation the backend's published OpenAPI
 document lists. The frontend cannot rely on an endpoint the backend never showed working.
@@ -105,7 +105,7 @@ without a display cannot show it:
 
 See [`playwright.headless`](../reference/configuration.md#playwright.headless). `devloops check`
 warns when a window is asked for on a machine with no display, or in the shared file. Like every
-setting, it is fixed when a run first starts.
+setting, it is fixed when the loop first starts in a workspace.
 
 ## When the project has no frontend
 

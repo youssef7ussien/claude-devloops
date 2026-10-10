@@ -61,7 +61,7 @@ def _claude(env):
     output = _version_output([path, "--version"], env) if path else None
     if output is None:
         return _item("claude", "missing", f"'{claude} --version' failed",
-                     "install Claude Code (https://docs.claude.com/claude-code)")
+                     "install Claude Code (https://code.claude.com/docs)")
     version = parse_version(output)
     minimum = ".".join(map(str, MIN_CLAUDE_VERSION))
     if version is None or version < MIN_CLAUDE_VERSION:

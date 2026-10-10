@@ -113,7 +113,7 @@
     "interrupted": "The run was stopped with Ctrl+C while planning or implementing; running again resumes it."
   },
   "files": {
-    "<loop>/outputs/final-report.md": "The loop's final report, written when every milestone is achieved: what was built and what each milestone's validation showed.",
+    "<loop>/outputs/final-report.md": "The loop's final report, written when every milestone is achieved, or when the loop stops for good after planning: what was built and what each milestone's validation showed.",
     "<loop>/outputs/milestone-<NN>-<slug>.md": "One milestone of the plan, readable: its goal, tasks and acceptance criteria.",
     "<loop>/outputs/open-questions.md": "The plan's open questions, with Claude's suggested answers. You write your answers here before approving.",
     "<loop>/outputs/openapi.json": "The backend's OpenAPI document, published after each achieved milestone with only the operations validation called.",

@@ -94,8 +94,8 @@ backend first, then the frontend. A project can use the backend loop alone.
 - **Recovery.** A run keeps everything it did in files. Stop it, or let it crash, and it resumes
   where it stopped; [`devloops retry`](reference/commands.md#retry) gives a stuck milestone more
   trials, with your guidance. See [trials and recovery](how-it-works/trials-and-recovery.md).
-- **Runs without you, or waits for you.** By default devloops accepts Claude's suggested answers
-  to its questions and keeps building, and you review them afterwards.
+- **Runs without you, or waits for you.** By default devloops accepts Claude's
+  [suggested answers](glossary.md#suggested-answer) to its questions and keeps building, and you review them afterwards.
   [`--review-plan`](reference/commands.md#run--review-plan) pauses for you to approve each plan
   first. See [approval and questions](guides/approval-and-questions.md).
 - **A dashboard.** [`devloops dashboard`](reference/commands.md#dashboard) shows a run as it

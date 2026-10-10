@@ -8,6 +8,7 @@ sources:
   - loops/shared/devloops/engine.py
   - loops/shared/devloops/orchestrator.py
   - loops/shared/devloops/selector.py
+  - loops/shared/devloops/validators/curl.py
   - loops/shared/schemas/run-state.schema.json
   - spec 001 FR-005
   - spec 001 FR-027
@@ -33,7 +34,7 @@ now.
 
 ## Run {#run}
 
-The run is everything one `devloops run` does in a workspace, across the loops it includes.
+The run is everything one `devloops run` does in a [workspace](../glossary.md#workspace), across the loops it includes.
 
 ```mermaid
 stateDiagram-v2
@@ -78,6 +79,8 @@ stateDiagram-v2
   implementing --> onFailure: trials run out, or a question
   onFailure --> implementing: retry
   implementing --> onInput: an input changed
+  planning --> onInput: an input changed
+  awaiting --> onInput: an input changed
   implementing --> onService: Claude Code unavailable
   planning --> onService: Claude Code unavailable
   onService --> implementing: run again
@@ -90,8 +93,10 @@ stateDiagram-v2
 - [`planning`](../reference/statuses.md#loop-planning): Claude Code writes the plan. A plan that
   passes devloops' checks is stored, and the loop moves to `awaiting-approval`.
 - [`awaiting-approval`](../reference/statuses.md#loop-awaiting-approval): the plan waits for
-  approval. By default devloops approves it at once, with Claude's suggested answers, and moves
-  on. With [`--review-plan`](../reference/commands.md#run--review-plan), with `questions` set to
+  approval. By default devloops approves it at once, with Claude's
+  [suggested answers](../glossary.md#suggested-answer), and moves on. With
+  [`--review-plan`](../reference/commands.md#run--review-plan) (given to any command, it holds
+  for the rest of the run), with `questions` set to
   `ask`, or when a question has no suggested answer, it waits for `devloops approve` (to `implementing`) or `devloops replan`
   (back to `planning`).
 - [`implementing`](../reference/statuses.md#loop-implementing): devloops builds and validates
@@ -106,7 +111,8 @@ stateDiagram-v2
 - [`stopped-on-input-error`](../reference/statuses.md#loop-stopped-on-input-error): an input is
   wrong or changed since the run started, such as the requirements. This can happen when any
   devloops command resumes the loop, in `planning`, `awaiting-approval` or `implementing`. The
-  stop is final: restore the input, or start a new workspace. A problem found before the loop
+  stop is final for this workspace: restoring the input does not resume it; start a new
+  workspace. A problem found before the loop
   first starts (a missing tool, say) records no run at all, so the loop stays `not-started`.
 - [`stopped-on-service-error`](../reference/statuses.md#loop-stopped-on-service-error): Claude
   Code could not be used (an outage, a rate limit, an expired login). The trial does not count.
@@ -125,6 +131,7 @@ stateDiagram-v2
   pending --> inProgress: first trial starts
   inProgress --> achieved: a trial passes validation
   inProgress --> failed: trials run out, or a question
+  achieved --> failed: OpenAPI document no longer loads
   failed --> inProgress: retry
   achieved --> [*]
 ```
@@ -134,11 +141,14 @@ stateDiagram-v2
 - [`in-progress`](../reference/statuses.md#milestone-in-progress): its first trial starts.
   Milestones are built in the plan's order, so one is in progress at a time.
 - [`achieved`](../reference/statuses.md#milestone-achieved): a trial passed
-  [validation](validation.md). An achieved milestone is never built again.
+  [validation](validation.md). An achieved milestone is never built again, with one exception
+  in the backend loop: when its OpenAPI document no longer loads as devloops publishes it, the
+  milestone fails again (see [validation](validation.md#the-published-openapi-document)).
 - [`failed`](../reference/statuses.md#milestone-failed): it used all its trials
   ([`max_trials`](../reference/configuration.md#max_trials), plus any granted), or Claude Code
   asked a question devloops may not answer by itself (it has no suggested answer, or
-  [`questions`](../reference/configuration.md#questions) is `ask`). A retry grant sets it back to
+  [`questions`](../reference/configuration.md#questions) is `ask`). A
+  [retry grant](../glossary.md#retry-grant) sets it back to
   `in-progress`.
 
 ## Task {#task}
@@ -151,6 +161,7 @@ stateDiagram-v2
   pending --> achieved: its milestone passes
   pending --> failed: its milestone fails
   implemented --> failed: its milestone fails
+  achieved --> failed: its milestone fails again
   failed --> pending: retry
   achieved --> [*]
 ```
@@ -161,7 +172,8 @@ stateDiagram-v2
 - [`achieved`](../reference/statuses.md#task-achieved): its milestone passed validation. Every
   task of the milestone becomes achieved then, whatever Claude reported.
 - [`failed`](../reference/statuses.md#task-failed): its milestone failed. Every task not
-  achieved becomes failed; a retry grant sets them back to `pending`.
+  achieved becomes failed (all of them, when an achieved milestone fails again); a retry grant
+  sets them back to `pending`.
 
 ## Trial {#trial}
 
@@ -198,8 +210,8 @@ stateDiagram-v2
   state "auto-approve" as auto
   [*] --> auto: questions accept-suggested
   [*] --> approve: devloops approve
-  [*] --> replan: devloops replan
-  replan --> [*]: new plan stored
+  [*] --> replan: never recorded
+  replan --> [*]
   auto --> [*]
   approve --> [*]
 ```
@@ -210,9 +222,10 @@ stateDiagram-v2
   default) and every question has an answer or a suggestion.
 - [`approve`](../reference/statuses.md#approval-approve): you approved it with
   [`devloops approve`](../reference/commands.md#approve).
-- [`replan`](../reference/statuses.md#approval-replan): you sent the plan back with
-  [`devloops replan`](../reference/commands.md#replan). Claude Code plans again with your
-  answers; the new plan waits for approval like the first.
+- [`replan`](../reference/statuses.md#approval-replan): a possible value that devloops never
+  records. [`devloops replan`](../reference/commands.md#replan) clears the recorded approval, and
+  Claude Code plans again with your answers. The new plan is then approved like the first, and
+  recorded as `auto-approve` or `approve`.
 
 See [approval and questions](../guides/approval-and-questions.md).
 
@@ -227,11 +240,11 @@ When a loop stops, its status says how (`stopped-on-…`), and its reason says w
 | [`planning-trials-exhausted`](../reference/statuses.md#stop-planning-trials-exhausted) | `stopped-on-failure` | Final: start a new workspace, perhaps with clearer requirements |
 | [`invocation-cap`](../reference/statuses.md#stop-invocation-cap) | `stopped-on-failure` | Final: start a new workspace with a higher limit |
 | [`missing-input`](../reference/statuses.md#stop-missing-input) | `stopped-on-input-error` | Give the missing file |
-| [`story-not-found`](../reference/statuses.md#stop-story-not-found) | `stopped-on-input-error` | Name a story the requirements have |
+| [`story-not-found`](../reference/statuses.md#stop-story-not-found) | `stopped-on-input-error` | Name a [story](../glossary.md#story) the requirements have |
 | [`invalid-api-spec`](../reference/statuses.md#stop-invalid-api-spec) | `stopped-on-input-error` | Give a valid OpenAPI document |
 | [`missing-tool`](../reference/statuses.md#stop-missing-tool) | `stopped-on-input-error` | Install it (`devloops check` shows how), then `devloops run` |
-| [`input-changed`](../reference/statuses.md#stop-input-changed) | `stopped-on-input-error` | Restore the original, or start a new workspace |
-| [`workspace-mismatch`](../reference/statuses.md#stop-workspace-mismatch) | `stopped-on-input-error` | Use the workspace's own target, or another workspace |
+| [`input-changed`](../reference/statuses.md#stop-input-changed) | `stopped-on-input-error` | Final: start a new workspace |
+| [`workspace-mismatch`](../reference/statuses.md#stop-workspace-mismatch) | `stopped-on-input-error` | Use the workspace's own [target](../glossary.md#target), or another workspace |
 | [`target-unwritable`](../reference/statuses.md#stop-target-unwritable) | `stopped-on-input-error` | Make the target folder writable |
 | [`service-unavailable`](../reference/statuses.md#stop-service-unavailable) | `stopped-on-service-error` | Wait, then `devloops run` |
 | [`rate-limited`](../reference/statuses.md#stop-rate-limited) | `stopped-on-service-error` | Wait, then `devloops run` |

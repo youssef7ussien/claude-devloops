@@ -13,11 +13,11 @@ replaces the matching packaged part for this project:
 To start one, copy the packaged file and edit the copy. From a source checkout the packaged files
 are under `loops/`; when installed, they are in the `devloops_kit` package.
 
-- **When they apply**: an override is used from the next start of a run. A run in progress keeps
-  going with the prompts it has, unless it is started again.
+- **When they apply**: the parts are read again for every Claude Code call, so an override, or a
+  change to one, is used from the next call, even by a run in progress.
 - **Recorded**: every Claude Code call records which parts came from an override, with their
   fingerprints. A change between starts is recorded as an event, and `devloops status` reports it.
-- **Other files**: any other file here (including this README) is ignored. `devloops status` lists
-  unexpected files under `warnings`, so a misspelled name is visible.
+- **Other files**: any other file here is ignored. `devloops status` lists them (all but this
+  README) under `warnings`, so a misspelled name is visible.
 
 devloops never changes your override files, including on `devloops init --upgrade`.

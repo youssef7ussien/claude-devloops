@@ -22,9 +22,10 @@ sources:
 # The backend loop
 
 `backend-dev` is the [loop](../glossary.md#loop) that builds an HTTP API: the backend of your
-application. It turns the requirements into a [plan](../glossary.md#plan), then builds the plan's
-[milestones](../glossary.md#milestone) one at a time. A milestone passes only when real HTTP
-requests to the running backend get the answers they should.
+application. It turns the [requirements](../glossary.md#requirements) into a
+[plan](../glossary.md#plan), then builds the plan's [milestones](../glossary.md#milestone) one at
+a time. A milestone passes only when real HTTP requests to the running backend get the answers
+they should.
 
 When it is done, it publishes an OpenAPI document: a machine-readable list of the operations the
 API offers. The [frontend loop](frontend-loop.md) builds against that document.
@@ -59,8 +60,8 @@ milestone that implements it, and removes one that stops existing.
 Before any of a milestone's code exists, Claude Code writes the milestone's
 [checks](../glossary.md#check), in the [`author-checks`](../reference/steps.md#step-author-checks)
 step. A check is an HTTP request and the answer it must get, such as "`POST /items` with a name
-answers 201 and returns the item". The checks are then frozen: every trial is tested against the
-same ones, so the code cannot be changed to fit the test.
+answers 201 and returns the item". The checks are then frozen: every [trial](../glossary.md#trial) is
+tested against the same ones, so the code cannot be changed to fit the test.
 
 After Claude Code writes the code, devloops starts the backend itself from the runtime, sends each
 check's request with curl, and compares the answers. The milestone passes only when every

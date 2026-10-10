@@ -63,7 +63,8 @@ def _add_requirements_options(cmd, text):
 
 def _add_story_options(cmd):
     story = cmd.add_mutually_exclusive_group()
-    story.add_argument("--story-id", help="implement only this story of --requirements (a PRD)")
+    story.add_argument("--story-id",
+                       help="build only this story (of a PRD or a spec-kit feature)")
     story.add_argument("--story-file", action="store_true",
                        help="--requirements is a standalone story file")
 
@@ -99,12 +100,15 @@ def _add_progress_options(cmd):
                        help="also print each tool Claude uses")
 
 
+UNLOCK_HELP = "clear a lock left behind by a command that ended abruptly"
+
+
 def build_parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workspace",
                         help="workspace name (under the project's workspaces_dir) or path; created "
                              "on the first run (default: the project's `workspace`, else main)")
-    common.add_argument("--config", help="config file merged over the defaults")
+    common.add_argument("--config", help="a configuration file merged over the defaults")
     common.add_argument("--json", action="store_true", help="print one JSON status object")
 
     parser = _Parser(prog="devloops", description="Reusable development loops driven by "
@@ -120,37 +124,39 @@ def build_parser():
                                    "the recorded one, then the project's)")
     _add_story_options(run)
     run.add_argument("--target-root",
-                     help="place the project's loops at <dir>/backend and <dir>/frontend (first "
-                          "run)")
+                     help="put the loops' code in TARGET_ROOT/backend and TARGET_ROOT/frontend "
+                          "(first run only)")
     run.add_argument("--backend-target", help="backend-dev's target (overrides --target-root)")
     run.add_argument("--frontend-target", help="frontend-dev's target (overrides --target-root)")
     run.add_argument("--max-trials", type=_positive_int,
-                     help="override max_trials for every loop this command runs")
+                     help="the trials each milestone and each plan gets, for every loop this "
+                          "command runs (overrides max_trials)")
     _add_questions_option(run)
     _add_progress_options(run)
-    run.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
+    run.add_argument("--force-unlock", action="store_true", help=UNLOCK_HELP)
 
     for name, text in (("approve", "accept the stored plan and the answers, then continue"),
                        ("replan", "plan again with the answers, then continue")):
         cmd = sub.add_parser(name, parents=[common], help=text)
         _add_decision_options(cmd)
         _add_progress_options(cmd)
-        cmd.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
+        cmd.add_argument("--force-unlock", action="store_true", help=UNLOCK_HELP)
 
-    retry = sub.add_parser("retry", parents=[common],
-                           help="grant a failed milestone more trials, then continue (FR-063)")
-    retry.add_argument("--milestone", required=True, help="the failed milestone, e.g. M01")
+    retry = sub.add_parser("retry", parents=[common],  # FR-063
+                           help="grant a failed milestone more trials, then continue")
+    retry.add_argument("--milestone", required=True, help="the failed milestone, for example M01")
     retry.add_argument("--reason",
                        help="guidance for the next fix trial; recorded with the grant")
     retry.add_argument("--trials", type=_positive_int,
                        help="trials to grant (default: max_trials)")
     _add_decision_options(retry)
     _add_progress_options(retry)
-    retry.add_argument("--force-unlock", action="store_true", help="clear a stale lock")
+    retry.add_argument("--force-unlock", action="store_true", help=UNLOCK_HELP)
 
-    export = sub.add_parser("export-sessions", parents=[common],
-                            help="write every Claude invocation as CSV (FR-033)")
-    export.add_argument("--csv", metavar="FILE", help="output file (default: standard output)")
+    export = sub.add_parser("export-sessions", parents=[common],  # FR-033
+                            help="write every call to Claude Code as CSV, with its tokens and cost")
+    export.add_argument("--csv", metavar="FILE",
+                        help="the file to write (default: standard output)")
 
     dash = sub.add_parser("dashboard", parents=[common],
                           help="serve the dashboard (until Ctrl+C, or --daemon in the "
@@ -176,8 +182,9 @@ def build_parser():
         dash.add_argument(removed, nargs="?", const=True, default=None, help=argparse.SUPPRESS,
                           dest="removed_" + removed.strip("-"))
 
-    status = sub.add_parser("status", parents=[common], help="show run status (read-only)")
-    status.add_argument("loop", nargs="?", choices=LOOPS)
+    status = sub.add_parser("status", parents=[common],
+                            help="show where the run stands (changes nothing)")
+    status.add_argument("loop", nargs="?", choices=LOOPS, help="show only this loop")
 
     check = sub.add_parser("check", help="report whether this environment is ready for the loops")
     check.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -337,7 +344,7 @@ def _print_status(obj, message=None):
         print(f"  configuration changed since the first run (not applied): "
               f"{', '.join(obj['config_drift'])}")
     if obj.get("prompt_drift"):
-        print(f"  prompt parts changed since the first run (used from the next start): "
+        print(f"  prompt parts changed since the first run (used from the next call): "
               f"{', '.join(obj['prompt_drift'])}")
     if obj["status"] != "not-started":
         print(f"  progress: {obj['progress']}")

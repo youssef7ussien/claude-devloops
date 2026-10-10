@@ -15,7 +15,7 @@ Everything devloops knows about a run is in files in the workspace, so a run can
 
 | File | What it records |
 |---|---|
-| <span id="loop-outputs-final-report.md"></span>`<loop>/outputs/final-report.md` | The loop's final report, written when every milestone is achieved: what was built and what each milestone's validation showed. |
+| <span id="loop-outputs-final-report.md"></span>`<loop>/outputs/final-report.md` | The loop's final report, written when every milestone is achieved, or when the loop stops for good after planning: what was built and what each milestone's validation showed. |
 | <span id="loop-outputs-milestone-nn-slug.md"></span>`<loop>/outputs/milestone-<NN>-<slug>.md` | One milestone of the plan, readable: its goal, tasks and acceptance criteria. |
 | <span id="loop-outputs-open-questions.md"></span>`<loop>/outputs/open-questions.md` | The plan's open questions, with Claude's suggested answers. You write your answers here before approving. |
 | <span id="loop-outputs-openapi.json"></span>`<loop>/outputs/openapi.json` | The backend's OpenAPI document, published after each achieved milestone with only the operations validation called. |
@@ -59,7 +59,7 @@ Everything devloops knows about a run is in files in the workspace, so a run can
 | `ended_at` | string |  |
 | `duration_ms` | integer or null |  |
 | `num_turns` | integer or null |  |
-| `tokens` | object | Null values = unavailable (Edge Case). |
+| `tokens` | object | null values = unavailable (Edge Case). |
 | `cost_usd` | number or null |  |
 | `is_error` | boolean |  |
 | `subtype` | string or null |  |
@@ -67,7 +67,7 @@ Everything devloops knows about a run is in files in the workspace, so a run can
 | `timed_out` | boolean |  |
 | `api_error_status` | integer or null |  |
 | `failure_class` | one of `"none"`, `"work"`, `"service"` | Research R-19; service failures void the trial (FR-067). |
-| `redacted` | boolean | True if any secret values were replaced (FR-070). |
+| `redacted` | boolean | true if any secret values were replaced (FR-070). |
 | `conversation` | one of `"copied"`, `"unavailable"` | 002 FR-042: whether the call's Claude Code transcript was copied into the workspace. |
 | `conversation_path` | string | The copy, relative to the loop directory: state/conversations/<seq>-<step>.jsonl. |
 | `conversation_reason` | one of `"not-found"`, `"interrupted"`, `"unreadable"` | Why the conversation is unavailable. |

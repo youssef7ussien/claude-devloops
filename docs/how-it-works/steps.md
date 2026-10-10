@@ -32,8 +32,8 @@ the answer. There are six steps:
 |---|---|---|
 | [`plan`](../reference/steps.md#step-plan) | Once, at the start of a loop | no |
 | [`replan`](../reference/steps.md#step-replan) | When you ask for a new plan | no |
-| [`author-checks`](../reference/steps.md#step-author-checks) | Once per backend milestone, before its code | no |
-| [`implement`](../reference/steps.md#step-implement) | The first [trial](../glossary.md#trial) of a milestone | yes, in the target |
+| [`author-checks`](../reference/steps.md#step-author-checks) | Once per backend [milestone](../glossary.md#milestone), before its code | no |
+| [`implement`](../reference/steps.md#step-implement) | The first [trial](../glossary.md#trial) of a milestone | yes, in the [target](../glossary.md#target) |
 | [`fix`](../reference/steps.md#step-fix) | Each later trial of a milestone | yes, in the target |
 | [`validate-ui`](../reference/steps.md#step-validate-ui) | Each trial of a frontend milestone, to test it | no |
 
@@ -60,7 +60,7 @@ flowchart LR
 **The prompt.** devloops builds each prompt from four parts, in this order:
 
 1. The shared rules, the same for every step: work only on what the context asks for, write only
-   inside the [target](../glossary.md#target), never stop a process by its name, record every
+   inside the target, never stop a process by its name, record every
    [assumption](../glossary.md#assumption), and ask an [open question](../glossary.md#open-question)
    (with a [suggested answer](../glossary.md#suggested-answer)) instead of changing the
    requirements.
@@ -68,7 +68,7 @@ flowchart LR
    [frontend-dev](../glossary.md#frontend-dev) builds, and how.
 3. The step's instructions: what to do, and what to return.
 4. The context: a block of JSON with the facts of this call, such as the path of the
-   requirements, the target folder, the milestone, and your approved answers.
+   [requirements](../glossary.md#requirements), the target folder, the milestone, and your approved answers.
 
 You can replace any of the first three parts for a project. See [prompts](../guides/prompts.md).
 
@@ -80,7 +80,7 @@ stops a call that takes too long, and
 caps what one call may spend. Each step can run on its own model; see
 [`models`](../reference/configuration.md#models).
 
-**The check.** devloops checks the answer against the step's form again itself, then against the
+**Checking the answer.** devloops checks the answer against the step's form again itself, then against the
 step's own rules (each step below lists them). An answer that fails is never used. A call that
 times out, crashes, or returns a bad answer fails the trial it belongs to. A call that fails
 because Claude Code itself could not be reached (a service outage, a rate limit, an expired
@@ -94,7 +94,7 @@ and the run stops so you can fix the cause. See [trials and recovery](trials-and
 - one line in [`<loop>/state/invocations.jsonl`](../reference/state-files.md#loop-state-invocations.jsonl)
   with the step, the milestone and trial, the model, the time taken, the tokens, the cost, how it
   ended, and where each prompt part came from;
-- a copy of Claude Code's conversation in
+- a copy of Claude Code's conversation, when Claude Code kept one, in
   [`<loop>/state/conversations/<seq>-<step>.jsonl`](../reference/state-files.md#loop-state-conversations-seq-step.jsonl).
 
 The [dashboard](../guides/dashboard.md) shows all three for every call.
@@ -112,19 +112,22 @@ The tools a step may use decide what it can change:
 
 Three guards keep writing inside the target, for the steps that write:
 
-- Before each write, a hook checks the path. A write outside the target is blocked.
+- Before each file edit or write by Claude Code's file tools, a hook checks the path. A write
+  outside the target is blocked.
 - Before each shell command, a hook blocks commands that stop processes by name or pattern
   (`pkill`, `killall`, and the like). Such a command could stop Claude Code's own call.
-- After the call, devloops compares the files outside the target with how they were before. Any
-  change fails the trial, whatever the answer says. See [security](../guides/security.md).
+- After the call, devloops compares what the step must not change (devloops' own files, the
+  loop's state, and the git status of the repositories around the target and the project) with
+  how it was before. Any change fails the trial, whatever the answer says. This also catches a
+  write made by a shell command. See [security](../guides/security.md).
 
 Steps may always read the input files (the requirements, and for the frontend the backend's
 OpenAPI document), even when they are outside the target.
 
 ## `plan` {#plan}
 
-**Why it exists.** Before any code is written, the requirements are turned into a plan that can be
-built and checked piece by piece. See [the run lifecycle](run-lifecycle.md).
+**Why it exists.** Before any code is written, devloops has the requirements turned into a
+[plan](../glossary.md#plan) that can be built and checked piece by piece. See [the run lifecycle](run-lifecycle.md).
 
 **What Claude is given.** The path of the requirements and what kind they are (a full product
 description, one story, or a [spec-kit](../guides/spec-kit.md) feature), the target folder, the
@@ -143,7 +146,7 @@ context lists the reasons, so the next attempt can fix them.
 - the technology to use, and where that choice came from: the code already in the target first,
   then the requirements or the settings, and otherwise a proposal;
 - the [runtime](../glossary.md#runtime): how to start the application and where it answers;
-- the [milestones](../glossary.md#milestone) in order, each with its tasks and
+- the milestones in order, each with its [tasks](../glossary.md#task) and
   [acceptance criteria](../glossary.md#acceptance-criterion): behaviour that can be seen from
   outside the code, never "it compiles";
 - open questions, each with a suggested answer, and the assumptions the plan relies on.
@@ -250,7 +253,7 @@ of from nothing. Each trial after the first is a `fix`.
 **What Claude is given.** Everything `implement` gets, plus the previous trial's failure: its
 number, the reason, a summary of what failed, and the paths of its
 [`validation.json`](../reference/state-files.md#loop-state-milestones-id-trials-n-validation.json)
-and its evidence folder (the requests and answers, screenshots, the application's output). When
+and its [evidence](../glossary.md#evidence) folder (the requests and answers, screenshots, the application's output). When
 you gave the milestone more trials with [`devloops retry`](../reference/commands.md#retry), the
 [`--reason`](../reference/commands.md#retry--reason) you wrote comes too, as guidance.
 
@@ -271,9 +274,9 @@ as part of each trial's [validation](validation.md).
 
 **What Claude is given.** The address of the user interface, which devloops has already started;
 the backend's address, if one is running; the path of the backend's OpenAPI document; the
-milestone and its acceptance criteria; the folder for the evidence; and the result of the
-project's unit tests, which devloops ran just before, so that a criterion about them can be judged
-without running a command.
+milestone and its acceptance criteria; the folder for the evidence; and, when the project has a
+unit test command, the result of its unit tests, which devloops ran just before, so that a
+criterion about them can be judged without running a command.
 
 **What it may do.** Use the browser through the Playwright MCP server: open pages, click, type,
 read, take screenshots. It may read files. It may not write or run anything.

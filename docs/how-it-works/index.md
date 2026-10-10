@@ -23,13 +23,14 @@ validated application it leaves behind. You do not need to read devloops' code t
 
 ## The big picture
 
-1. **Requirements in.** You give devloops a description of what to build: a Markdown file, one
-   [story](../glossary.md#story), or a spec-kit feature.
+1. **Requirements in.** You give devloops the [requirements](../glossary.md#requirements), a
+   description of what to build: a Markdown file, one [story](../glossary.md#story), or a spec-kit
+   feature.
 2. **Plan.** Claude Code reads the requirements and writes a [plan](../glossary.md#plan): the
-   [milestones](../glossary.md#milestone) in order, their tasks, the statements each must make
+   [milestones](../glossary.md#milestone) in order, their [tasks](../glossary.md#task), the statements each must make
    true, and how to start the application. devloops checks the plan before it keeps it.
 3. **Approval.** By default devloops [approves](../glossary.md#approval) the plan by itself and
-   accepts Claude's suggested answers to its questions. With
+   accepts Claude's [suggested answers](../glossary.md#suggested-answer) to its questions. With
    [`--review-plan`](../reference/commands.md#run--review-plan) it waits for you.
 4. **Milestones, one at a time.** Each milestone is built in [trials](../glossary.md#trial).
    Claude Code writes the code, then devloops validates it. When validation fails, the next

@@ -1,6 +1,6 @@
 $ devloops check
   ready    python          3.12.3
-  ready    claude          2.1.0
+  ready    claude          2.1.283
   ready    curl            8.5.0
   unused   playwright-mcp  not used by this project (frontend-dev)
   unused   browser         not used by this project (frontend-dev)

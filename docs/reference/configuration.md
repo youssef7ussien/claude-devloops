@@ -223,7 +223,7 @@ The browser the frontend loop validates in, driven through the Playwright MCP se
 
 ### `playwright.headless` {#playwright.headless}
 
-True runs the browser without a window. false shows it, so you can watch validation; that needs a display.
+true runs the browser without a window. false shows it, so you can watch validation; that needs a display.
 
 - **Type:** boolean
 - **Default:** `true`

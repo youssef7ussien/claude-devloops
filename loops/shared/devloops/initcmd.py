@@ -144,8 +144,8 @@ def allow_skills(project_root, command):
     return {"path": SETTINGS_PATH, "rule": rule, "changed": True, "created": not existed}
 
 
-# The model split `init` writes into a new devloops.json (README "Models per step"): a strong
-# model where every later step is decided (the plan, the frozen checks, a milestone's last fix
+# The model split `init` writes into a new devloops.json (the site's configuration guide, "Models
+# per step"): a strong model where every later step is decided (the plan, the frozen checks, a milestone's last fix
 # trial), a cheaper one for the code. Written into the project, not shipped as a default, so it is
 # visible, editable, and never overrides the model of a setup that has no such names (Bedrock,
 # Vertex, a gateway): `init --no-models` leaves it out, and Claude Code picks the model.

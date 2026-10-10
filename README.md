@@ -38,7 +38,7 @@ the dashboard shows each milestone, every call to Claude Code with its cost, and
 ```sh
 uv tool install git+https://github.com/youssef7ussien/claude-devloops
 cd /path/to/your/app          # a folder with your requirements, e.g. requirements.md
-devloops init                 # once: asks for the code folders and the requirements
+devloops init                 # once: asks for the code folders, the requirements, the models
 devloops check                # reports any missing tool, and how to get it
 devloops run                  # plans, then builds and validates each milestone
 ```
@@ -47,7 +47,7 @@ devloops run                  # plans, then builds and validates each milestone
 
 ```text
   ready    python          3.12.3
-  ready    claude          2.1.0
+  ready    claude          2.1.283
   ready    curl            8.5.0
   unused   playwright-mcp  not used by this project (frontend-dev)
   unused   browser         not used by this project (frontend-dev)

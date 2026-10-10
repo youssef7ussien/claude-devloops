@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 name = "devloops"
 dynamic = ["version"]
 description = "Reusable development loops driven by headless Claude Code"
-readme = "loops/README.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -36,7 +36,6 @@ devloops = ["assets/app/*", "assets/app/views/*", "assets/app/vendor/*",
 devloops_kit = [
     "backend-dev/*",
     "frontend-dev/*",
-    "orchestrator/*",
     "shared/prompts/*.md",
     "shared/prompts/steps/*.md",
     "shared/schemas/*.json",

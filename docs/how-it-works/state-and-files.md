@@ -9,6 +9,7 @@ sources:
   - loops/shared/devloops/engine.py
   - loops/shared/devloops/orchestrator.py
   - loops/shared/devloops/redact.py
+  - loops/shared/devloops/cli.py
   - docs-include/examples/workspace-files.txt
   - spec 001 FR-004
   - spec 001 FR-026
@@ -36,24 +37,29 @@ Three folders matter.
   by looking in the current folder, then in each folder above it, so every command works from
   anywhere inside the project.
 - A **[workspace](../glossary.md#workspace)** is the folder that holds one run: its state, the
-  record of every call to Claude Code, the evidence and the outputs. By default it is
+  record of every [call](../glossary.md#call) to Claude Code, the
+  [evidence](../glossary.md#evidence) and the outputs. By default it is
   `.devloops/workspaces/main` in the project. To keep two runs apart, give each its own workspace
   with [`--workspace`](../reference/commands.md#run--workspace).
-- A **[target](../glossary.md#target)** is the folder a loop writes the application's code to,
+- A **[target](../glossary.md#target)** is the folder a [loop](../glossary.md#loop) writes the application's code to,
   such as `backend` or `frontend` in the project. Claude Code may change files only there.
 
 The workspace and the target are separate on purpose. The target holds your application, which
 you keep. The workspace holds devloops' record of how the application was built. `init` adds the
-workspaces folder to `.gitignore`, so the record stays out of your repository unless you choose
+workspaces folder to `.gitignore` (unless you pass
+[`--track-workspaces`](../reference/commands.md#init--track-workspaces)), so the record stays out of your repository unless you choose
 to commit it.
 
-The workspace stores the targets and the requirements as paths relative to the project. A
-project you move or clone still resumes where it was.
+The workspace stores the targets and the [requirements](../glossary.md#requirements) as paths
+relative to the project when they are inside it. A project you move or clone still resumes where
+it was.
 
 ## What a workspace holds
 
-Here is every file in the workspace after the backend-only sample run used on this site: a plan
-of two milestones, each passed on its first trial, and then a dashboard export.
+Here is every file in the workspace after the backend-only sample run used on this site: a [plan](../glossary.md#plan)
+of two [milestones](../glossary.md#milestone), each passed on its first
+[trial](../glossary.md#trial), and then a [dashboard](../glossary.md#dashboard)
+[export](../glossary.md#export).
 
 ```text
 --8<-- "examples/workspace-files.txt"
@@ -97,7 +103,7 @@ were made:
 - the exact prompt it sent, in [`state/prompts/`](../reference/state-files.md#loop-state-prompts-seq-step.md),
   with the Claude Code settings the call ran with beside it;
 - one line in [`invocations.jsonl`](../reference/state-files.md#loop-state-invocations.jsonl):
-  the step, the milestone and trial, when it ran, the tokens and cost, and how it ended;
+  the [step](../glossary.md#step), the milestone and trial, when it ran, the tokens and cost, and how it ended;
 - a copy of Claude Code's own conversation, in
   [`state/conversations/`](../reference/state-files.md#loop-state-conversations-seq-step.jsonl).
 
@@ -116,7 +122,7 @@ written before any of the milestone's code, and stay the same for every trial.
 - [`runtime.log`](../reference/state-files.md#loop-state-milestones-id-trials-n-runtime.log):
   what the application printed while it was validated;
 - an `evidence/` folder with what validation saw. For the backend, that is each check's curl
-  command, and the headers and body of the answer. For the frontend, it holds screenshots and
+  command, the body it sent (if any), and the headers and body of the answer. For the frontend, it holds screenshots and
   the browser's record of network requests, and the trial folder also keeps the stream of the
   call that drove the browser (`stream.jsonl`).
 
@@ -154,6 +160,19 @@ a workspace before you share or commit it.
 [`devloops status`](../reference/commands.md#status) lists evidence files over 1 MB, since large
 files are the likeliest place for a secret to hide.
 
+### Every call as a spreadsheet
+
+[`devloops export-sessions`](../reference/commands.md#export-sessions) writes every call to
+Claude Code in the workspace as CSV, one row per call, from each loop's
+[`invocations.jsonl`](../reference/state-files.md#loop-state-invocations.jsonl), loop by loop and
+in call order. It prints to the terminal, or writes the file you name with
+[`--csv`](../reference/commands.md#export-sessions--csv). The columns are `workspace`, `loop`,
+`step`, `model`, `milestone`, `trial`, `session_id`, `prompt_path` (relative to the workspace),
+`input_tokens`, `output_tokens`, `cache_creation_tokens`, `cache_read_tokens`, `cost_usd`,
+`started_at` and `ended_at`. A value Claude Code did not report is left empty, and so is `model`
+when the call used Claude Code's default model. It is useful to compare models or steps in a
+spreadsheet.
+
 ## Why a run can resume
 
 Two rules make the files enough to resume a run.
@@ -161,8 +180,9 @@ Two rules make the files enough to resume a run.
 **devloops writes before it acts.** It records a trial as started before it calls Claude Code,
 and records each result before it moves on. So the state never claims less than what happened.
 
-**A write is never half done.** devloops writes each JSON file to a temporary file in the same
-folder, makes sure it is on disk, and then puts it in place of the old one in a single step. A
+**A write is never half done.** devloops writes each JSON file of the state, such as `run.json`,
+`plan.json` and `trial.json`, to a temporary file in the same folder, makes sure it is on disk,
+and then puts it in place of the old one in a single step. A
 crash at any moment leaves either the old file or the new one, never a broken one. Lines added
 to the `.jsonl` logs are written and flushed to disk one at a time.
 
@@ -171,7 +191,7 @@ reboot, devloops reads `run.json` and carries on from the status it finds:
 
 - A trial that was still running when devloops stopped is marked
   [failed](../reference/statuses.md#trial-failed), with the reason
-  [interrupted](../reference/statuses.md#stop-interrupted). It counts as one of the milestone's
+  `interrupted`. It counts as one of the milestone's
   trials, and the next trial fixes the code with that failure as its starting point.
 - A trial that ended because Claude Code was unavailable, rate limited or logged out is
   [void](../reference/statuses.md#trial-void): it does not count, and the next trial reuses its

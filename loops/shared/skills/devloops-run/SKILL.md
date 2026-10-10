@@ -54,12 +54,12 @@ it, and repeat this section while it waits for a decision again. If the user cho
 which command continues later (`devloops approve`, `devloops replan`, or `devloops retry
 --milestone <id>`).
 
-Every other stop is reported, not decided: explain it from `status_reason` and the README's
-recovery step, and do not re-run anything unless the user asks. In particular, exit 20 without a
-milestone cannot be retried: `planning-trials-exhausted` is final (start a new workspace), and
-`invocation-cap` means the run reached `max_invocations_per_run`. Otherwise: 30, an input or tool
-to fix; 40, another driver holds the lock; 50, a service error with no trial used (run again to
-resume).
+Every other stop is reported, not decided: explain it from `status_reason` and the recovery
+steps at https://youssef7ussien.github.io/claude-devloops/how-it-works/trials-and-recovery/, and
+do not re-run anything unless the user asks. In particular, exit 20 without a milestone cannot
+be retried: `planning-trials-exhausted` is final (start a new workspace), and `invocation-cap`
+means the run reached `max_invocations_per_run`. Otherwise: 30, an input or tool to fix; 40,
+another driver holds the lock; 50, a service error with no trial used (run again to resume).
 
 Edit no file other than `open-questions.md` as above (Claude Code asks before that edit). This
 skill holds no loop logic.

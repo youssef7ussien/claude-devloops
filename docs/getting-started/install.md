@@ -22,8 +22,8 @@ then use it in any number of projects.
 |---|---|---|
 | Python 3.10 or later | everything | [python.org](https://www.python.org/downloads/), or your system's package manager |
 | [Claude Code](https://code.claude.com/docs) 2.1.283 or later | everything | Install it, then run `claude` once to log in. `claude update` updates it |
-| curl | the backend loop | Usually installed already; otherwise your system's package manager |
-| Node.js (with `npx`) | the frontend loop | [nodejs.org](https://nodejs.org/). devloops starts the Playwright MCP server with `npx` |
+| curl | [the backend loop](../glossary.md#backend-dev) | Usually installed already; otherwise your system's package manager |
+| Node.js (with `npx`) | [the frontend loop](../glossary.md#frontend-dev) | [nodejs.org](https://nodejs.org/). devloops starts the Playwright MCP server with `npx` |
 | A Chrome browser | the frontend loop | `npx playwright install chrome`, or point [`playwright.executable_path`](../reference/configuration.md#playwright.executable_path) at a Chrome you have |
 | git | only to commit each milestone ([`git.commit_per_milestone`](../reference/configuration.md#git.commit_per_milestone)) | Your system's package manager |
 | uv or pip | installing devloops | [uv](https://docs.astral.sh/uv/) is recommended; pip comes with Python |
@@ -67,10 +67,11 @@ devloops --version
 ```
 
 This prints the version of devloops you installed. Then, to see whether this machine has every
-tool a run needs, run [`devloops check`](../reference/commands.md#check). In a project, it checks
-only the tools of the loops that project uses; outside a project, it checks the tools of both
-loops. Each line says whether a tool is ready, missing or unused, and a missing tool comes with
-how to fix it:
+tool a run needs, run [`devloops check`](../reference/commands.md#check). In a
+[project](../glossary.md#project), it marks as `unused` each tool that only a loop the project
+does not use needs; outside a project, it checks the tools of both loops. Each line says whether a
+tool is `ready`, `missing` or `unused`, or gives a `warning`, and a problem comes with how to fix
+it:
 
 ```text
 --8<-- "examples/check.txt"

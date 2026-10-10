@@ -42,7 +42,8 @@ Do not assume they have read the other pages, or the specs in `specs/`.
 5. **No source code needed.** Describe what devloops does, not how its code is written. Name a
    file or a function only on the [contributing](index.md) pages.
 6. **Describe what devloops does today.** Not what it will do, and not what it used to do. When
-   a later spec changes a behavior, change the page in the same commit.
+   a later spec changes a behavior, change the page in the same commit, with a short "Changed
+   by spec NNN" note where the change is ([documentation](documentation.md)).
 7. **Use the words of the glossary**, and use each one the same way everywhere.
 
 ## Terms
@@ -131,7 +132,8 @@ sources:
 ---
 ```
 
-A source is a file or folder of this repository, or a requirement written as `spec NNN <ID>`. The
+A source is a file or folder of this repository, or a requirement written as `spec NNN <ID>`
+(the generated reference pages carry `generated: true` instead of sources). The
 list is never shown to readers; it tells the next writer, and the reviewer, what to read to check
 the page. A test fails when a source does not exist.
 

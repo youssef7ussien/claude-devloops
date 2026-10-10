@@ -10,6 +10,9 @@ sources:
   - loops/shared/devloops/selector.py
   - loops/shared/devloops/render.py
   - loops/shared/devloops/progress.py
+  - loops/shared/devloops/inputs.py
+  - loops/shared/devloops/workspace.py
+  - loops/shared/devloops/boundary.py
   - loops/shared/devloops/validators/curl.py
   - spec 001 FR-025
   - spec 001 FR-026
@@ -25,6 +28,8 @@ sources:
   - spec 003 FR-005
   - spec 003 FR-006
   - spec 003 FR-007
+  - spec 001 FR-010b
+  - spec 002 FR-014
 ---
 
 # The run lifecycle
@@ -32,7 +37,7 @@ sources:
 A run is everything [`devloops run`](../reference/commands.md#run) does to turn your
 [requirements](../glossary.md#requirements) into a validated application. This page follows a run
 from start to end: which loops it includes, how each loop plans, gets its plan approved, builds
-its milestones, and completes.
+its [milestones](../glossary.md#milestone), and completes.
 
 ## Which loops a run includes
 
@@ -40,12 +45,19 @@ devloops has two [loops](../glossary.md#loop): backend-dev builds the HTTP API, 
 builds the user interface. A loop is part of a run when it has a [target](../glossary.md#target),
 the folder it writes code to. devloops takes the first of these that applies, for each loop:
 
-1. the target already recorded in the workspace (once a loop has run, it stays in the run);
+1. the target already recorded in the [workspace](../glossary.md#workspace), the folder that
+   holds the run's state (once a run has included a loop, it stays in the run);
 2. [`--backend-target`](../reference/commands.md#run--backend-target) or
    [`--frontend-target`](../reference/commands.md#run--frontend-target);
-3. the project's [`targets`](../reference/configuration.md#targets) setting, when it is not
+3. the [project](../glossary.md#project)'s [`targets`](../reference/configuration.md#targets) setting, when it is not
    `null` (placed under [`--target-root`](../reference/commands.md#run--target-root) when you give
    it).
+
+devloops creates a target folder that does not exist yet. A target must be writable, and must not
+overlap the other loop's target, the project's `.devloops/` folder, the workspace, or devloops'
+own files; otherwise the run stops with
+[`target-unwritable`](../reference/statuses.md#stop-target-unwritable). A target option also adds
+a loop the project's `targets` leaves `null`.
 
 The backend always runs first, because the frontend is built against what the backend publishes.
 A project can use the backend alone, but not the frontend alone. devloops checks this before it
@@ -54,9 +66,26 @@ but no backend, it stops with `frontend-needs-backend`. Both exit with
 [code 30](../reference/exit-codes.md#exit-30), and nothing is written, not even the workspace.
 
 Before it spends anything, devloops also checks the tools each included loop needs (Claude Code
-and curl for the backend; Node, the Playwright MCP server and a browser for the frontend). A
-missing tool stops the run with [`missing-tool`](../reference/statuses.md#stop-missing-tool), and
-[`devloops check`](../reference/commands.md#check) says how to install it.
+and curl for the backend; Claude Code and the command that starts the Playwright MCP server,
+`npx` by default, for the frontend). A missing tool stops the run with
+[`missing-tool`](../reference/statuses.md#stop-missing-tool), and
+[`devloops check`](../reference/commands.md#check) checks everything a loop needs, a browser
+included, and says how to install what is missing.
+
+### What the first run records
+
+The first run records its targets, its requirements, and the story it builds. A
+[`--review-plan`](../reference/commands.md#run--review-plan) or
+[`--accept-suggested`](../reference/commands.md#run--accept-suggested) given to any command is
+recorded too, and holds for the rest of the run. Later runs, and `devloops approve`,
+`devloops replan` and `devloops retry`, use what was recorded, so they need none of these options.
+You can repeat a target or story option unchanged, but not change it: one that differs from the
+recorded one is refused with [exit code 2](../reference/exit-codes.md#exit-2), and the run stays
+as it was. The requirements file must stay the same, byte for byte. When it changes, or a
+[`--requirements`](../reference/commands.md#run--requirements) file given later differs from it,
+the loop stops for good with [`input-changed`](../reference/statuses.md#stop-input-changed),
+because the plan was made for the old requirements. To build something else, start a new
+workspace.
 
 ## The whole run
 
@@ -90,13 +119,27 @@ that already completed is not run again.
 
 Each loop goes through the same four stages: plan, approval, milestones, completion.
 
+### Building one story
+
+A run can build one [story](../glossary.md#story) instead of the whole requirements:
+
+- [`--story-id`](../reference/commands.md#run--story-id) picks one story from a larger file. The
+  ID must appear in the file as a whole ID, with the same case (`US-3` does not match `US-30` or
+  `us-3`); otherwise the run stops with
+  [`story-not-found`](../reference/statuses.md#stop-story-not-found). With a spec-kit feature,
+  `US<n>` picks its user story *n* (see [spec-kit](../guides/spec-kit.md)).
+- [`--story-file`](../reference/commands.md#run--story-file) says the requirements file holds just
+  one story.
+
+The two cannot be used together.
+
 ### 1. Plan
 
 devloops asks Claude Code, in one [`plan`](../reference/steps.md#step-plan) call, to turn the
 requirements into a [plan](../glossary.md#plan). The plan holds:
 
 - a list of the requirements, each with its ID, so the rest of the plan can cite them;
-- the [milestones](../glossary.md#milestone), in order, each with its tasks and its
+- the milestones, in order, each with its [tasks](../glossary.md#task) and its
   [acceptance criteria](../glossary.md#acceptance-criterion), every one citing the requirements it
   comes from;
 - the stack (languages and frameworks) and the [runtime](../glossary.md#runtime): how to start
@@ -156,7 +199,7 @@ It always works on the first milestone that is not yet achieved. For each milest
    stay the same for every trial of that milestone.
 2. **Write the code.** Trial 1 is an [`implement`](../reference/steps.md#step-implement) call.
    Each later trial is a [`fix`](../reference/steps.md#step-fix) call that sees what failed last
-   time and the evidence. These are the only calls in which Claude may change files, and only
+   time and the [evidence](../glossary.md#evidence). These are the only calls in which Claude may change files, and only
    inside the target.
 3. **Validate.** devloops tests the result itself. For the backend, it starts the application and
    sends every check. For the frontend, it starts the user interface and has Claude use it in a
@@ -184,8 +227,9 @@ The loop is [completed](../reference/statuses.md#loop-completed) when every mile
 devloops then writes [`final-report.md`](../reference/state-files.md#loop-outputs-final-report.md)
 into the loop's `outputs/` folder. Its first sections are the decisions the requirements left
 open: the suggested answers that were accepted, and the assumptions. Then come the milestones,
-the trials each used, and a summary of each milestone's validation. A loop that stops on a
-failure or on an input error gets a final report too, saying why it stopped.
+the trials each used, and a summary of each milestone's validation. A loop that stops for good,
+on a failure or on an input error, after its plan was made gets a final report too, saying why
+it stopped.
 
 The backend loop leaves its OpenAPI document in `outputs/openapi.json`. The frontend loop leaves
 the address of the user interface in its `outputs/` folder, in `ui-url.txt`.
@@ -270,6 +314,11 @@ elsewhere, for example in the background:
 tail -f .devloops/workspaces/main/backend-dev/state/run.log
 ```
 
+The log has no colors. The terminal shows colors only when it is a terminal, and never when the
+`NO_COLOR` environment variable is set (or `TERM` is `dumb`). Every line, on screen and in the
+log, has your [secrets](../guides/security.md) replaced first. devloops writes to the log while a
+call runs, so the check that a call wrote nothing outside its target leaves the log out.
+
 The [dashboard](../guides/dashboard.md) shows the same run in your browser.
 
 ## When a run does not complete
@@ -281,7 +330,7 @@ A run ends in one of a few ways, and each has its own [exit code](../reference/e
 | [0](../reference/exit-codes.md#exit-0) | Every loop completed. | Read each loop's final report. |
 | [10](../reference/exit-codes.md#exit-10) | A plan awaits your approval. | `devloops approve` or `devloops replan`. |
 | [20](../reference/exit-codes.md#exit-20) | A milestone used all its trials, or a question needs your answer. | Read the evidence, then `devloops retry`. |
-| [30](../reference/exit-codes.md#exit-30) | An input or a tool is missing or changed. | Fix it, then `devloops run`. |
+| [30](../reference/exit-codes.md#exit-30) | An input or a tool is missing or changed. | Fix a missing input or tool, then `devloops run`. A changed input needs a new workspace. |
 | [50](../reference/exit-codes.md#exit-50) | Claude Code was unavailable, rate-limited, or logged out. | Fix the cause, then `devloops run`. No trial is lost. |
 
 When a run stops, it prints the one command to run next. [Trials and

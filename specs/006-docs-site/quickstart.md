@@ -57,3 +57,40 @@ examples (`tools/docs/examples.py`: the same plan and checks):
 
 Fixed on the way: the final report has a "Suggested answers accepted" section only when one was
 accepted; the page said it always has.
+
+## Independent review (T047)
+
+Done on 2026-10-10 by seven separate reviewers, each reading its pages against their `sources`
+and the code, and fixing each finding in place (statements it could not confirm, terms neither
+explained nor linked, planned or removed behavior shown as current). Pages reviewed, all 30
+hand-written ones plus the root `README.md`:
+
+- `how-it-works/`: `index`, `run-lifecycle`, `steps`, `validation`, `trials-and-recovery`,
+  `statuses`, `state-and-files`, `dashboard-data`
+- `guides/`: `backend-loop`, `frontend-loop`, `dashboard`, `approval-and-questions`,
+  `configuration`, `prompts`, `spec-kit`, `skills`, `security`, `upgrades`, `limitations`
+- `index`, `getting-started/install`, `getting-started/first-run`, `glossary`, `reference/index`
+- `contributing/`: `index`, `architecture`, `testing`, `specs-process`, `documentation`,
+  `writing-style`
+
+Errors fixed include: which tools a run checks before starting; that `--review-plan` holds for
+the rest of a run; that a `stopped-on-input-error` loop cannot be resumed by restoring the
+input; that the write guard blocks a write rather than failing the trial; the exit code of a bad
+project setting (30); that `backend.*` settings are always replaced by the handoff; that the
+`replan` approval value is never recorded; when a final report is written; and the example
+`check` output showing a Claude Code version below the minimum.
+
+Code issues the review found, left for a later change (not documentation):
+
+- `validators/curl.py` stops a loop with the reason `validation-failed`, which the run-state
+  schema's stop reasons do not list.
+- `approval.action` lists `replan`, which nothing records.
+- The `input-changed` message says to restore the file, but the stop cannot be resumed.
+- A missing tool met while resuming outside `devloops run` (e.g. `retry --no-continue`) can end
+  a loop as `stopped-on-input-error`.
+- `backend.*` settings never take effect (the handoff overrides them); `runtime` is shared by
+  both loops.
+- The installed `.devloops/prompts/README.md` and the `status` line say an override applies
+  from the next start; it applies from the next call.
+- `outputs/openapi.json` is not written atomically.
+- `checkcmd` links Claude Code's documentation at a different address than the site.
