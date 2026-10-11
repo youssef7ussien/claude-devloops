@@ -208,6 +208,7 @@ why:
 
 ## Next
 
+- [A complete example](demo.md): a backend and a frontend from a PRD, then one story file.
 - [How it works](../how-it-works/index.md): what happened during this run, step by step.
 - [The frontend loop](../guides/frontend-loop.md): add a user interface built against this
   backend.

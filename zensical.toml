@@ -18,6 +18,7 @@ nav = [
   { "Getting started" = [
     "getting-started/install.md",
     "getting-started/first-run.md",
+    "getting-started/demo.md",
   ] },
   { "How it works" = [
     "how-it-works/index.md",
