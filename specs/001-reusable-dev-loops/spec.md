@@ -368,6 +368,9 @@ changing only the inputs and configuration. No loop instructions or shared infra
   what was observed and at least one stored evidence item [R, CHK022].
 - **FR-024** [I — from FR-011]: The frontend MUST call the backend only through the endpoints
   described in the supplied Swagger document.
+  > **Revised by D-15**: when the frontend target held code before the run, an operation the
+  > document lists under `x-devloops-unverified-operations` counts as described: a request to it
+  > does not fail the contract, and is reported (`unverified_calls`, the final report).
 
 #### Iteration, next unit of work, and completion
 
@@ -729,6 +732,20 @@ below). No open questions remain.
   not stop processes by name or pattern (a Bash hook blocks `pkill`, `killall`, `killall5`, and
   `kill` in a command that looks processes up with `pgrep`, `pidof`, or `ps`), which can end the
   call itself. Applied in FR-019 and FR-055c.
+- **D-15 No trial lost to code the run did not write** (decided 2026-10-11): A story run on an
+  existing application verifies only the operations its story touches, so its published document
+  lists every other operation as unverified, while the application's existing pages keep calling
+  them (a poll on every page, a list on load). Failing the frontend's contract on those requests
+  failed every trial, and no answer could change it. So, when the frontend target held code
+  before the loop first started (`target_had_files` in its run state), a request to an operation
+  the document lists as unverified passes the contract and is reported, once per operation, in
+  the trial's `contract.unverified_calls`, the dashboard and the final report. A frontend that
+  had no code has no pages of its own to excuse, so there such a request still fails, as does a
+  request to an operation the document does not declare at all. Matching takes the most specific
+  template across the verified and the unverified operations. The frontend is still told not to
+  add calls to unverified operations; the validator cannot tell its own calls from the existing
+  code's, so that part rests on the prompt and on the report. Prompts also say that no question
+  can change how a milestone is validated. Applied in FR-024.
 - **Review decisions**: Items marked **[R]** adopt the recommended fixes from
   `checklists/loops-review.md` (2026-09-27). They also settle plan decisions U-1 (FR-016), U-2
   (FR-030a), U-3 (FR-039), U-4 (FR-071), U-5 (FR-063), and U-6 (A-6).

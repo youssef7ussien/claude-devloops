@@ -182,8 +182,8 @@ out of trials:
 Here is how devloops handles each trial:
 
 1. Trial 1 **passes**. An operation no check called does not fail the milestone. devloops leaves
-   it out of the document it publishes and lists it as unverified, so the frontend knows not to
-   call it.
+   it out of the document it publishes and lists it as unverified, so the frontend knows no check
+   verified it.
 2. Under the default `questions` setting, a trial that asks a question is still validated, with
    the suggested answer accepted. Trial 2
    would also have passed.

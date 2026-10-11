@@ -279,7 +279,26 @@ def _match_via_ui(spec, method, url, ui_url):
 NO_BACKEND = "no backend is configured; set backend.base_url or backend.start_command"
 
 
-def _contract(spec, network_requests, backend_url, ui_url):
+def _operation(spec, unverified, method, url, base_url, via_ui=False):
+    """`((METHOD, template), verified)` for the operation a request calls, or None. The spec and
+    its unverified operations (`openapi.unverified_document`) are matched together, so the most
+    specific template wins across both (`/tasks/stats` beats `/tasks/{id}`); on a tie, the
+    verified one (D-15)."""
+    def find(doc):
+        if doc is None:
+            return None
+        if via_ui:
+            return _match_via_ui(doc, method, url, base_url)
+        return openapi.match(doc, method, url, base_url)
+    found = [(op, verified) for op, verified in ((find(spec), True), (find(unverified), False))
+             if op is not None]
+    return min(found, key=lambda f: (f[0][1].count("{"), not f[1])) if found else None
+
+
+UNVERIFIED_IN_NEW_UI = "unverified in the API document, and the frontend had no code before this run"
+
+
+def _contract(spec, network_requests, backend_url, ui_url, allow_unverified=True):
     """Check each backend request against the spec.
 
     - Under the UI URL, page and asset loads are skipped; every other request is an API call
@@ -288,25 +307,43 @@ def _contract(spec, network_requests, backend_url, ui_url):
     - Other origins (CDNs, fonts) are not the backend and are skipped.
     Without a backend, an API call nothing could have answered fails (FR-039): a proxied call
     that matches the spec or writes, or a request elsewhere that matches the spec.
+
+    A request to an operation the spec lists as unverified (`x-devloops-unverified-operations`)
+    does not fail the contract when `allow_unverified` (the frontend target had code before the
+    run, whose pages may call it): it is reported once per operation in `unverified_calls`.
+    Without existing code, every call is the run's own, and it fails as before (D-15).
     """
-    unmatched = []
+    unverified = openapi.unverified_document(spec)
+    unmatched, unverified_calls = [], []
     for req in network_requests:
         method, url = req["method"].upper(), req["url"]
+        label = f"{method} {url}"
         if ui_url and _is_under(url, ui_url):
             if _is_page_or_asset(method, url, ui_url):
                 continue
-            matched = _match_via_ui(spec, method, url, ui_url)
-            if backend_url and matched is None:
-                unmatched.append(f"{method} {url}")
-            elif not backend_url and (matched is not None or method not in ("GET", "HEAD")):
-                unmatched.append(f"{method} {url} ({NO_BACKEND})")
+            found = _operation(spec, unverified, method, url, ui_url, via_ui=True)
+            if not backend_url:
+                if found is not None or method not in ("GET", "HEAD"):
+                    unmatched.append(f"{label} ({NO_BACKEND})")
+                continue
         elif backend_url:
-            if _is_under(url, backend_url) and openapi.match(spec, method, url, backend_url) is None:
-                unmatched.append(f"{method} {url}")
-        elif openapi.match(spec, method, url) is not None:
-            unmatched.append(f"{method} {url} ({NO_BACKEND})")
-    uniq = list(dict.fromkeys(unmatched))
-    return {"passed": not uniq, "unmatched_operations": uniq}
+            if not _is_under(url, backend_url):
+                continue
+            found = _operation(spec, unverified, method, url, backend_url)
+        else:
+            if _operation(spec, unverified, method, url, None) is not None:
+                unmatched.append(f"{label} ({NO_BACKEND})")
+            continue
+        if found is None:
+            unmatched.append(label)
+        elif not found[1] and allow_unverified:
+            unverified_calls.append(" ".join(found[0]))
+        elif not found[1]:
+            unmatched.append(f"{label} ({UNVERIFIED_IN_NEW_UI})")
+    result = {"passed": not unmatched, "unmatched_operations": list(dict.fromkeys(unmatched))}
+    if unverified_calls:
+        result["unverified_calls"] = list(dict.fromkeys(unverified_calls))
+    return result
 
 
 def _spec_path(ctx):
@@ -337,7 +374,8 @@ def validate(ctx):
         out = _validate_ui(ctx, ui_url, backend_url, spec_path, mcp_path, unit_tests_context)
 
     network_requests, problem = _network_log(out)
-    contract = _contract(spec, network_requests, backend_url, ui_url)
+    contract = _contract(spec, network_requests, backend_url, ui_url,
+                         allow_unverified=(ctx.run_state or {}).get("target_had_files", True))
     if problem:
         contract = dict(contract, passed=False, problem=problem)
     return {

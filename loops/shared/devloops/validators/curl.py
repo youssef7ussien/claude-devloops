@@ -388,7 +388,7 @@ def _names(operations):
     return sorted(f"{m} {p}" for m, p in operations)
 
 
-UNVERIFIED_KEY = "x-devloops-unverified-operations"
+UNVERIFIED_KEY = openapi.UNVERIFIED_KEY
 
 
 def verified_document(spec, covered):

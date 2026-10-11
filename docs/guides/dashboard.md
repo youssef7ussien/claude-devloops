@@ -139,7 +139,8 @@ A [trial](../glossary.md#trial) opens from its milestone. It shows when it start
 took, its calls, cost and tokens; **Steps**, with each call and its result; and **Validation**:
 whether it passed (for the frontend, with the address of the user interface it tested), each
 criterion with what was observed and its evidence, and each [check](../glossary.md#check), with
-the request sent and the answer's status; then **Files changed** by its calls, and the files in
+the request sent and the answer's status, and the API [contract](../glossary.md#contract), with
+any calls to operations the backend left unverified; then **Files changed** by its calls, and the files in
 its folder. A failed trial first says why it failed. See [validation](../how-it-works/validation.md).
 
 ## Claude calls

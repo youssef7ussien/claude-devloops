@@ -40,8 +40,10 @@ operation the document does not have, raise it as a question. Take the backend's
 configuration at run time (the context gives it when one is known); do not hard-code a guess.
 
 When the document lists operations under `x-devloops-unverified-operations`, the backend has them
-but no check ever verified them, so they are not part of the contract: do not call them. If a
-requirement needs one, raise it as a question, saying that the backend has it unverified.
+but no check of this run verified them. Do not add new calls to them: if a requirement needs one,
+raise it as a question, saying that the backend has it unverified. Calls that code you did not
+write already makes (an existing page, a poll) may stay as they are: validation reports them but
+does not fail on them.
 
 ## Implementing a milestone
 

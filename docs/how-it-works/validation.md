@@ -20,6 +20,7 @@ sources:
   - spec 001 FR-019
   - spec 001 FR-023
   - spec 001 FR-024
+  - spec 001 D-15
   - spec 001 FR-027
 ---
 
@@ -142,7 +143,7 @@ The operations left out are listed in three places: in the published document it
 `x-devloops-unverified-operations`; in the loop's
 [`run.json`](../reference/state-files.md#loop-state-run.json); and in its
 [`final-report.md`](../reference/state-files.md#loop-outputs-final-report.md). The frontend loop
-is told they exist, and that it must not call them.
+is told they exist, and that it must not add calls to them.
 
 devloops publishes again after every achieved milestone, from the operations of every achieved
 milestone, so the last one leaves the final document. It reads the target's document again to
@@ -211,7 +212,9 @@ The milestone passes when all of these hold:
 - **The contract.** Every request the page sent to the backend is an operation the backend's
   OpenAPI document declares. This includes requests sent through the frontend's own server (a
   proxy). Requests that load the page itself, its scripts, styles and images, are not API calls,
-  and requests to other sites (fonts, for example) are not the backend's.
+  and requests to other sites (fonts, for example) are not the backend's. A request to an
+  operation the document lists as unverified passes, but is reported, when the frontend already
+  had code before the run (see [below](#the-browsers-network-log)).
 - **The unit tests**, when [`unit_tests.enabled`](../reference/configuration.md#unit_tests.enabled)
   is on, exited with code 0. When unit tests are declared but not enabled, they still run for the
   browser call, but their failure fails nothing by itself.
@@ -232,6 +235,15 @@ contract fails when devloops cannot check every request:
 
 A request that a page load sends by itself, such as a classic form that loads a new page, can
 still be missed.
+
+When the frontend's folder already held code before the run, a request to an operation the
+document lists as unverified does not fail the contract. The operation is listed in the trial's
+result (`unverified_calls`), in the dashboard and in the final report. This matters for a run of
+one story on an existing application: its backend verifies only what the story touches, and the
+pages that were already there keep calling the rest. When the folder was empty, no page was
+already there, so such a request fails the contract.
+
+> **Changed by spec 001 D-15**: a request to an unverified operation used to fail the contract.
 
 When no backend is configured, any API call nothing could have answered fails the contract, so a
 criterion that needs the backend can never pass by accident.

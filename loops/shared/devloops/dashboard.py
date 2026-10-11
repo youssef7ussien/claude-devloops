@@ -847,6 +847,7 @@ def _why(t, criteria_text, ref):
     if contract and not contract.get("passed", True):
         why.append({"kind": "contract", "problem": contract.get("problem"),
                     "unmatched_operations": contract.get("unmatched_operations") or [],
+                    "unverified_calls": contract.get("unverified_calls") or [],
                     "network_requests": v.get("network_requests") or []})
     unit = v.get("unit_tests") or {}
     if unit.get("enabled") and unit.get("exit_code") != 0:

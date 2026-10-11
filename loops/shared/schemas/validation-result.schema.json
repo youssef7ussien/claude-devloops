@@ -156,6 +156,13 @@
           },
           "description": "calls to operations the document does not declare (backend checks, or the browser's requests for frontend-dev); any fails the contract"
         },
+        "unverified_calls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "frontend: the operations (\"METHOD /path\", once each) the browser called that the API document lists as unverified (x-devloops-unverified-operations); they do not fail the contract when the frontend target had code before the run, and are listed in the final report (D-15)"
+        },
         "unverified_operations": {
           "type": "array",
           "items": {

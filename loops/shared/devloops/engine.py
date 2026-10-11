@@ -57,6 +57,15 @@ def _is_inside(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+def _has_files(path):
+    """Whether `path` holds anything besides dot-files when a loop first starts: code the run did
+    not write, whose pages may call operations the run left unverified (D-15)."""
+    try:
+        return any(not name.startswith(".") for name in os.listdir(path))
+    except OSError:
+        return False
+
+
 def compute_pass(milestone, result, trial_dir):
     """The data-model pass rule; return `(passed, problems)`. The model's claim is never used.
 
@@ -372,11 +381,12 @@ class Engine:
             raise input_error("target-unwritable",
                               f"no target directory given; set targets.{self.loop} in "
                               ".devloops/devloops.json")
+        had_files = _has_files(os.path.abspath(self.opts.target))
         target = self.ws.set_target(self.loop, os.path.abspath(self.opts.target))
         self.rs = {
             "loop": self.loop, "status": "planning", "status_reason": None,
             "inputs": {"requirements": requirements, "api_spec": api_spec},
-            "target_dir": target, "effective_config": cfg,
+            "target_dir": target, "target_had_files": had_files, "effective_config": cfg,
             "planning": {"trials": [], "status": "pending"}, "approval": None,
             "milestones": {}, "invocation_count": 0, "ui_url": None, "openapi_artifact": None,
             "resume_status": None, "grants": [],

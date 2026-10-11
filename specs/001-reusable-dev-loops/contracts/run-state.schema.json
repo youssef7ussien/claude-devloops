@@ -170,6 +170,10 @@
     "target_dir": {
       "type": "string"
     },
+    "target_had_files": {
+      "type": "boolean",
+      "description": "Whether the target held anything besides dot-files when the loop first started. frontend-dev: only then may the page call operations the API document lists as unverified (D-15); a run without it counts as true"
+    },
     "effective_config": {
       "$ref": "config.schema.json"
     },

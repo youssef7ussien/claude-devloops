@@ -222,6 +222,47 @@ class PlaywrightValidatorTest(unittest.TestCase):
         self.assertEqual(result["network_requests"], network)
         self.assertFalse(self.verdict(result)[0])
 
+    def test_a_call_to_an_unverified_operation_passes_the_contract_and_is_reported(self):
+        # A story run publishes only what it verified; pages it did not write still call the
+        # rest, which the document names as unverified (D-15).
+        self.use_backend("start")
+        self.use_spec(dict(API_SPEC, **{"x-devloops-unverified-operations": [
+            "GET /items/{id}", "POST /items"]}))
+        network = [{"method": "GET", "url": self.api_url + "/items", "status": 200},
+                   {"method": "GET", "url": self.api_url + "/items/7", "status": 200},
+                   {"method": "GET", "url": self.api_url + "/items/7", "status": 200}]
+        self.run_state["target_had_files"] = True
+        result = self.validate(self.answer(network=network + [
+            {"method": "GET", "url": self.api_url + "/items/8?fresh=1", "status": 200}]))
+        self.assertEqual(result["contract"], {  # once per operation, not per URL
+            "passed": True, "unmatched_operations": [], "unverified_calls": ["GET /items/{id}"]})
+        self.assertTrue(self.verdict(result)[0])
+
+        # An operation the document does not declare at all still fails it.
+        result = self.validate(self.answer(network=network + [
+            {"method": "DELETE", "url": self.api_url + "/items/7", "status": 404}]))
+        self.assertFalse(result["contract"]["passed"])
+        self.assertEqual(result["contract"]["unmatched_operations"],
+                         [f"DELETE {self.api_url}/items/7"])
+
+        # A frontend that had no code before the run has no pages of its own to excuse.
+        self.run_state["target_had_files"] = False
+        result = self.validate(self.answer(network=network))
+        self.assertFalse(result["contract"]["passed"])
+        self.assertEqual(result["contract"]["unmatched_operations"], [
+            f"GET {self.api_url}/items/7 ({playwright.UNVERIFIED_IN_NEW_UI})"])
+
+    def test_the_most_specific_operation_wins_across_verified_and_unverified(self):
+        spec = {"openapi": "3.0.3", "info": {"title": "t", "version": "1"}, "paths": {
+                    "/tasks/{id}": {"get": {"responses": {"200": {"description": "one"}}}}},
+                "x-devloops-unverified-operations": ["GET /tasks/stats", "GET /tasks/{id}/notes"]}
+        network = [{"method": "GET", "url": "http://api/tasks/stats", "status": 200},
+                   {"method": "GET", "url": "http://api/tasks/3", "status": 200},
+                   {"method": "GET", "url": "http://api/tasks/3/notes", "status": 200}]
+        self.assertEqual(playwright._contract(spec, network, "http://api", "http://ui"), {
+            "passed": True, "unmatched_operations": [],
+            "unverified_calls": ["GET /tasks/stats", "GET /tasks/{id}/notes"]})
+
     def test_requests_come_from_the_browsers_network_log(self):
         self.use_backend("start")
         # Two reads of the log (one before a navigation, one at the end): each request once, a

@@ -147,6 +147,19 @@ class RenderGoldenTest(unittest.TestCase):
         with open(path) as f:
             self.assertNotIn("hand edit", f.read())
 
+    def test_the_final_report_lists_calls_to_unverified_operations(self):
+        path = os.path.join(self.loop_dir, "state", "milestones", "M01", "trials", "1",
+                            "validation.json")
+        vr = state.read_json(path)
+        vr["contract"]["unverified_calls"] = ["GET http://localhost:3000/api/tasks"]
+        state.write_json_atomic(path, vr)
+        render.render_all(self.loop_dir, "backend-dev", "golden", kit.Kit.from_checkout(self.repo),
+                          final=True)
+        with open(os.path.join(self.loop_dir, "outputs", "final-report.md")) as f:
+            report = f.read()
+        self.assertIn("## Calls to unverified operations", report)
+        self.assertIn("- (M01) `GET http://localhost:3000/api/tasks`", report)
+
     def test_open_questions_are_not_rewritten_unless_asked(self):
         path = os.path.join(self.loop_dir, "outputs", "open-questions.md")
         with open(path, "a") as f:

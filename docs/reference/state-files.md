@@ -115,6 +115,7 @@ Everything devloops knows about a run is in files in the workspace, so a run can
 | `status_reason` | object or null | Why the run stopped, set with a stopped-* status; or `interrupted` on a planning or implementing run that Ctrl+C interrupted and that can still be resumed (cleared when it resumes). |
 | `inputs` | object |  |
 | `target_dir` | string |  |
+| `target_had_files` | boolean | Whether the target held anything besides dot-files when the loop first started. frontend-dev: only then may the page call operations the API document lists as unverified (D-15); a run without it counts as true. |
 | `effective_config` | object (the run configuration keys) |  |
 | `approval` | object or null |  |
 | `answers_sha256` | string or null | T055: the answers fingerprint later starts compare against; set by the approval, each retry, and each automatic answer. |

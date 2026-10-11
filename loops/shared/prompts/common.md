@@ -52,6 +52,10 @@ When the Context block has a `story_scope` block, the run covers one user story 
 - When proceeding would add, remove, or contradict a requirement, do not proceed on that point:
   report it as a question (`needs_input` during implementation, `open_questions` during planning),
   with the answer you would suggest.
+- devloops applies the validation itself, and no answer changes it. Never ask for devloops to
+  skip, relax or exclude a check (the contract check included): a question can change what is
+  built, not how it is validated. If a milestone cannot pass without a change outside your
+  control, say exactly what in a task's `note` and in an assumption, so the developer sees it.
 
 ## Result
 

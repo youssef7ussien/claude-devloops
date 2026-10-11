@@ -15,6 +15,7 @@ sources:
   - spec 001 FR-022
   - spec 001 FR-023
   - spec 001 FR-024
+  - spec 001 D-15
   - spec 001 FR-041
   - spec 001 FR-042
 ---
@@ -83,8 +84,22 @@ Claude Code is told to call the backend only through the operations its OpenAPI 
 and never to invent one. When a requirement needs an operation the document does not have, Claude
 raises an [open question](../glossary.md#open-question) instead.
 
-The document can also list operations as unverified: the backend has them, but no check ever
-called them. The frontend must not call those either. If a requirement needs one, Claude asks.
+The document can also list operations as unverified: the backend has them, but no check of this
+run called them. A run of one [story](../glossary.md#story) on an existing application verifies
+only what the story touches, so the rest of its API is unverified, although the existing pages
+keep calling it. Claude is told not to add calls to unverified operations; if a requirement needs
+one, Claude asks.
+
+When the frontend's folder already held code before the run, a request to an unverified operation
+does not fail validation: devloops lists the operation in the trial's result, in the dashboard
+and in the loop's [`final-report.md`](../reference/state-files.md#loop-outputs-final-report.md),
+under "Calls to unverified operations". devloops cannot tell which code made the request, so read
+that list: a call the run added there was not checked by the backend. When the folder was empty,
+every request comes from code the run wrote, and a request to an unverified operation fails the
+contract. A request to an operation the document does not declare at all always fails it.
+
+> **Changed by spec 001 D-15**: a request to an unverified operation used to fail the contract,
+> so a story run failed whenever an existing page called the API.
 
 ## What it publishes
 

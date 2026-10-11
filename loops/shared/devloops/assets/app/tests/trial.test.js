@@ -85,6 +85,20 @@ test('checks: unit tests not enabled are "not run"; a met contract and a kept bo
   assert.deepEqual(plain(V.checks(null)), []);
 });
 
+test('checks: a met contract names the calls to unverified operations', () => {
+  const r = plain(V.checks({ contract: { passed: true, unmatched_operations: [],
+                                         unverified_calls: ['GET /api/tasks'] } }));
+  assert.equal(r[0].result, 'passed');
+  assert.match(r[0].detail, /1 unverified operation called/);
+  assert.deepEqual(r[0].operations, []);
+  assert.deepEqual(r[0].unverified, ['GET /api/tasks']);
+
+  const failed = plain(V.checks({ contract: { passed: false, problem: 'the network log was never read',
+                                              unmatched_operations: [], unverified_calls: ['GET /api/tasks'] } }));
+  assert.equal(failed[0].detail, 'the network log was never read');
+  assert.deepEqual(failed[0].unverified, ['GET /api/tasks'], 'kept on a failed contract too');
+});
+
 test('changeIndex: a row opens its own change, else its call\'s change of that exact path', () => {
   const ch = (seq, rec, path) => ({ seq, path, action: { rec } });
   const changes = [ch(1, 4, 'src/a.js'), ch(1, 9, 'a.js'), ch(2, 3, 'src/a.js')];

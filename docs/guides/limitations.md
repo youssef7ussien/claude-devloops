@@ -6,6 +6,7 @@ sources:
   - loops/shared/devloops/orchestrator.py
   - loops/shared/devloops/artifacts.py
   - loops/shared/devloops/validators/playwright.py
+  - loops/shared/devloops/runtime.py
   - loops/shared/devloops/redact.py
   - loops/shared/devloops/config.py
   - specs/006-docs-site/research.md
@@ -22,6 +23,17 @@ both loops, but never the frontend loop alone: the frontend is built against the
 publishes, and devloops has no way yet to give it a document and a backend from elsewhere. A
 project whose configuration names only a frontend target stops before anything is written, with
 the reason `frontend-needs-backend` and [exit code 30](../reference/exit-codes.md#exit-30).
+
+## Validation does not reset the application's data
+
+devloops starts the application for each validation, and stops it afterwards, but never clears
+what it saved. A backend that keeps its data in a file or a database starts every trial with the
+data of the trials before it: the settings a criterion changed, the items a check created. A
+check or a criterion that expects a fresh start can then fail although the code is right.
+
+**Workaround**: in the requirements, ask for a backend that can start with fresh data, such as a
+database path or an in-memory store chosen by an environment variable, and for the plan's start
+command to use it.
 
 ## No target at the project root
 

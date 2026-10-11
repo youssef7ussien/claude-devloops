@@ -70,6 +70,14 @@ no check calls an operation the backend's own OpenAPI document leaves out. When
 [`unit_tests.enabled`](../reference/configuration.md#unit_tests.enabled) is set, the backend's unit
 tests must pass too.
 
+devloops starts the backend for each validation and stops it afterwards, but it does not clear
+the backend's data. A backend that saves to a file or a database starts each trial with whatever
+earlier trials and milestones saved, and so does the backend the frontend loop starts. A check or
+a criterion that expects an empty list or a default setting can then fail for a reason that has
+nothing to do with the code. Write requirements that let the backend start with fresh data, for
+example a database path or an in-memory store chosen by an environment variable in the start
+command (see [known limitations](limitations.md#validation-does-not-reset-the-applications-data)).
+
 [Validation](../how-it-works/validation.md) explains each rule, and
 [trials and recovery](../how-it-works/trials-and-recovery.md) what happens when one fails.
 
@@ -89,7 +97,9 @@ The published document lists only the operations a passed milestone's checks act
 This makes it a [contract](../glossary.md#contract) you can trust: every operation in it was seen
 working. An operation the backend has but no check ever called does not fail its milestone. It is
 left out of the published document, and listed in the loop's final report and in the document
-itself, as unverified. A later milestone whose checks call it adds it back.
+itself, as unverified. A later milestone whose checks call it adds it back. The frontend does not
+add calls to an unverified operation, but a request to one does not fail its validation either;
+see [the frontend loop](frontend-loop.md#keeping-to-the-contract).
 
 ## The handoff to the frontend
 

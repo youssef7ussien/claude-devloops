@@ -105,6 +105,18 @@ class EngineCoreTest(unittest.TestCase):
         self.assertEqual(self.cli("run"), 10)
         self.assertEqual(self.steps_called(), ["plan"])
 
+    def test_the_first_start_records_whether_the_target_held_files(self):
+        # Dot-files alone do not count: the frontend then has no pages of its own (D-15).
+        os.makedirs(self.t.target_dir, exist_ok=True)
+        open(os.path.join(self.t.target_dir, ".gitkeep"), "w").close()
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        self.assertIs(self.run_state()["target_had_files"], False)
+
+    def test_a_target_with_code_is_recorded_as_holding_files(self):
+        self.t.write_file("index.html", "<p>existing</p>\n", base=self.t.target_dir)
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        self.assertIs(self.run_state()["target_had_files"], True)
+
     def test_approve_then_run_completes(self):
         self.assertEqual(self.first_run(), 10)
         self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)

@@ -473,6 +473,14 @@ def render_final_report(loop, workspace_name, run, plan, trials_by_mid, validati
                      ("exit " + str(unit.get("exit_code"))) if unit.get("enabled") else "disabled"])
     lines.append(_table(["Milestone", "Validation", "Criteria passed", "Contract", "Unit tests"],
                         rows))
+    unverified = [(m["id"], call) for m in plan["milestones"]
+                  for call in ((validations.get(m["id"]) or {}).get("contract") or {})
+                  .get("unverified_calls") or []]
+    if unverified:  # D-15: allowed, but no check verified these operations
+        lines += ["", "## Calls to unverified operations", "",
+                  "The page called these operations, which the backend declares but no check of "
+                  "this run verified. They do not fail the contract.", ""]
+        lines += [f"- ({mid}) `{call}`" for mid, call in unverified]
     return "\n".join(lines) + "\n"
 
 

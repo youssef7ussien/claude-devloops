@@ -7,6 +7,9 @@ from .state import input_error
 
 HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 
+# The operations a published document leaves out because no check verified them (FR-019, D-14).
+UNVERIFIED_KEY = "x-devloops-unverified-operations"
+
 
 def load_spec(path):
     """Load an OpenAPI 3 JSON document; stop with `invalid-api-spec` if it is not one."""
@@ -88,3 +91,20 @@ def match(spec, method, url_or_path, base_url=None):
     if not candidates:
         return None
     return method, min(candidates)[1]
+
+
+def unverified_document(spec):
+    """The operations `spec` names under `x-devloops-unverified-operations` ("METHOD /path"), as a
+    document of their own with the same `servers`, so `match` finds them; None when there are
+    none (D-15)."""
+    paths = {}
+    for name in spec.get(UNVERIFIED_KEY) or []:
+        method, _, template = name.partition(" ") if isinstance(name, str) else ("", "", "")
+        if method.lower() in HTTP_METHODS and template.startswith("/"):
+            paths.setdefault(template, {})[method.lower()] = {}
+    if not paths:
+        return None
+    doc = {"paths": paths}
+    if "servers" in spec:
+        doc["servers"] = spec["servers"]
+    return doc

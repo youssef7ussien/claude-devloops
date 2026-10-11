@@ -86,10 +86,12 @@
     });
     var ct = v.contract;
     if (ct) {
-      var ops = ct.unmatched_operations || [];
-      out.push({ kind: 'contract', id: 'API contract', result: ct.passed ? 'passed' : 'failed', operations: ops,
+      var ops = ct.unmatched_operations || [], unverified = ct.unverified_calls || [];
+      out.push({ kind: 'contract', id: 'API contract', result: ct.passed ? 'passed' : 'failed',
+        operations: ops, unverified: unverified,
         detail: ct.passed ? 'every call is in the API document' + ((ct.covered_operations || []).length
           ? ' · ' + DL.fmt.plural(ct.covered_operations.length, 'operation') + ' verified' : '')
+          + (unverified.length ? ' · ' + DL.fmt.plural(unverified.length, 'unverified operation') + ' called' : '')
           : (ct.problem || (ops.length ? DL.fmt.plural(ops.length, 'operation') + ' not in the API document' : 'not met')),
         evidence: [] });
     }
@@ -174,6 +176,8 @@
       DL.add(card, DL.el('h4', null, 'API contract not met'), r.problem ? DL.el('p', null, r.problem) : null,
         r.unmatched_operations.length ? DL.el('p', 'small', 'Not in the API document:') : null,
         list(r.unmatched_operations.map(code)),
+        (r.unverified_calls || []).length ? [DL.el('p', 'small', 'Calls to unverified operations (they do not fail the contract):'),
+          list(r.unverified_calls.map(code))] : null,
         r.network_requests.length ? [DL.el('h5', null, 'Requests the browser made'), requests(r.network_requests)] : null);
     } else if (r.kind === 'unit-tests') {
       card.id = whyId('unit-tests', 'x');
@@ -270,7 +274,10 @@
       var detail = [DL.el('div', 'small', c.detail)];
       if (c.command) detail.unshift(DL.add(DL.el('div'), code(c.command)));
       if (c.kind === 'check' || c.kind === 'boundary') detail.push(list((c.failures || []).map(c.kind === 'boundary' ? code : String), 'small'));
-      if (c.kind === 'contract') detail.push(list((c.operations || []).map(code), 'small'));
+      if (c.kind === 'contract') {
+        detail.push(list((c.operations || []).map(code), 'small'));
+        if ((c.unverified || []).length) detail.push(DL.el('div', 'small', 'Calls to unverified operations:'), list(c.unverified.map(code), 'small'));
+      }
       if (c.kind === 'unit-tests' && c.log) detail.push(failureMark(ref(d, c.log)));
       var target = c.result === 'failed' ? whyId(c.kind === 'check' ? 'check' : c.kind, c.kind === 'check' ? c.id : 'x') : null;
       return DL.add(DL.el('tr', c.result === 'failed' ? 'bad-row' : null),
