@@ -77,6 +77,8 @@ plain HTTP. Read [security](security.md#who-can-reach-the-dashboard) before you 
 - **The "now" panel**, above every view, shows the call to Claude Code running at this moment:
   its loop, milestone, trial, step and model, how long it has run, and the tools it used so far.
   When nothing runs, it shows the run's status and the next thing to do, or what it waits for.
+  While a run goes on it keeps one height, so the view below does not move; the arrow at its
+  left collapses it to one line, and the dashboard remembers that in your browser.
 - **The theme button** switches between light and dark.
 - Hovering over a token count shows its parts (input, output, cache), and hovering over a
   [requirement](../glossary.md#requirements), [task](../glossary.md#task) or criterion ID shows

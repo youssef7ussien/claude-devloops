@@ -389,19 +389,36 @@ background:var(--surface)}
 border-radius:10px;padding:12px 16px;margin:16px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .error .msg-text{color:var(--critical-ink);flex:1;min-width:200px}
 
-/* the "now" panel: what runs at this moment */
+/* the "now" panel: what runs at this moment; one height whatever it shows (or its first line,
+   collapsed), so the view below never moves when it redraws */
 .now{max-width:1200px;margin:8px auto 4px;background:var(--surface);border:1px solid var(--border);
-border-left:3px solid var(--neutral);border-radius:12px;padding:10px 14px;font-size:13px}
-.now .now-head{display:flex;gap:8px 16px;align-items:center;flex-wrap:wrap}
+border-left:3px solid var(--neutral);border-radius:12px;padding:10px 14px;font-size:13px;
+height:220px;display:flex;flex-direction:column;overflow:hidden}
+.now .now-head{display:flex;gap:8px 16px;align-items:center;flex-wrap:wrap;flex:none;min-height:28px}
+.now .now-head .btn{padding-top:2px;padding-bottom:2px}
 .now .now-head .spacer{flex:1}
+.now .now-toggle{margin:-4px -4px -4px -8px;flex:none}
+.now .now-toggle .ic{transition:transform .15s;transform:rotate(90deg)}
+.now .now-body{flex:1;min-height:0;display:flex;flex-direction:column;margin-top:8px;border-top:1px solid var(--grid)}
+.now .now-body>p{margin:8px 0 0}
+.now.idle .now-body{flex-direction:row;flex-wrap:wrap;gap:10px;align-items:center;align-content:flex-start;padding-top:8px}
+.now.idle .now-body>p{margin:0}
+.now.collapsed,.now.rest{height:auto}
+.now.rest .now-body:empty{display:none}
+.now.collapsed .now-head{flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+.now.collapsed .now-body{display:none}
+.now.collapsed .now-toggle .ic{transform:none}
+/* narrow: the first line may wrap to several, so the body, not the panel, keeps one height */
+@media (max-width:760px){.now{height:auto}.now:not(.rest) .now-body{flex:none;height:150px}}
 .now .fact{display:inline-flex;gap:5px;align-items:baseline;color:var(--ink-2)}
 .now .fact b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
-.now-tools{list-style:none;margin:8px 0 0;padding:0;max-height:180px;overflow:auto;border-top:1px solid var(--grid)}
+.now-tools{list-style:none;margin:0;padding:0;flex:1;min-height:0;overflow:auto}
 .now-tools li{display:flex;gap:10px;padding:3px 0;font-size:12.5px;min-width:0}
 .now-tools li time{color:var(--muted);font:11.5px var(--mono);white-space:nowrap;flex:none}
 .now-tools li b{font-weight:600;flex:none}
 .now-tools li span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.now.idle{border-left-color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.now.idle{border-left-color:var(--muted)}
+.now.idle .now-head{gap:8px 10px}
 .now .pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--neutral);
 margin-right:2px;animation:pulse 1.6s ease-in-out infinite}
 

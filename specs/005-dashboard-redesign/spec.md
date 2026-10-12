@@ -187,6 +187,10 @@ Markdown file also shows only its first line.
   the top bar says so and draws the view again, keeping the reader's place. Opening any view shows
   the latest data, and a view that failed to load is tried again by itself (FR-003, FR-004 and
   SC-003 revised).
+- Q: The now panel grows and shrinks with each call's tools, moving the view below. Should it
+  have a fixed size? → A: Yes: while a run goes on it keeps one height (its tools scroll inside
+  it), and a chevron collapses it to its first line, remembered per browser. When nothing runs it
+  is only as tall as what it says (FR-016 revised).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -577,6 +581,9 @@ shows a readable row.
 - **FR-016** (A1): Every view MUST show a "now" panel: when a call is running, its loop, milestone,
   trial, step, model, elapsed time, and the tools it has used so far (one line each, newest last);
   when none is running, the run's status and either its next action or what it waits for.
+  *(Revised 2026-10-12)* While a call runs, and between two calls of a run, the panel MUST keep
+  one height whatever it shows (its tools scroll inside it), so the view below does not move; it
+  MUST collapse to its first line and back, and the browser MUST remember that choice.
 - **FR-017** (A2): Tokens and cost MUST be shown for the workspace, each loop (on its overview card
   and in its view), each milestone, each trial, each step, and each call, split into input, output,
   cache write, and cache read (the split may be shown on hover or keyboard focus, as one Tokens

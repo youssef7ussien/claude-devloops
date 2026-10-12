@@ -2,7 +2,9 @@
    its loop, milestone, trial, step, model, the time since it started (ticking every second), and
    the tools it used so far, newest last (the last 20, or all with "Show all"). Otherwise: the
    run's status and its next action or what it waits for. Reloaded on DL.bus 'changed'; while a
-   call runs it is also asked for again every 15 seconds, so a command that died stops showing. */
+   call runs it is also asked for again every 15 seconds, so a command that died stops showing.
+   While a run goes on, the panel keeps one height whatever it shows, so the view below never
+   moves when it redraws; it collapses to its first line (remembered per browser). */
 (function (DL) {
   'use strict';
 
@@ -10,6 +12,37 @@
   var IDLE = { 'not-started': 'Nothing has run in this workspace yet.', completed: 'Every loop is done; no Claude call is running.' };
   var WAITS = { approval: 'Waits for the plan’s approval', questions: 'Waits for answers to its questions', retry: 'Waits for a retry' };
   var box = null, clock = null, recheck = null, showAll = false, drawn = false;
+  var collapsed = false;
+
+  /* The disclosure button that starts the panel's first line. */
+  function toggle() {
+    var b = DL.btn(null, { icon: 'chev', cls: 'icon ghost now-toggle', on: function () {
+      collapsed = !collapsed;
+      DL.store('now-collapsed', collapsed ? '1' : '0');
+      shape();
+      var list = DL.$('.now-tools', box);
+      if (list && !collapsed) list.scrollTop = list.scrollHeight;
+    } });
+    b.setAttribute('aria-controls', 'now-body');
+    return b;
+  }
+
+  /* The panel's classes and its toggle's state, from `collapsed`. */
+  function shape() {
+    box.classList.toggle('collapsed', collapsed);
+    var b = DL.$('.now-toggle', box);
+    if (!b) return;
+    var label = collapsed ? 'Expand the now panel' : 'Collapse the now panel';
+    b.setAttribute('aria-expanded', String(!collapsed));
+    b.setAttribute('aria-label', label);
+    b.title = label;
+  }
+
+  function body() {
+    var el = DL.el('div', 'now-body');
+    el.id = 'now-body';
+    return el;
+  }
 
   /* The tools the panel lists: the last SHOWN, or all. */
   function visible(tools, all) {
@@ -42,21 +75,23 @@
     var milestone = c.milestone_id
       ? DL.link(DL.router.href('loop', { loop: c.loop }, { m: c.milestone_id }), c.milestone_id)
       : DL.el('span', null, 'planning');
-    var head = DL.add(DL.el('div', 'now-head'), DL.add(DL.el('strong'), DL.el('span', 'pulse'), ' Running'),
+    var head = DL.add(DL.el('div', 'now-head'), toggle(), DL.add(DL.el('strong'), DL.el('span', 'pulse'), ' Running'),
       DL.add(DL.el('span', 'fact'), 'loop ', DL.el('b', null, c.loop || '–')),
       DL.add(DL.el('span', 'fact'), 'milestone ', DL.add(DL.el('b'), milestone)),
       fact('trial', c.trial), fact('step', c.step), fact('model', c.model),
       DL.add(DL.el('span', 'fact'), 'elapsed ', elapsed), DL.el('span', 'spacer'),
       DL.el('span', 'small muted', DL.fmt.plural(tools.length, 'tool call')));
-    head.firstChild.firstChild.setAttribute('aria-hidden', 'true');
+    head.children[1].firstChild.setAttribute('aria-hidden', 'true');
     if (tools.length > SHOWN) {
       head.appendChild(DL.btn(showAll ? 'Show the last ' + SHOWN : 'Show all', {
-        cls: 'ghost', on: function () { showAll = !showAll; draw(d); }
+        cls: 'ghost now-all', on: function () { showAll = !showAll; draw(d); }
       }));
     }
     box.className = 'now';
-    DL.add(box, head);
-    if (shown.length) {
+    var main = body();
+    DL.add(box, head, main);
+    if (!shown.length) main.appendChild(DL.el('p', 'muted small', 'No tool used yet.'));
+    else {
       var list = DL.el('ol', 'now-tools');
       list.setAttribute('aria-label', 'Tools used so far, newest last');
       shown.forEach(function (t) {
@@ -65,36 +100,53 @@
         DL.add(list, DL.add(DL.el('li'), time, DL.el('b', null, t.name),
           t.summary && t.summary !== t.name ? DL.el('span', null, t.summary) : null));
       });
-      box.appendChild(list);
+      main.appendChild(list);
       list.scrollTop = list.scrollHeight;
     }
     clock = setInterval(function () { elapsed.textContent = DL.fmt.duration(since()); }, 1000);
     if (DL.api.source() === 'api') recheck = setTimeout(function () { load(true); }, RECHECK);
   }
 
+  /* Not running: the status and what it waits for on the first line (all a collapsed panel
+     shows), and the next action below. Between two calls of a run the panel keeps its height;
+     when nothing runs (`rest`) it is only as tall as what it says. */
   function idle(d) {
-    box.className = 'now idle';
-    DL.add(box, DL.pill(d.status, 'run'));
+    box.className = 'now idle' + (d.busy && d.busy.length ? '' : ' rest');
+    var head = DL.add(DL.el('div', 'now-head'), toggle(), DL.pill(d.status, 'run')), main = body();
+    DL.add(box, head, main);
     if (d.busy && d.busy.length) {
-      box.appendChild(DL.el('span', null, d.busy.join(', ') + ' running: between Claude calls'));
+      head.appendChild(DL.el('span', null, d.busy.join(', ') + ' running: between Claude calls'));
+      main.appendChild(DL.el('p', 'muted small', 'The tools of the next call show here once it starts.'));
       return;
     }
-    if (d.waiting_for) box.appendChild(DL.el('strong', null, WAITS[d.waiting_for] || d.waiting_for));
+    if (d.waiting_for) head.appendChild(DL.el('strong', null, WAITS[d.waiting_for] || d.waiting_for));
     var a = d.next_action;
     if (a) {
-      DL.add(box, DL.add(DL.el('span'), DL.ticks(a.text)));
-      if (a.route) box.appendChild(DL.link(a.route, 'Open'));
+      DL.add(main, DL.add(DL.el('span'), DL.ticks(a.text)));
+      if (a.route) main.appendChild(DL.link(a.route, 'Open'));
     } else if (!d.waiting_for && IDLE[d.status]) {
-      box.appendChild(DL.el('span', 'muted', IDLE[d.status]));
+      head.appendChild(DL.el('span', 'muted', IDLE[d.status]));
     }
   }
 
+  /* The panel's button that has the focus ('.now-toggle' or '.now-all'), to give it back after
+     a redraw, which during a run comes every few seconds. */
+  function focused() {
+    var ae = document.activeElement;
+    if (!ae || !box.contains(ae)) return null;
+    return ae.classList.contains('now-toggle') ? '.now-toggle' : ae.classList.contains('now-all') ? '.now-all' : null;
+  }
+
   function draw(d) {
+    var focus = focused();
     stop();
     box.textContent = '';
     box.hidden = false;
     drawn = true;
     if (d.running) running(d); else idle(d);
+    shape();
+    var again = focus && DL.$(focus, box);
+    if (again) again.focus({ preventScroll: true });
   }
 
   function load(fresh) {
@@ -113,6 +165,7 @@
     start: function (el) {
       box = el;
       if (!box) return;
+      collapsed = DL.store('now-collapsed') === '1';
       DL.bus.on('changed', function () { load(); });
       load();
     }
