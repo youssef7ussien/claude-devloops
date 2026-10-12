@@ -746,6 +746,16 @@ shows a readable row.
   JavaScript. The library MUST only turn text into tokens, which the app puts on the page as text
   (FR-026). Logs and HTTP responses keep their own small rules. The export MUST NOT contain the
   library or any syntax highlighting: its code shows as plain text.
+- **FR-034** (added 2026-10-12): The dashboard MUST show every time in the viewer's time zone,
+  with its name ("2026-10-12 21:11:49 EEST"), unless the viewer switches to UTC by selecting the
+  zone name of the sidebar's "Updated" time ("EEST", then "UTC" to switch back). The choice MUST
+  take effect at once, redrawing the open view in place from the data it already shows (a view
+  marked stale stays stale, FR-003), and MUST be kept in the browser (like the theme; for the
+  page's life when the browser refuses storage), never in the project or an export; the viewer's
+  zone is the default. Where a time is shown on its own, pointing at it MUST show it in the other
+  zone; times are not keyboard stops (a long list would have hundreds), so keyboard and
+  screen-reader users get the other zone from the switch, which is a button. The data and the
+  files stay in UTC.
 
 #### Constraints and future
 

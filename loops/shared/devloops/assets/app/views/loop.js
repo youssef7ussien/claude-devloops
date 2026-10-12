@@ -365,7 +365,7 @@
         DL.add(el, DL.el('h4', null, 'Retries granted for milestones no longer in the plan'),
           DL.table([['Milestone'], ['Trials', 1], ['Granted'], ['Reason']], stray.map(function (g) {
             return DL.add(DL.el('tr'), DL.td(DL.el('strong', null, g.milestone || '?')), DL.td(String(g.trials), 'num'),
-              DL.td(g.at ? DL.fmt.time(g.at) : '–', 'small'), DL.td(g.reason, 'small'));
+              DL.td(DL.when(g.at), 'small'), DL.td(g.reason, 'small'));
           }), { cls: 'stray-grants' }));
       }
       if (focus && !refresh) {

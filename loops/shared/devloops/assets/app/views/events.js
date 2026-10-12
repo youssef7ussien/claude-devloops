@@ -10,7 +10,7 @@
       var events = data[0].events, target = null;
       query = query || {};
       var rows = events.map(function (ev) {
-        var tr = DL.add(DL.el('tr'), DL.td(DL.fmt.time(ev.at), 'muted small nowrap'), DL.td(ev.loop),
+        var tr = DL.add(DL.el('tr'), DL.td(DL.when(ev.at), 'muted small nowrap'), DL.td(ev.loop),
           DL.td(DL.el('span', 'tag', ev.type || '')), DL.td(ev.milestone || ''), DL.td(ev.message || ''));
         if (ev.loop === query.loop && String(ev.n) === String(query.at)) target = tr;
         return tr;

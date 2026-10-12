@@ -3,7 +3,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const load = require('./load.js');
 
-const DL = load();
+// The viewer chose UTC: the label is then the same on every machine.
+const DL = load(undefined, { localStorage: { getItem: (k) => (k === 'devloops-time-zone' ? 'utc' : null),
+  setItem() {} } });
 
 test('an export says what it is a snapshot of', () => {
   const ds = { exportedAt: '2026-10-10T06:20:27Z', devloopsVersion: '0.2.0', running: 'false' };

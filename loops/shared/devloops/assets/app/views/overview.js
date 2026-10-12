@@ -103,7 +103,7 @@
       var s = data[0], req = s.requirements || {}, sub = DL.el('span');
       if (req.path) DL.add(sub, 'Requirements ', DL.el('code', null, req.path), ' · mode ' + (req.mode || '–'),
         req.story_id ? ' · story ' + req.story_id : null, ' · ');
-      DL.add(sub, 'generated ' + DL.fmt.time(s.generated_at));
+      DL.add(sub, 'generated ', DL.when(s.generated_at));
       DL.add(el, DL.head('Overview', null, sub), kpis(s), attention(s.attention || []));
       if (!(s.loops || []).length) {
         el.appendChild(DL.el('p', 'muted gap-top', 'No loop has started in this workspace yet.'));

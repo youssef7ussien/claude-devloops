@@ -89,7 +89,15 @@
       if (summary && summary.status) box.appendChild(DL.pill(summary.status, 'run'));
     }
     var gen = DL.$('[data-generated]');
-    if (gen) gen.textContent = summary && summary.generated_at ? 'Updated ' + DL.fmt.time(summary.generated_at) : '';
+    if (gen) {
+      var focused = document.activeElement && gen.contains(document.activeElement);
+      gen.textContent = '';
+      if (summary && summary.generated_at) {
+        var at = updatedAt(summary.generated_at);
+        DL.add(gen, 'Updated ' + at.time + ' ', zoneSwitch(at.zone));
+        if (focused) DL.$('[data-action="zone"]', gen).focus();
+      }
+    }
     var sw = DL.$('select[data-action="workspace"]'), names = (summary && summary.workspaces) || [];
     if (sw && DL.api.source() === 'api') {
       sw.closest('.ws-switch').hidden = names.length < 2;
@@ -119,9 +127,38 @@
     if (label) label.textContent = offline ? 'Offline' : paused ? 'Paused' : 'Live';
   }
 
+  /* "2026-10-12 21:47:11 EEST" as {time: "2026-10-12 21:47:11", zone: "EEST"}. */
+  function updatedAt(iso) {
+    var text = DL.fmt.time(iso), cut = text.lastIndexOf(' ');
+    return cut < 0 ? { time: text, zone: '' } : { time: text.slice(0, cut), zone: text.slice(cut + 1) };
+  }
+
+  /* The zone name of the "Updated" time, which switches every time on the page between the
+     viewer's zone and UTC (spec 005 FR-034). */
+  function zoneSwitch(zone) {
+    var b = DL.el('button', 'zone-switch', zone);
+    b.type = 'button';
+    b.setAttribute('data-action', 'zone');
+    var tip = DL.zone.get() === 'utc' ? 'Show times in your time zone (' + DL.zone.localName(new Date()) + ')'
+      : 'Show times in UTC';
+    b.setAttribute('title', tip);
+    b.setAttribute('aria-label', zone + ': ' + tip);
+    b.addEventListener('click', function () { DL.zone.toggle(); });
+    return b;
+  }
+
+  /* After the time zone changes: every time on the page is drawn again, in place. */
+  function zoneChanged() {
+    buildStatus();
+    var label = DL.$('[data-snapshot]');
+    if (label && !label.hidden) label.textContent = snapshotLabel(root.dataset);
+    DL.router.redraw();  /* how times are shown, not what: a pending "Show updates" stays */
+  }
+
   function bindShell() {
     var app = DL.$('.app');
     DL.$$('[data-action="theme"]').forEach(function (b) { b.addEventListener('click', DL.theme.toggle); });
+    DL.bus.on('zone', zoneChanged);
     DL.$$('[data-action="menu"]').forEach(function (b) {
       b.addEventListener('click', function () { app.classList.toggle('nav-open'); });
     });

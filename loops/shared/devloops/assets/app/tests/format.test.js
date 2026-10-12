@@ -1,4 +1,5 @@
 'use strict';
+process.env.TZ = 'Europe/Athens';  // before any date: the "local" zone of these tests
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const load = require('./load.js');
@@ -34,7 +35,7 @@ test('duration as dashboard.py duration()', () => {
 test('percent, time, bytes, plural', () => {
   assert.equal(f.percent(null), '–');
   assert.equal(f.percent(0.426), '43%');
-  assert.equal(f.time('2026-10-09T12:34:56.789Z'), '2026-10-09 12:34:56 UTC');
+  assert.equal(f.time('2026-10-09T12:34:56.789Z', 'utc'), '2026-10-09 12:34:56 UTC');
   assert.equal(f.time('nonsense'), 'nonsense');
   assert.equal(f.bytes(512), '512 bytes');
   assert.equal(f.bytes(2048), '2.0 KB');
@@ -83,4 +84,33 @@ test('refTip: what a plan id says, or null (FR-020d)', () => {
   assert.equal(DL.refTip('FR-9', refs), null);
   assert.equal(DL.refTip('FR-1', undefined), null);
   assert.equal(DL.refTip('toString', refs), null);
+});
+
+test('time: the viewer\'s zone by default (Local), or UTC once chosen', () => {
+  // Local is the default: summer time in Athens is UTC+3, winter time UTC+2.
+  assert.equal(f.time('2026-10-09T12:34:56Z'), '2026-10-09 15:34:56 EEST');
+  assert.equal(f.time('2026-12-09T12:34:56Z'), '2026-12-09 14:34:56 EET');
+  assert.equal(f.clock('2026-10-09T12:34:56Z'), '15:34:56');
+  assert.equal(f.clock('2026-10-09T12:34:56Z', 'utc'), '12:34:56');
+  assert.equal(f.clock('nonsense'), '');
+  const stored = {};
+  const U = load(undefined, { localStorage: {
+    getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = v; } } });
+  assert.equal(U.zone.get(), 'local');
+  let told = null;
+  U.bus.on('zone', (z) => { told = z; });
+  assert.equal(U.zone.toggle(), 'utc');
+  assert.equal(told, 'utc');
+  assert.equal(stored['devloops-time-zone'], 'utc');
+  assert.equal(U.fmt.time('2026-10-09T12:34:56Z'), '2026-10-09 12:34:56 UTC');
+  assert.equal(U.zone.toggle(), 'local');
+});
+
+test('the zone switch works when the browser refuses to store it', () => {
+  const R = load(undefined, { localStorage: {
+    getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } } });
+  assert.equal(R.zone.get(), 'local');
+  assert.equal(R.zone.toggle(), 'utc');
+  assert.equal(R.zone.get(), 'utc');
+  assert.equal(R.fmt.time('2026-10-09T12:34:56Z'), '2026-10-09 12:34:56 UTC');
 });

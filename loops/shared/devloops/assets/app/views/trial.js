@@ -441,7 +441,7 @@
       DL.add(el, DL.head(d.milestone + ' · trial ' + d.key, DL.pill(d.status, 'trial'),
         d.title + ' · ' + d.kind + (d.attempt > 1 ? ' · attempt ' + d.attempt : '')), nav,
         DL.kpis([
-          DL.kpi('Started', DL.fmt.time(d.started_at)),
+          DL.kpi('Started', DL.when(d.started_at)),
           DL.kpi('Duration', DL.fmt.duration(d.seconds)),
           DL.kpi('Calls', String(t.calls)),
           DL.kpi('Cost', DL.fmt.money(t.cost)),

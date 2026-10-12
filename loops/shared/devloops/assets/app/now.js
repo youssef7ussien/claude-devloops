@@ -53,7 +53,7 @@
   /* An ISO time as "12:34:56". */
   function clockTime(iso) {
     var d = new Date(iso);
-    return isNaN(d.getTime()) ? '' : d.toISOString().slice(11, 19);
+    return isNaN(d.getTime()) ? '' : DL.fmt.clock(iso);
   }
 
   function fact(label, value) {
@@ -167,6 +167,7 @@
       if (!box) return;
       collapsed = DL.store('now-collapsed') === '1';
       DL.bus.on('changed', function () { load(); });
+      DL.bus.on('zone', function () { load(); });
       load();
     }
   };

@@ -261,3 +261,21 @@ test('the plan view\'s old address opens the loop view, keeping the milestone (F
   assert.deepEqual(load.plain(r.query), { m: 'M03' });
   assert.equal(R.href('loop', { loop: 'backend-dev' }, { m: 'M03' }), '#/loop/backend-dev?m=M03');
 });
+
+test('a redraw (the time zone) draws the data on screen again: nothing is asked, and a stale view stays stale', async () => {
+  const answers = { 'calls': [{ n: 1 }, 'v1'] };
+  const { DL, asked } = fake(answers);
+  DL.router.register('calls', { data: () => ['calls'], render() {} });
+  const shown = [];
+  DL.router._show = (loaded, refresh) => shown.push([loaded.data[0].n, !!refresh]);
+  await DL.router.mount(DL.router.parse('#/calls'));
+  answers.calls[0] = { n: 2 };
+  await DL.router.refresh();
+  assert.equal(DL.router.stale, true);
+  asked.length = 0;
+  shown.length = 0;
+  DL.router.redraw();
+  assert.deepEqual(asked, []);
+  assert.deepEqual(shown, [[1, true]]);
+  assert.equal(DL.router.stale, true);
+});

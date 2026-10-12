@@ -81,6 +81,7 @@
     current: null,  /* the mounted route */
     stale: false,   /* what the mounted view shows changed since it was drawn */
     drawn: null,    /* content hashes of the answers the mounted view was drawn from */
+    shown: null,    /* what the mounted view was drawn from: {route, def, data} */
     failed: false,  /* the mounted view could not be loaded (it shows an error) */
     loading: false, /* a mount is waiting for its data */
     missed: false,  /* the workspace changed while it waited */
@@ -209,6 +210,7 @@
       if (my !== R.seq) return;
       R.loading = false;
       R._show(loaded, refresh);
+      R.shown = loaded;
       R.failed = false;
       R.drawn = fingerprint(loaded.data);
       setStale(false);  /* only once the latest data is on screen */
@@ -262,6 +264,13 @@
   R.update = function () {
     if (R.current) return R.mount(R.current, true);
     return Promise.resolve();
+  };
+
+  /* The mounted view drawn again from the data it already shows, keeping the reader's place:
+     for a change of how it is shown (the time zone), never of what. A view that is stale stays
+     stale; one still loading, or that failed, is left as it is. */
+  R.redraw = function () {
+    if (R.shown && !R.loading && !R.failed && R.shown.route === R.current) R._show(R.shown, true);
   };
 
   R.go = function (view, params, query) { location.hash = href(view, params, query); };

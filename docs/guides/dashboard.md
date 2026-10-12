@@ -21,6 +21,7 @@ sources:
   - spec 005 FR-021a
   - spec 005 FR-022
   - spec 005 FR-033
+  - spec 005 FR-034
   - spec 007 FR-013
 ---
 
@@ -81,6 +82,10 @@ plain HTTP. Read [security](security.md#who-can-reach-the-dashboard) before you 
   While a run goes on it keeps one height, so the view below does not move; the arrow at its
   left collapses it to one line, and the dashboard remembers that in your browser.
 - **The theme button** switches between light and dark.
+- **Times** are shown in your own time zone, with its name (`2026-10-12 21:11:49 EEST`).
+  Selecting the zone name of the "Updated" time at the bottom of the sidebar switches every time
+  to UTC, the zone of devloops' files and logs; selecting **UTC** switches back. The page changes
+  at once, and your browser remembers the choice. Hovering over a time shows it in the other zone.
 - Hovering over a token count shows its parts (input, output, cache), and hovering over a
   [requirement](../glossary.md#requirements), [task](../glossary.md#task) or criterion ID shows
   its text.

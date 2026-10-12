@@ -554,6 +554,9 @@ table.checks-table ul{margin:4px 0;padding-left:18px}
 table.checks-table code{font-size:12px;word-break:break-all}
 button.linkish{font:inherit;background:none;border:0;padding:0;color:var(--accent);cursor:pointer}
 button.linkish:hover{text-decoration:underline}
+.zone-switch{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;
+text-decoration:underline dotted;text-underline-offset:2px}
+.zone-switch:hover,.zone-switch:focus-visible{color:var(--accent);text-decoration-style:solid}
 .why .reason-card.hit,.why .reason-card:focus{outline:2px solid var(--warning);outline-offset:2px}
 details.folder-sec{margin:14px 0;padding:10px 14px}
 details.folder-sec>summary{cursor:pointer;display:flex;align-items:center;gap:6px}

@@ -329,7 +329,7 @@
     [['Loop', DL.link(d.routes.loop, d.loop)], ['Step', d.step], ['Milestone', d.milestone_id || 'planning'],
       ['Trial', d.routes.trial ? DL.link(d.routes.trial, String(d.trial)) : (d.trial == null ? '–' : String(d.trial))],
       ['Model', d.model || '–'], ['Session', DL.el('code', null, d.session_id || '–')],
-      ['Started', DL.fmt.time(d.started_at)], ['Turns', d.num_turns == null ? '–' : String(d.num_turns)],
+      ['Started', DL.when(d.started_at)], ['Turns', d.num_turns == null ? '–' : String(d.num_turns)],
       ['Result', d.failure_class && d.failure_class !== 'none' ? DL.pill('failed', 'trial') : (d.subtype || '–')]
     ].forEach(function (f) { DL.add(facts, DL.el('dt', null, f[0]), DL.add(DL.el('dd'), f[1])); });
     return [facts, DL.kpis([

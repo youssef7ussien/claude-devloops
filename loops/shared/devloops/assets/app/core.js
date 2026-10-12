@@ -177,6 +177,58 @@
     });
   };
 
+  /* --- time zone: the viewer's choice, Local (default) or UTC, kept per browser ------------------ */
+  var zoneChoice = null;   /* this page's choice, also when the browser refuses to store it */
+  var zoneNames = {};      /* the zone's name by UTC offset (summer and winter time differ) */
+  var zoneFormats = null;  /* the formatters that name it, made once */
+
+  DL.zone = {
+    get: function () {
+      return zoneChoice || (DL.store('time-zone') === 'utc' ? 'utc' : 'local');
+    },
+    /* Switch, remember, and tell the views to draw their times again. */
+    toggle: function () {
+      zoneChoice = DL.zone.get() === 'utc' ? 'local' : 'utc';
+      DL.store('time-zone', zoneChoice);
+      DL.bus.emit('zone', zoneChoice);
+      return zoneChoice;
+    },
+    /* The browser's zone name for date `d` (it changes with summer time): an abbreviation where one
+       is known ("EEST" from British English, "EDT" from American), else the offset ("GMT+4"). */
+    localName: function (d) {
+      var offset = d.getTimezoneOffset();
+      if (!(offset in zoneNames)) zoneNames[offset] = nameZone(d);
+      return zoneNames[offset];
+    }
+  };
+
+  function nameZone(d) {
+    if (!zoneFormats) {
+      zoneFormats = ['en-GB', 'en-US'].map(function (locale) {
+        try { return new Intl.DateTimeFormat(locale, { timeZoneName: 'short' }); } catch (e) { return null; }
+      }).filter(Boolean);
+    }
+    var names = zoneFormats.map(function (f) {
+      var part = f.formatToParts(d).filter(function (p) { return p.type === 'timeZoneName'; })[0];
+      return part ? part.value : null;
+    }).filter(Boolean);
+    return names.filter(function (n) { return !/^(GMT|UTC)[+-]/.test(n); })[0] || names[0] || 'local';
+  }
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+
+  /* "2026-10-09 15:34:56 EEST" (or with `clockOnly`, "15:34:56") of date `d` in `zone`. */
+  function wallTime(d, zone, clockOnly) {
+    var utc = zone === 'utc';
+    var parts = utc
+      ? [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()]
+      : [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()];
+    var clock = pad2(parts[3]) + ':' + pad2(parts[4]) + ':' + pad2(parts[5]);
+    if (clockOnly) return clock;
+    return parts[0] + '-' + pad2(parts[1]) + '-' + pad2(parts[2]) + ' ' + clock + ' ' +
+      (utc ? 'UTC' : DL.zone.localName(d));
+  }
+
   /* --- formatting (as dashboard.py's money, number, duration) ---------------------------------- */
   function group(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   var fmt = DL.fmt = {
@@ -204,12 +256,18 @@
     },
     /* a ratio (0.42) as "42%" */
     percent: function (v) { return v == null ? '–' : Math.round(v * 100) + '%'; },
-    /* an ISO time as "2026-10-09 12:34:56 UTC" */
-    time: function (iso) {
+    /* an ISO time as "2026-10-09 15:34:56 EEST" in the browser's time zone, or as
+       "2026-10-09 12:34:56 UTC" (`zone`: 'local' or 'utc'; default: the viewer's choice) */
+    time: function (iso, zone) {
       if (!iso) return '–';
       var d = new Date(iso);
       if (isNaN(d.getTime())) return String(iso);
-      return d.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+      return wallTime(d, zone || DL.zone.get(), false);
+    },
+    /* the time of day only, "15:34:56" (the "now" panel) */
+    clock: function (iso, zone) {
+      var d = new Date(iso);
+      return isNaN(d.getTime()) ? '' : wallTime(d, zone || DL.zone.get(), true);
     },
     bytes: function (n) {
       if (n == null) return '–';
@@ -301,6 +359,14 @@
   };
   /* A table cell; content is text, an element, or a list of them. */
   DL.td = function (content, cls) { return DL.add(DL.el('td', cls || null), content); };
+  /* An ISO time in the viewer's zone, with the other zone on hover; '–' when there is none. */
+  DL.when = function (iso) {
+    if (!iso) return '–';
+    var t = DL.el('time', null, fmt.time(iso));
+    t.setAttribute('datetime', iso);
+    t.setAttribute('data-tip', fmt.time(iso, DL.zone.get() === 'utc' ? 'local' : 'utc'));
+    return t;
+  };
   /* A bordered table: head `[[label, numeric]]`, rows `<tr>` elements; `opts.empty` is said
      instead when there are no rows, `opts.cls` classes the table. */
   DL.table = function (head, rows, opts) {

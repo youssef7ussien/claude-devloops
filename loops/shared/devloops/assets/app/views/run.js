@@ -15,7 +15,7 @@
       var rows = (run.steps || []).map(function (s) {
         var tr = DL.el('tr');
         DL.add(tr, DL.td(DL.link(DL.router.href('loop', { loop: s.loop }), s.loop)), DL.td(DL.pill(s.status, 'run')),
-          DL.td(s.reason || ''), DL.td(DL.fmt.time(s.started_at), 'muted small'), DL.td(DL.fmt.time(s.ended_at), 'muted small'));
+          DL.td(s.reason || ''), DL.td(DL.when(s.started_at), 'muted small'), DL.td(DL.when(s.ended_at), 'muted small'));
         return tr;
       });
       DL.add(el, DL.head('Run', DL.pill(run.status, 'orchestrator')),

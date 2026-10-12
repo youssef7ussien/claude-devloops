@@ -128,6 +128,9 @@ async function main() {
     await page.send('Emulation.setDeviceMetricsOverride',
       { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
     await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+    /* The dashboard shows times in the viewer's zone: one zone, wherever this runs (the guide's
+       examples say EEST). */
+    await page.send('Emulation.setTimezoneOverride', { timezoneId: 'Europe/Athens' });
 
     /* The items each view shows, from the dashboard's own answers. */
     const calls = (await api('calls')).calls;
