@@ -36,6 +36,7 @@ class CheckTest(unittest.TestCase):
 
     def check(self, project=True, **kwargs):
         kwargs.setdefault("browser_paths", ())
+        kwargs.setdefault("chromium_paths", ())
         kwargs.setdefault("platform", "linux")
         return checkcmd.run_checks(self.t.project() if project else None, self.t.kit(),
                                    self.env, **kwargs)
@@ -147,6 +148,18 @@ class CheckTest(unittest.TestCase):
         result = self.check()
         self.assertTrue(result["ready"])
         self.assertEqual(self.item(result, "shared-visible-browser")["status"], "warning")
+
+    def test_without_chrome_an_installed_chromium_is_named(self):
+        """The same browser check as `devloops run`, with the line that uses Chromium."""
+        self.hide("google-chrome")
+        item = self.item(self.check(), "browser")
+        self.assertEqual(item["status"], "missing")
+        self.assertIn("npx playwright install chrome", item["fix"])
+        self.stub("chromium", "Chromium 131")
+        item = self.item(self.check(), "browser")
+        chromium = os.path.join(self.bin, "chromium")
+        self.assertIn(f"Chromium is at {chromium}", item["detail"])
+        self.assertIn(f'"executable_path": "{chromium}"', item["fix"])
 
     def test_a_missing_design_reference_is_missing(self):
         """spec 007 FR-011: the run would stop on it, so the check names it first."""

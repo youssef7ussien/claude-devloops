@@ -9,6 +9,7 @@ sources:
   - loops/shared/devloops/checkcmd.py
   - loops/shared/devloops/preflight.py
   - spec 002 FR-001
+  - spec 002 FR-018a
 ---
 
 # Install
@@ -31,6 +32,12 @@ then use it in any number of projects.
 You need the frontend tools only if your project has a frontend. devloops builds the frontend
 in a real browser through the Playwright MCP server, a program that lets Claude Code control a
 browser.
+
+`devloops run` checks these tools, the browser included, before anything runs, and stops with
+[exit code 30](../reference/exit-codes.md#exit-30) naming what is missing. With Chromium
+installed but no Chrome, it gives the line that uses Chromium, and
+[`devloops init`](../reference/commands.md#init) offers to write that line to your own
+`.devloops/devloops.local.json`.
 
 devloops runs Claude Code as your logged-in user, so every call uses your Claude account and
 counts toward its usage.

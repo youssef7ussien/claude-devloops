@@ -496,6 +496,16 @@ override file and its fingerprint.
   - the browser-automation server and a usable browser;
   - version control, when per-milestone commits are configured;
   - a display, when the visible browser is configured.
+- **FR-018a** (added 2026-10-12): The run's own tool check (001 FR-013b), which `devloops run`
+  makes for every selected loop before anything runs, MUST also check the frontend's browser, with
+  the same rules as `devloops check` (one shared check): `playwright.executable_path` when set,
+  otherwise a Chrome-channel browser; nothing when `playwright.mcp_command` chooses the browser.
+  A missing browser stops the run with `missing-tool` (exit 30) before the backend spends
+  anything. When Chrome is missing but Chromium is installed, the message (and `check`'s fix)
+  MUST name its path and the exact `playwright.executable_path` line for
+  `.devloops/devloops.local.json`; devloops MUST NOT choose Chromium by itself. `init` on a
+  terminal, for a project with a frontend, MUST offer to write that line to the developer's local
+  file (asked last, default yes), and otherwise say it in its summary.
 - **FR-019** [I, from FR-018]: `check` MUST exit 0 when every prerequisite needed by the project's
   configuration is ready, and non-zero otherwise. It MUST offer machine-readable output like the
   other commands (001 `--json`). It MUST work outside a project, checking against the packaged

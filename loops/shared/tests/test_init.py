@@ -4,6 +4,7 @@ import json
 import os
 import pty
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,7 @@ import time
 import unittest
 
 import helpers
+from devloops import preflight
 
 SKILLS = ("run", "status")
 INSTALLED = sorted([".devloops/prompts/README.md"]
@@ -282,11 +284,14 @@ class InteractiveInitTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_tty(self, answers, *args):
+    def run_tty(self, answers, *args, path=None):
         """Run `bin/devloops init` with a pseudo-terminal; return (exit code, transcript)."""
         master, slave = pty.openpty()
         env = dict(os.environ)
         env.pop("DEVLOOPS_PROJECT", None)
+        # No browser on PATH unless given, so the questions do not depend on the machine (the
+        # Chromium offer).
+        env["PATH"] = path or os.path.join(self.tmp.name, "empty-path")
         proc = subprocess.Popen([sys.executable, COMMAND, "init", *args], cwd=self.dir,
                                 stdin=slave, stdout=slave, stderr=slave, env=env)
         os.close(slave)
@@ -330,6 +335,67 @@ class InteractiveInitTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("answer y or n", out)
         self.assertEqual(self.config()["config"], {})
+
+    def test_without_chrome_init_offers_an_installed_chromium(self):
+        """Spec 002 FR-018a: the answer is written to the developer's own local file."""
+        if any(os.path.exists(p) for p in preflight.BROWSER_PATHS + preflight.CHROMIUM_PATHS):
+            self.skipTest("a browser is installed outside PATH on this machine")
+        bin_dir = os.path.join(self.tmp.name, "bin")
+        os.makedirs(bin_dir)
+        chromium = os.path.join(bin_dir, "chromium")
+        with open(chromium, "w") as f:
+            f.write("#!/bin/sh\n")
+        os.chmod(chromium, 0o755)
+        code, out = self.run_tty(["", "", "", "", ""], path=bin_dir)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"No Chrome found for the frontend's browser. Use Chromium at {chromium}?",
+                      out)
+        with open(os.path.join(self.dir, ".devloops", "devloops.local.json"),
+                  encoding="utf-8") as f:
+            self.assertEqual(json.load(f),
+                             {"config": {"playwright": {"executable_path": chromium}}})
+        self.assertIn("the frontend validates in Chromium", out)
+
+        # Declined, or without a frontend: nothing is written, and the fix is in the summary.
+        shutil.rmtree(os.path.join(self.dir, ".devloops"))
+        code, out = self.run_tty(["", "", "", "", "n"], path=bin_dir)
+        self.assertEqual(code, 0, out)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, ".devloops",
+                                                     "devloops.local.json")))
+        self.assertIn("no Chrome found for the frontend's browser; to use Chromium", out)
+        shutil.rmtree(os.path.join(self.dir, ".devloops"))
+        code, out = self.run_tty(["", "none", "", ""], path=bin_dir)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("Chromium", out)
+
+        # The developer's own local file: a browser it sets is kept (no offer), the rest of it is
+        # kept when the offer is accepted, and one that cannot be read skips the offer instead of
+        # stopping init after it wrote its files.
+        local = os.path.join(self.dir, ".devloops", "devloops.local.json")
+        for data, asked in (({"config": {"playwright": {"mcp_command": ["my-mcp"]}}}, False),
+                            ({"config": {"max_trials": 5}}, True)):
+            shutil.rmtree(os.path.join(self.dir, ".devloops"))
+            os.makedirs(os.path.dirname(local))
+            with open(local, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            code, out = self.run_tty(["", "", "", "", ""], path=bin_dir)
+            self.assertEqual(code, 0, out)
+            self.assertEqual("Use Chromium" in out, asked, out)
+            with open(local, encoding="utf-8") as f:
+                saved = json.load(f)
+            if asked:
+                self.assertEqual(saved, {"config": {"max_trials": 5, "playwright": {
+                    "executable_path": chromium}}})
+            else:
+                self.assertEqual(saved, data)
+        shutil.rmtree(os.path.join(self.dir, ".devloops"))
+        os.makedirs(os.path.dirname(local))
+        with open(local, "w", encoding="utf-8") as f:
+            f.write("{not json")
+        code, out = self.run_tty(["", "", "", ""], path=bin_dir)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("Chromium", out)
+        self.assertTrue(os.path.exists(os.path.join(self.dir, ".devloops", "manifest.json")))
 
     def test_no_models_is_not_asked_about(self):
         code, out = self.run_tty(["", "", ""], "--no-models")

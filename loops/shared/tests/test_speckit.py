@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import sys
 import unittest
 
 import helpers
@@ -277,6 +278,9 @@ class SpeckitRunTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(self.cli("run"), 10, self.last_output)
 
     def test_run_passes_the_feature_to_every_loop(self):
+        # The frontend's browser server is a stub, so the run's browser check has nothing to find.
+        self.t.write_file(".devloops/devloops.local.json", json.dumps({"config": {"playwright": {
+            "mcp_command": [sys.executable, "-c", "pass"]}}}), base=self.t.root)
         code = self.cli("run", "--speckit-feature", "--backend-target",
                         self.t.target_dir, "--frontend-target", self.t.frontend_target_dir)
         self.assertEqual(code, 10, self.last_output)  # the backend planned and awaits approval

@@ -3,6 +3,7 @@ quickstart §1 rows 4–10). backend-dev uses the stub validator, so no applicat
 import json
 import os
 import shutil
+import sys
 import unittest
 
 import helpers
@@ -30,8 +31,11 @@ class ProjectRunsTest(unittest.TestCase):
 
     def configure(self, **extra):
         # Backend only: these tests stub backend-dev alone (003 FR-005: null is not used).
+        # A test that adds the frontend gets a stub browser server, so the run's browser check
+        # does not depend on the machine.
         config = {"targets": {"backend-dev": "backend", "frontend-dev": None},
-                  "requirements": {"path": "docs/prd.md"}}
+                  "requirements": {"path": "docs/prd.md"},
+                  "config": {"playwright": {"mcp_command": [sys.executable, "-c", "pass"]}}}
         config.update(extra)
         self.t.make_project(self.t.root, config)
 

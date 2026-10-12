@@ -14,12 +14,10 @@ import sys
 from . import config as config_mod
 from . import engine, inputs, orchestrator, workspace
 from .state import DevloopsError
-from .preflight import MIN_CLAUDE_VERSION, VERSION_TIMEOUT_SECONDS, claude_bin, parse_version
+from .preflight import (BROWSER_PATHS, CHROMIUM_PATHS, MIN_CLAUDE_VERSION, VERSION_TIMEOUT_SECONDS,
+                        browser_status, claude_bin, parse_version)
 
 BACKEND, FRONTEND, ALL = "backend-dev", "frontend-dev", "all"
-BROWSER_NAMES = ("google-chrome", "google-chrome-stable", "chrome")
-BROWSER_PATHS = ("/opt/google/chrome/chrome",
-                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 MIN_PYTHON = (3, 10)
 
 
@@ -106,30 +104,12 @@ def _visible(playwright):
     return (playwright or {}).get("headless", True) is False
 
 
-def _browser(cfg, env, browser_paths):
-    if _explicit_mcp(cfg.get("playwright")) is not None:
-        return _item("browser", "ready",
-                     "not checked: playwright.mcp_command is set and chooses the browser",
-                     needed_for=(FRONTEND,))
-    configured = (cfg.get("playwright") or {}).get("executable_path")
-    fix = "npx playwright install chrome, or set playwright.executable_path"
-    if configured:
-        path = os.path.expanduser(configured)
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return _item("browser", "ready", path, needed_for=(FRONTEND,))
-        return _item("browser", "missing",
-                     f"playwright.executable_path {configured} is not an executable file",
-                     "fix playwright.executable_path, or remove it to use Chrome",
-                     needed_for=(FRONTEND,))
-    for name in BROWSER_NAMES:
-        found = _which(name, env)
-        if found:
-            return _item("browser", "ready", found, needed_for=(FRONTEND,))
-    for path in browser_paths:
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return _item("browser", "ready", path, needed_for=(FRONTEND,))
-    return _item("browser", "missing", "no Chrome-channel browser found", fix,
-                 needed_for=(FRONTEND,))
+def _browser(cfg, env, browser_paths, chromium_paths):
+    """The same check `devloops run` makes before it starts (preflight.browser_status)."""
+    status, detail, fix = browser_status(cfg, env, browser_paths, chromium_paths)
+    if status == "not-checked":
+        return _item("browser", "ready", "not checked: " + detail, needed_for=(FRONTEND,))
+    return _item("browser", status, detail, fix, needed_for=(FRONTEND,))
 
 
 def _git(cfg, env):
@@ -218,14 +198,15 @@ def _unused(item, loops):
                 detail=f"not used by this project ({', '.join(needed)})")
 
 
-def run_checks(project, kit, env=None, platform=None, browser_paths=BROWSER_PATHS):
+def run_checks(project, kit, env=None, platform=None, browser_paths=BROWSER_PATHS,
+               chromium_paths=CHROMIUM_PATHS):
     """`{ready, project, loops, items}`: `ready` is false when any item is `missing`."""
     env = dict(os.environ if env is None else env)
     platform = platform or sys.platform
     cfg = effective_config(project, kit)
     items = [_python(), _claude(env), _curl(env), _playwright_mcp(cfg, env),
-             _browser(cfg, env, browser_paths), _git(cfg, env), _display(cfg, env, platform),
-             _shared_visible_browser(project)]
+             _browser(cfg, env, browser_paths, chromium_paths), _git(cfg, env),
+             _display(cfg, env, platform), _shared_visible_browser(project)]
     loops = project_loops(project, kit)
     items.append(_design_references(cfg, project, kit, loops))
     items = [_unused(i, loops) for i in items if i is not None]

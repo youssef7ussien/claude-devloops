@@ -819,6 +819,12 @@ records its prompt sources. A change is recorded as an event and reported by `st
   feature through `orchestrate`, opening the copied full dashboard offline, the upgrade, and the
   visible browser. Record the outcomes, costs, defects, and README gaps in
   `specs/002-devloops-init/validation-results.md`, and fix the code or docs where they differ.
+- [X] T062 The browser before a run (FR-018a, added 2026-10-12): `preflight.browser_status` is
+  the one browser check, used by `preflight.check_tools` for `playwright-mcp` (so `devloops run`
+  stops before the backend) and by `checkcmd`; without Chrome, an installed Chromium is named with
+  its `playwright.executable_path` line; `initcmd.ask_missing` offers to write it to
+  `.devloops/devloops.local.json` (`chromium_offer`), and `init` says it otherwise;
+  `test_preflight.py`, `test_check.py`, `test_init.py`; `docs/getting-started/install.md`.
 
 ---
 

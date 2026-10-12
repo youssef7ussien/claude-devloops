@@ -17,7 +17,7 @@ import stat
 from dataclasses import dataclass
 
 from . import project as project_mod
-from . import prompts, state, workspace
+from . import preflight, prompts, state, workspace
 from .state import DevloopsError
 
 SKILLS_DIR = (".claude", "skills")
@@ -27,6 +27,7 @@ IGNORE_END = "# <<< devloops"
 DEFAULT_TARGETS = {"backend-dev": "backend", "frontend-dev": "frontend"}
 NO_TARGET = "none"  # the target answer for a loop the project does not use (003 FR-013)
 NEEDS_A_LOOP = "a project needs at least one loop"
+LOCAL_CONFIG_REL = os.path.join(project_mod.DIRNAME, project_mod.LOCAL_NAME)
 
 
 class InitError(DevloopsError):
@@ -218,9 +219,11 @@ def default_requirements(proj):
     return {"speckit_feature": "active"} if active_feature(proj.root) else None
 
 
-def ask_missing(opts, project_root, kit, stdin, stdout):
-    """Ask for each value not given as a flag; return `(targets, requirements, models)` (research
-    P-13).
+def ask_missing(opts, project_root, kit, stdin, stdout, browser_paths=preflight.BROWSER_PATHS,
+                chromium_paths=preflight.CHROMIUM_PATHS):
+    """Ask for each value not given as a flag; return `(targets, requirements, models, chromium)`
+    (research P-13). `chromium` is the Chromium to use as the frontend's browser when there is no
+    Chrome and the developer accepted it, else None.
 
     Only on a terminal and without `--no-prompt`; otherwise return `None`. Answers are relative to
     the project root. An invalid answer is explained and asked again.
@@ -297,17 +300,59 @@ def ask_missing(opts, project_root, kit, stdin, stdout):
             except ValueError as e:
                 rejected(question, str(e))
 
-    models = opts.models
-    if models:  # `--no-models` already answered it
-        question = ("Recommended models (opus to plan and write checks, sonnet to build; "
-                    "y/n)")
+    def yes(question):
         while True:
             answer = ask(question, "y").lower()
             if answer in ("y", "yes", "n", "no"):
-                models = answer.startswith("y")
-                break
+                return answer.startswith("y")
             rejected(question, "answer y or n")
-    return targets, requirements, models
+
+    models = opts.models
+    if models:  # `--no-models` already answered it
+        models = yes("Recommended models (opus to plan and write checks, sonnet to build; y/n)")
+
+    chromium = chromium_offer(targets, browser_config(proj), os.environ, browser_paths,
+                              chromium_paths)
+    if chromium and not yes(f"No Chrome found for the frontend's browser. Use Chromium at "
+                            f"{chromium}? (saved in {LOCAL_CONFIG_REL}; y/n)"):
+        chromium = None
+    return targets, requirements, models, chromium
+
+
+def browser_config(proj, shared=None):
+    """The `playwright` settings a run would use, as `{"playwright": {...}}`: the shared file's
+    (`shared`, the `devloops.json` data, or none yet) under the developer's local file. None when
+    the local file cannot be read: `init` then offers nothing rather than fail (`devloops run`
+    reports the file)."""
+    try:
+        local = proj.local_config
+    except project_mod.ProjectConfigError:
+        return None
+    playwright = dict(((shared or {}).get("config") or {}).get("playwright") or {})
+    playwright.update((local.get("config") or {}).get("playwright") or {})
+    return {"playwright": playwright}
+
+
+def save_chromium(proj, chromium):
+    """Set `playwright.executable_path` to `chromium` in the developer's local file, keeping what
+    it already holds."""
+    data = proj.local_config if os.path.exists(proj.local_config_path) else {}
+    data = copy.deepcopy(data)
+    data.setdefault("config", {}).setdefault("playwright", {})["executable_path"] = chromium
+    write_project_file(proj.local_config_path, json.dumps(data, indent=2) + "\n")
+
+
+def chromium_offer(targets, cfg, env=None, browser_paths=preflight.BROWSER_PATHS,
+                   chromium_paths=preflight.CHROMIUM_PATHS):
+    """The Chromium to offer for the frontend's browser: when the project uses the frontend loop,
+    its browser settings `cfg` (`browser_config`) leave the default browser, no Chrome-channel
+    browser is installed, and Chromium is (spec 002 FR-018a). Else None."""
+    if not targets.get("frontend-dev") or cfg is None:
+        return None
+    status, _, _ = preflight.browser_status(cfg, env, browser_paths, chromium_paths)
+    if status != "missing" or (cfg.get("playwright") or {}).get("executable_path"):
+        return None
+    return preflight.find_chromium(env, chromium_paths)
 
 
 def _unused_by_flag(opts):
@@ -408,12 +453,14 @@ def init(project_root, kit, opts, answers=None):
                                         ("--no-frontend", opts.no_frontend),
                                         ("--requirements", opts.requirements),
                                         ("--speckit-feature", opts.speckit_feature)) if value]
+    chromium = None  # the Chromium the developer accepted at the prompt
     if existing_config:
         config = proj.shared_config  # validated (FR-016); kept as it is
+        targets = config.get("targets") or {}
     else:
         models = opts.models
         if answers is not None:
-            targets, requirements, models = answers
+            targets, requirements, models, chromium = answers
         else:
             unused = _unused_by_flag(opts)
             targets = {loop: None if loop in unused else
@@ -428,6 +475,9 @@ def init(project_root, kit, opts, answers=None):
         config = default_project_config(
             {loop: proj.relative_or_absolute(p) if p else None for loop, p in checked.items()},
             requirements, models)
+    # The frontend's browser (spec 002 FR-018a), decided before anything is written: a local
+    # file that cannot be read skips the offer rather than stop init halfway.
+    offer = None if chromium else chromium_offer(targets, browser_config(proj, config), os.environ)
 
     files = installed_files(kit, proj.root)
     conflicts, adopted, to_write = [], [], {}
@@ -474,7 +524,19 @@ def init(project_root, kit, opts, answers=None):
     write_project_file(proj.manifest_path, json.dumps(manifest, indent=2) + "\n")
     created.append(os.path.relpath(proj.manifest_path, proj.root))
 
+    browser_note = None  # spec 002 FR-018a: the frontend's browser
+    if chromium:
+        existed = os.path.exists(proj.local_config_path)
+        save_chromium(proj, chromium)
+        (changed if existed else created).append(LOCAL_CONFIG_REL)
+        browser_note = f"the frontend validates in Chromium ({chromium}), set in {LOCAL_CONFIG_REL}"
+    elif offer:
+        browser_note = ("no Chrome found for the frontend's browser; to use Chromium, "
+                        + preflight.chromium_fix(offer))
+
     notes = [f"initialized {proj.root} (devloops {kit.version})"]
+    if browser_note:
+        notes.append(browser_note)
     if existing_config:
         notes.append(f"kept the existing {config_rel}"
                      + (f" ({', '.join(ignored)} ignored; edit it instead)" if ignored else ""))
