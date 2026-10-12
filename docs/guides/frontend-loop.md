@@ -18,6 +18,11 @@ sources:
   - spec 001 D-15
   - spec 001 FR-041
   - spec 001 FR-042
+  - spec 007 FR-001
+  - spec 007 FR-004
+  - spec 007 FR-006
+  - spec 007 FR-009
+  - spec 007 FR-011
 ---
 
 # The frontend loop
@@ -55,6 +60,52 @@ something only a command shows, such as "the unit tests pass"; the unit tests ar
 
 The plan's [runtime](../glossary.md#runtime) says how to build and serve the frontend, and the
 address it answers on. That address is the UI address devloops tests and publishes.
+
+## The design
+
+So that every page looks like part of one product, the plan decides the design once, before any
+page is built. Its design brief names the design system or component library, the colours, the
+typography, the spacing, the layout and the base components. Claude Code chooses it in the same
+order as the stack: the look the target already has, then what the requirements or your design
+references show, and only then a proposal of its own. A plan without a design brief is rejected,
+and a disagreement between those sources becomes an
+[open question](../glossary.md#open-question). The brief is in the loop's
+[`plan-summary.md`](../reference/state-files.md#loop-outputs-plan-summary.md) and on the
+[dashboard](dashboard.md), beside the stack.
+
+When the target has no frontend yet, the first milestone builds the shared pieces: the theme, the
+layout with its navigation, and the base components, such as buttons, form fields, lists, and the
+empty and error states. Every later milestone reuses them.
+
+Claude Code is also given rules for each page: a clear layout, every state shown (loading, empty,
+error, disabled), semantic HTML with a label for every field, a visible focus, and motion only
+where it helps. The points a browser can check become acceptance criteria of each page, so
+[validation](../how-it-works/validation.md) enforces them:
+
+- the page at 375 px (a phone) and 1280 px (a desktop) wide, without sideways scrolling;
+- its main actions done with the keyboard alone, with the focus visible;
+- the error a person sees after sending a form with a wrong value.
+
+Loading, empty and failure states stay rules rather than criteria: they depend on timing, or on
+data the backend may already hold from its own checks, so a browser cannot always reach them.
+
+How the pages look is never graded: a model's taste would fail trials for no clear reason.
+
+To show the look you want, list screenshots, a brand guide, or a folder of them in
+[`design.references`](../reference/configuration.md#design.references), relative to the project
+root:
+
+```json
+{"config": {"design": {"references": ["design/brand-guide.md", "design/screenshots"]}}}
+```
+
+When the frontend loop first starts in a workspace, devloops copies them into the loop's state
+folder, under `design-references/`. Claude Code is given those copies, not the originals'
+folders, while it plans and builds each milestone. A reference must not hold the workspace itself:
+name the design files or their own folder, not the project root. A change to a reference after that does not reach the
+run; start a new workspace to use it. A path that does not exist stops `devloops run` before
+anything runs, with [exit code 30](../reference/exit-codes.md#exit-30), and
+[`devloops check`](../reference/commands.md#check) reports it.
 
 ## How it is validated
 

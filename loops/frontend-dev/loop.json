@@ -4,5 +4,6 @@
   "required_tools": ["claude", "playwright-mcp"],
   "validator": "playwright",
   "requires_openapi_path": false,
+  "requires_design": true,
   "artifacts": ["ui-url"]
 }

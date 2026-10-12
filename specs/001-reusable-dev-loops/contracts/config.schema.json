@@ -229,6 +229,22 @@
         }
       }
     },
+    "design": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "For the frontend loop only: what its pages should look like.",
+      "$comment": "007 FR-009",
+      "properties": {
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Files or folders that show the look you want, such as screenshots or a brand guide, relative to the project root. The frontend loop copies them into its state when it first starts, and its plan, implement and fix steps read those copies. A path that does not exist stops devloops run before anything runs."
+        }
+      }
+    },
     "git": {
       "type": "object",
       "additionalProperties": false,

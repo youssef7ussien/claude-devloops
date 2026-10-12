@@ -61,6 +61,35 @@
         }
       }
     },
+    "design": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "source",
+        "conflicts"
+      ],
+      "description": "007 FR-001: the frontend's visual direction (design system or component library, colours, typography, spacing, layout shell, base components). Required for frontend-dev (checked by driver)",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "existing-code",
+            "requirements",
+            "configuration",
+            "proposed"
+          ]
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "runtime": {
       "type": "object",
       "additionalProperties": false,

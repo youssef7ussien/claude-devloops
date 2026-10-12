@@ -15,6 +15,8 @@ _PLAN = {
         {"ref": "FR-2", "summary": "Create an item"},
     ],
     "stack": {"summary": "Python stdlib HTTP server", "source": "proposed", "conflicts": []},
+    "design": {"summary": "One theme, a top bar, and shared buttons and states", "source": "proposed",
+               "conflicts": []},
     "runtime": {
         "start_command": "python3 app.py 8765",
         "cwd": ".",

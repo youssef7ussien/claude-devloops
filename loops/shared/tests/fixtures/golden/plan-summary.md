@@ -7,6 +7,12 @@
 - **Conflicts**:
   - The requirements mention a database; none is configured
 
+## Design
+
+- **Summary**: One theme, a top bar, and shared buttons and states
+- **Source**: proposed
+- **Conflicts**: none
+
 ## Runtime
 
 - **start_command**: `python3 app.py 8765`

@@ -125,6 +125,7 @@ class Engine:
         self.rs = None          # run.json
         self.plan = None
         self.config = None
+        self.design_copies = None  # see _design_reference_copies
         self.redactor = Redactor()
         self.message = ""
         self.loop_def = load_loop_def(self.kit, loop_name)
@@ -341,9 +342,10 @@ class Engine:
 
     def check_tools(self):
         """Raise `missing-tool` now for a loop that still has work: with its frozen configuration,
-        or the one its first start would freeze. Nothing is written (`devloops run` checks every
-        loop before the backend spends anything). True if it checked (a stopped or completed run
-        is not)."""
+        or the one its first start would freeze. Before a first start, also raise `missing-input`
+        for a design reference that does not exist (spec 007 FR-011). Nothing is written
+        (`devloops run` checks every loop before the backend spends anything). True if it checked
+        (a stopped or completed run is not)."""
         rs = state.read_json(self.run_path)
         if rs and rs["status"] in TERMINAL_STATUSES:
             return False
@@ -356,6 +358,8 @@ class Engine:
             else self.ws.config_path(),
             self.opts.cli_overrides, self.project.run_config_layers())
         preflight.check_tools(self.loop_def, cfg, self.env)
+        if not rs:
+            inputs.check_design_references(self._design_references(cfg), self.ws.path)
         return True
 
     def _check_tools(self, cfg):
@@ -371,6 +375,8 @@ class Engine:
                                     self.project.run_config_layers())
         self._use_config(cfg)
         self._check_tools(cfg)
+        references = self._design_references(cfg)
+        inputs.check_design_references(references, self.ws.path)
         requirements = self._requirements_input()
         req_path = requirements["path"]
         api_spec = None
@@ -395,9 +401,16 @@ class Engine:
             "config_cli_keys": config.dotted_keys(self.opts.cli_overrides),
             "prompt_sources": self._prompt_sources(),
         }
+        # Before the run is saved: a start interrupted here starts again and copies them again.
+        copies = inputs.freeze_design_references(references, self.state_dir) if references else []
+        self.design_copies = copies
         self._save()
         if api_spec:
             inputs.freeze_api_spec(api_spec, self.state_dir)
+        if copies:
+            self._event("input-check", "design references copied into the workspace: "
+                        + ", ".join(f"{src} → {os.path.relpath(dest, self.loop_dir)}"
+                                    for src, dest in zip(references, copies)))
         block = requirements.get("speckit")
         if block:
             self._event("input-check", f"spec-kit feature {block['feature_dir']}: "
@@ -738,10 +751,13 @@ class Engine:
         }
         if self.loop_def.get("requires_openapi_path"):
             ctx["requires_openapi_path"] = True
+        if self.loop_def.get("requires_design"):
+            ctx["requires_design"] = True  # spec 007 FR-002
         if req.get("speckit"):
             ctx["speckit"] = speckit.context(req)
         self._add_story_scope(ctx)
         self._add_frontend_block(ctx)
+        self._add_design(ctx)
         failed = [t for t in counted_trials if t["status"] == "failed"]
         if failed and failed[-1] is counted_trials[-1]:
             ctx["previous_attempt"] = {"trial": failed[-1]["n"], **failed[-1]["failure"]}
@@ -1117,7 +1133,29 @@ class Engine:
             ctx["developer_guidance"] = guidance
         self._add_story_scope(ctx)
         self._add_frontend_block(ctx)
+        self._add_design(ctx, self.plan.get("design"))
         return ctx
+
+    def _design_references(self, cfg=None):
+        """`inputs.design_references` of `cfg` (default: the run's configuration)."""
+        return inputs.design_references(self.loop_def, cfg or self.config, self.project)
+
+    def _design_reference_copies(self):
+        """The copies of the design references the first start made, which the calls read. Fixed
+        for the run, so they are looked up once."""
+        if self.design_copies is None:
+            self.design_copies = [p for p in inputs.design_reference_copies(
+                self._design_references(), self.state_dir) if os.path.exists(p)]
+        return self.design_copies
+
+    def _add_design(self, ctx, design=None):
+        """The plan's design brief and the developer's design references, when there are any
+        (spec 007 FR-010, FR-012)."""
+        if design:
+            ctx["design"] = design
+        copies = self._design_reference_copies()
+        if copies:
+            ctx["design_references"] = copies
 
     def _add_story_scope(self, ctx):
         """The single-story rule, in story modes (FR-010, FR-010a; common.md "Single-story scope")."""
@@ -1167,6 +1205,8 @@ class Engine:
                 os.path.dirname(self.answers_path)]
         if self.rs["inputs"].get("api_spec"):
             dirs.append(os.path.dirname(self.rs["inputs"]["api_spec"]["path"]))
+        if self._design_reference_copies():  # the copies only, never the originals' folders
+            dirs.append(os.path.join(self.state_dir, inputs.DESIGN_REFERENCES_DIR))
         if os.path.exists(self.plan_path):
             dirs.append(self.state_dir)
         if mid and n and n > 1:

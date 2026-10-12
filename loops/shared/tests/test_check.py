@@ -148,6 +148,27 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(result["ready"])
         self.assertEqual(self.item(result, "shared-visible-browser")["status"], "warning")
 
+    def test_a_missing_design_reference_is_missing(self):
+        """spec 007 FR-011: the run would stop on it, so the check names it first."""
+        self.assertNotIn("design-references", [i["name"] for i in self.check()["items"]])
+        self.write_config("devloops.local.json", {"design": {"references": ["brand.md"]}})
+        result = self.check()
+        self.assertFalse(result["ready"])
+        self.assertIn("brand.md does not exist", self.item(result, "design-references")["detail"])
+        self.t.write_file("brand.md", "# Brand\n", base=self.t.root)
+        result = self.check()
+        self.assertTrue(result["ready"])
+        self.assertEqual(self.item(result, "design-references")["status"], "ready")
+        # A folder that holds the workspace would be copied into itself.
+        self.write_config("devloops.local.json", {"design": {"references": ["."]}})
+        self.assertIn("holds the workspace",
+                      self.item(self.check(), "design-references")["detail"])
+        # Once the frontend loop has started, it reads its own copies: the originals no longer
+        # matter, as `devloops run` no longer checks them.
+        self.t.write_file(os.path.join("workspaces", "main", "frontend-dev", "state", "run.json"),
+                          "{}", base=self.t.root)
+        self.assertNotIn("design-references", [i["name"] for i in self.check()["items"]])
+
     # --- the command ---
 
     def test_exit_codes_and_json_shape(self):

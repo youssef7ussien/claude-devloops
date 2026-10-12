@@ -120,6 +120,11 @@ Returned by the planning step as structured output. It is checked and stored at
   reason, every referenced task exists, no other story's task is referenced in story mode, and
   `speckit_phase` never decreases (002 research P-16).
 
+*Changed by spec 007 (FR-001–FR-003): the plan gains an optional `design`, `{summary, source,
+conflicts[]}` like `stack`, required when the loop's `loop.json` sets `requires_design`
+(frontend-dev); a non-empty `design.conflicts` implies at least one open question. The
+configuration gains `design.references` (FR-009).*
+
 ## Milestone
 
 The unit of planning, validation, trials, and accounting (A-2, D-1). Rendered to

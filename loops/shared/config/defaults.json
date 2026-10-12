@@ -20,6 +20,9 @@
     "executable_path": null,
     "mcp_command": null
   },
+  "design": {
+    "references": []
+  },
   "git": {
     "commit_per_milestone": false
   },

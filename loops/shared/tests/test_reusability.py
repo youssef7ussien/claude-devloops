@@ -126,6 +126,7 @@ def one_milestone_plan(story, title, runtime):
     return {
         "requirements_inventory": [{"ref": story, "summary": title}],
         "stack": {"summary": "Python stdlib", "source": "proposed", "conflicts": []},
+        "design": {"summary": "Plain HTML pages", "source": "proposed", "conflicts": []},
         "runtime": runtime,
         "milestones": [{
             "id": "M01", "title": title, "goal": title, "depends_on": [],

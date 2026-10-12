@@ -113,8 +113,21 @@
     DL.add(dl, DL.el('dt', null, 'target'), DL.add(DL.el('dd'), DL.el('code', null, d.target_dir || '–')));
     return DL.add(DL.el('div', 'grid cols-2'),
       DL.add(DL.el('div', 'card'), DL.el('h3', null, 'Stack'), DL.el('p', null, st.summary || '–'),
-        DL.el('p', 'muted small', 'Source: ' + (st.source || '–'))),
+        DL.el('p', 'muted small', 'Source: ' + (st.source || '–')), design(d.design)),
       DL.add(DL.el('div', 'card'), DL.el('h3', null, 'Runtime'), dl));
+  }
+
+  /* The frontend plan's design brief, under the stack (spec 007 FR-013). */
+  function design(ds) {
+    if (!ds) return null;
+    var box = DL.add(DL.el('div'), DL.el('h3', null, 'Design'), DL.el('p', null, ds.summary),
+      DL.el('p', 'muted small', 'Source: ' + ds.source));
+    if (ds.conflicts && ds.conflicts.length) {
+      var ul = DL.el('ul', 'small');
+      ds.conflicts.forEach(function (c) { DL.add(ul, DL.el('li', null, c)); });
+      DL.add(box, DL.el('p', 'muted small', 'Conflicts:'), ul);
+    }
+    return box;
   }
 
   function approval(d) {

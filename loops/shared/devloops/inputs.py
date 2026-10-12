@@ -12,6 +12,7 @@ from . import openapi, speckit
 from .state import UsageError, input_error
 
 API_SPEC_COPY = "api-spec.json"  # under the loop's state/: the frozen copy validation uses
+DESIGN_REFERENCES_DIR = "design-references"  # under the loop's state/: the copies the calls read
 
 # The order in which inputs are compared; the first difference is reported.
 FINGERPRINT_INPUTS = ("requirements", "plan", "tasks", "api-spec", "answers")
@@ -144,6 +145,64 @@ def freeze_api_spec(api_spec, state_dir):
     shutil.copyfile(api_spec["path"], tmp)
     os.replace(tmp, dest)
     return dest
+
+
+def design_references(loop_def, config, project):
+    """The absolute paths of `design.references`, for a loop whose plans carry a design (spec 007
+    FR-009); relative paths resolve against the project root. Empty for any other loop."""
+    if not loop_def.get("requires_design"):
+        return []
+    refs = (config.get("design") or {}).get("references") or []
+    return [project.resolve(r) for r in refs]
+
+
+def design_reference_problem(paths, workspace_dir):
+    """Why the design references cannot be copied, or None (spec 007 FR-011): one does not exist,
+    or holds the workspace (it would be copied into itself)."""
+    ws = os.path.realpath(workspace_dir)
+    for path in paths:
+        if not os.path.exists(path):
+            return f"{path} does not exist"
+        real = os.path.realpath(path)
+        if ws == real or ws.startswith(real.rstrip(os.sep) + os.sep):
+            return f"{path} holds the workspace {workspace_dir}; name the design files instead"
+    return None
+
+
+def check_design_references(paths, workspace_dir):
+    """Raise `missing-input` when `design_reference_problem` finds one."""
+    problem = design_reference_problem(paths, workspace_dir)
+    if problem:
+        raise input_error("missing-input", f"design.references: {problem}")
+
+
+def design_reference_copies(paths, state_dir):
+    """Where `freeze_design_references` copies each of `paths`: `state/design-references/<n>-<name>`,
+    numbered so two references with one name stay apart."""
+    folder = os.path.join(state_dir, DESIGN_REFERENCES_DIR)
+    return [os.path.join(folder, f"{n}-{os.path.basename(os.path.normpath(p))}")
+            for n, p in enumerate(paths, 1)]
+
+
+def freeze_design_references(paths, state_dir):
+    """Copy the design references (files or folders) into the loop's state, so the calls read
+    these copies only, never the folders around the originals, and an edit after the first start
+    changes nothing (spec 007 research R-4). Links are followed, so a copy holds content only.
+    Returns the copies' paths; a file that cannot be read raises `missing-input`."""
+    copies = design_reference_copies(paths, state_dir)
+    folder = os.path.join(state_dir, DESIGN_REFERENCES_DIR)
+    shutil.rmtree(folder, ignore_errors=True)  # what an interrupted first start left
+    os.makedirs(folder)
+    for src, dest in zip(paths, copies):
+        try:
+            if os.path.isdir(src):
+                shutil.copytree(src, dest, ignore_dangling_symlinks=True)
+            else:
+                shutil.copyfile(src, dest)
+        except (OSError, shutil.Error) as e:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise input_error("missing-input", f"design.references: cannot copy {src}: {e}")
+    return copies
 
 
 def _hash_or_none(path):

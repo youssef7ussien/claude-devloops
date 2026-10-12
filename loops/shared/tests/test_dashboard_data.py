@@ -535,6 +535,7 @@ class LoopTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual((refs["M01-T01"], refs["M01-AC1"]),
                          ("GET /items", "GET /items returns 200 and a list"))
         self.assertEqual(p["stack"]["summary"], "Python stdlib HTTP server")
+        self.assertEqual(p["design"], plan["design"])  # spec 007 FR-013
         self.assertEqual(p["runtime"]["openapi_path"], "openapi.json")
         q = dashboard.questions(self.ctx())
         self.assertEqual(q["refs"]["backend-dev"], refs)

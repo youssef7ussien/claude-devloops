@@ -92,6 +92,25 @@ class PlanValidationTest(unittest.TestCase):
         self.assertEqual(self.errors(plan), ["runtime.openapi_path is required for this loop"])
         self.assertEqual(self.errors(plan, loop_def={}), [])
 
+    def test_design_required_only_when_the_loop_says_so(self):
+        """007 FR-002: the frontend's plan must carry a design brief; the backend's need not."""
+        plan = samples.plan()
+        del plan["design"]
+        self.assertEqual(self.errors(plan, loop_def={"requires_design": True}),
+                         ["design is required for this loop"])
+        self.assertEqual(self.errors(plan), [])
+
+    def test_design_conflicts_need_an_open_question(self):
+        """007 FR-003, as for the stack."""
+        plan = samples.plan()
+        plan["design"]["conflicts"] = ["the brand guide is dark, the existing pages are light"]
+        self.assertEqual(self.errors(plan), ["design.conflicts is not empty, so at least one open "
+                                             "question is required"])
+        plan["open_questions"] = [{"id": "OQ1", "question": "Which theme?", "context": "conflict",
+                                   "affects": ["M01"], "suggested_answer": "Keep the light pages.",
+                                   "suggestion_reason": "the code already uses them"}]
+        self.assertEqual(self.errors(plan), [])
+
 
 if __name__ == "__main__":
     unittest.main()

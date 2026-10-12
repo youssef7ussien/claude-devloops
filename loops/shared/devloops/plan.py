@@ -49,11 +49,16 @@ def validate_plan(plan, loop_def, mode="prd", story_id=None):
                     errors.append(f"{kind} {item['id']} does not cite story {story_id!r}; in "
                                   "single-story mode all planned work must belong to that story")
 
-    if plan["stack"]["conflicts"] and not plan["open_questions"]:
-        errors.append("stack.conflicts is not empty, so at least one open question is required")
+    for key in ("stack", "design"):  # FR-060; spec 007 FR-003
+        if (plan.get(key) or {}).get("conflicts") and not plan["open_questions"]:
+            errors.append(f"{key}.conflicts is not empty, so at least one open question is "
+                          "required")
 
     if loop_def.get("requires_openapi_path") and not plan["runtime"].get("openapi_path"):
         errors.append("runtime.openapi_path is required for this loop")
+
+    if loop_def.get("requires_design") and not plan.get("design"):
+        errors.append("design is required for this loop")  # spec 007 FR-002
 
     return errors
 

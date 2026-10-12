@@ -14,6 +14,9 @@ You have read-only tools. Do not write any file. Return a plan as structured out
 
   If these sources disagree (for example the requirements name a stack that differs from the
   existing code), list each disagreement in `conflicts` and ask about it in `open_questions`.
+- **design**: required when the Context block has `requires_design` (a plan without it is
+  rejected): the visual direction (`summary`, `source`, `conflicts`), chosen in the same priority
+  order as the stack. The loop instructions say what it covers.
 - **runtime**: the commands the driver will run: optional `install_command`, `start_command`,
   `cwd` (relative to the target), `base_url`, `ready_url` (a URL that answers once the app is
   ready), and optional `unit_test_command`. Follow the loop instructions for any other field.

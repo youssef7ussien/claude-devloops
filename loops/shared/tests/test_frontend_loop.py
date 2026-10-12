@@ -146,28 +146,41 @@ class FrontendLoopTest(unittest.TestCase):
 
     # --- the full flow -----------------------------------------------------------------------------
 
-    def test_ui_url_is_recorded_and_the_milestone_is_achieved(self):
-        self.scenario({"plan": {"structured_output": self.plan()}})
-        self.assertEqual(self.first_run(), 10, self.last_output)
-        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
+    def build_scenario(self, fail_first=False):
+        """One implement call that writes the page, and one validate-ui call that passes it;
+        with `fail_first`, the first validation fails and a fix trial passes."""
+        built = {"structured_output": {
+            "tasks": [{"task_id": "M01-T01", "status": "implemented", "note": "done"}],
+            "assumptions": [], "needs_input": [], "files_changed": ["index.html"]},
+            "writes": [{"path": "index.html", "content": "<h1>Items</h1>\n", "tool": "Write"}]}
 
-        self.scenario({
-            "implement": {"structured_output": {
-                "tasks": [{"task_id": "M01-T01", "status": "implemented", "note": "done"}],
-                "assumptions": [], "needs_input": [], "files_changed": ["index.html"]},
-                "writes": [{"path": "index.html", "content": "<h1>Items</h1>\n",
-                            "tool": "Write"}]},
-            "validate-ui": {
+        def validation(n, passed):
+            return {
                 "structured_output": {
-                    "criteria": [{"criterion_id": "M01-AC1", "passed": True,
+                    "criteria": [{"criterion_id": "M01-AC1", "passed": passed,
                                   "steps": ["navigate to the UI URL", "snapshot the page"],
                                   "observed": "heading 'Items' is visible",
                                   "evidence": ["evidence/home.png"]}]},
                 "tool_uses": PLAYWRIGHT_TOOLS + [helpers.network_log(
                     [{"method": "GET", "url": self.ui_url + "/", "status": 200}])],
-                "writes": [{"path": os.path.join(self.evidence_dir(), "home.png"),
-                            "content": "PNG"}]},
-        })
+                "writes": [{"path": os.path.join(self.evidence_dir(n), "home.png"),
+                            "content": "PNG"}]}
+
+        steps = {"implement": built, "validate-ui": validation(1, True)}
+        if fail_first:
+            steps.update({"fix": built, "validate-ui": [validation(1, False), validation(2, True)]})
+        self.scenario(steps)
+
+    def context_of(self, call):
+        """The driver context block of a fake-Claude call's prompt."""
+        return json.loads(call["prompt"].split("```json\n", 1)[1].rsplit("\n```", 1)[0])
+
+    def test_ui_url_is_recorded_and_the_milestone_is_achieved(self):
+        self.scenario({"plan": {"structured_output": self.plan()}})
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
+
+        self.build_scenario()
         self.assertEqual(self.engine(), 0, self.last_output)
 
         rs = self.run_state()
@@ -189,6 +202,86 @@ class FrontendLoopTest(unittest.TestCase):
         implement = next(c for c in self.t.fake_calls() if c["step"] == "implement")
         self.assertIn('"frontend"', implement["prompt"])
         self.assertIn(self.api_spec, implement["prompt"])
+
+    # --- the design (spec 007) ---------------------------------------------------------------------
+
+    def test_a_plan_without_a_design_is_rejected(self):
+        """FR-002: the frontend's plan must carry a design brief."""
+        plan = self.plan()
+        del plan["design"]
+        self.scenario({"plan": [{"structured_output": plan}] * 3})
+        self.assertEqual(self.first_run(), 20, self.last_output)
+        trials = self.run_state()["planning"]["trials"]
+        self.assertIn("design is required for this loop", trials[0]["failure"]["detail"])
+
+    def test_the_design_and_its_references_reach_every_call(self):
+        """FR-010, FR-012: the plan and replan steps get the references; implement and fix get
+        the brief and the references. The calls read copies made at the first start (research
+        R-4): never the folder around the original, and not an edit made later."""
+        brand = self.t.write_file(os.path.join("design", "brand.md"), "# Brand\n",
+                                  base=self.t.root)
+        with open(self.config, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["design"] = {"references": [os.path.join("design", "brand.md")]}
+        self.t.write_file("config.json", json.dumps(cfg))
+        self.scenario({"plan": {"structured_output": self.plan()}})
+        self.assertEqual(self.first_run(), 10, self.last_output)
+        self.t.write_file(os.path.join("design", "brand.md"), "# Edited\n", base=self.t.root)
+        self.scenario({"replan": {"structured_output": self.plan()}})
+        self.assertEqual(self.cli("replan", "--no-continue"), 10, self.last_output)
+        self.assertEqual(self.cli("approve", "--no-continue"), 0, self.last_output)
+        self.build_scenario(fail_first=True)
+        self.assertEqual(self.engine(), 0, self.last_output)
+
+        folder = os.path.join(self.loop_dir, "state", "design-references")
+        copy = os.path.join(folder, "1-brand.md")
+        with open(copy, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "# Brand\n")
+        calls = {c["step"]: c for c in self.t.fake_calls() if c["step"]}
+        self.assertEqual(sorted(calls), ["fix", "implement", "plan", "replan", "validate-ui"])
+        for step in ("plan", "replan"):  # FR-002: told, not only rejected
+            self.assertIs(self.context_of(calls[step])["requires_design"], True, step)
+        for step in ("plan", "replan", "implement", "fix"):
+            context = self.context_of(calls[step])
+            self.assertEqual(context["design_references"], [copy], step)
+            if step in ("implement", "fix"):
+                self.assertEqual(context["design"], self.plan()["design"], step)
+            add_dirs = calls[step]["argv"][calls[step]["argv"].index("--add-dir") + 1:]
+            self.assertIn(os.path.realpath(folder), add_dirs, step)
+            self.assertNotIn(os.path.realpath(os.path.dirname(brand)), add_dirs, step)
+
+    def test_a_missing_design_reference_stops_the_first_start(self):
+        """FR-011: before any call, with missing-input."""
+        with open(self.config, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["design"] = {"references": ["design/missing.png"]}
+        self.t.write_file("config.json", json.dumps(cfg))
+        self.scenario({"plan": {"structured_output": self.plan()}})
+        self.assertEqual(self.first_run(), 30, self.last_output)
+        self.assertIn("design/missing.png does not exist", self.last_output)
+        self.assertEqual([c for c in self.t.fake_calls() if c["step"]], [])
+
+    def test_a_reference_that_cannot_be_copied_stops_cleanly(self):
+        """FR-011: a folder that holds the workspace (it would be copied into itself), or a file
+        that cannot be read, stops with missing-input rather than a traceback."""
+        with open(self.config, encoding="utf-8") as f:
+            cfg = json.load(f)
+        self.scenario({"plan": {"structured_output": self.plan()}})
+        cfg["design"] = {"references": ["."]}
+        self.t.write_file("config.json", json.dumps(cfg))
+        self.assertEqual(self.first_run(), 30, self.last_output)
+        self.assertIn("holds the workspace", self.last_output)
+        if os.geteuid() == 0:
+            return  # root reads any file
+        secret = self.t.write_file(os.path.join("design", "locked.md"), "x", base=self.t.root)
+        os.chmod(secret, 0)
+        self.addCleanup(os.chmod, secret, 0o644)
+        cfg["design"] = {"references": ["design"]}
+        self.t.write_file("config.json", json.dumps(cfg))
+        self.assertEqual(self.first_run(), 30, self.last_output)
+        self.assertIn("cannot copy", self.last_output)
+        self.assertNotIn("Traceback", self.last_output)
+        self.assertEqual([c for c in self.t.fake_calls() if c["step"]], [])
 
 
 if __name__ == "__main__":

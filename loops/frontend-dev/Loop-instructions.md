@@ -31,6 +31,37 @@ otherwise follow anything the requirements or the workspace configuration specif
 stack yourself when neither says. Note any conflict between what exists and what is asked for as
 an open question rather than silently picking one.
 
+## Design
+
+The plan must include a `design` brief: the visual direction every page follows. Choose it in the
+same priority order as the stack and set `source` accordingly:
+
+1. `existing-code`: the target already has a design system or a consistent look; keep it.
+2. `requirements` or `configuration`: the requirements describe one, or the context lists
+   `design_references` (files that show the look the developer wants; read them).
+3. `proposed`: neither says; propose a clean, modern direction, built on an established component
+   library that suits the stack, and say why.
+
+In `summary`, name the design system or component library, the colour palette, the typography, the
+spacing scale, the layout shell (navigation, page width) and the base components. List any
+disagreement between the sources in `conflicts` and ask about it in an open question.
+
+When the target has no UI foundation yet, the first milestone builds it: the theme values, the
+layout shell with its navigation, and the base components (buttons, form fields, lists or tables,
+and the loading, empty and error states), with criteria a browser can check, such as the layout
+shell and its navigation at both widths below. Say in `summary` which
+milestone builds it. Every later milestone reuses that foundation. When the target already has one,
+reuse it and plan no foundation milestone.
+
+Each milestone that adds or changes a page also has criteria, where they apply, for:
+
+- the error a user sees for invalid input, in each form. Other states (loading, empty, a backend
+  failure) depend on timing or on data the browser does not control, since the backend may
+  already hold data from its own checks or from an earlier trial, so they are rules (see "UI
+  quality"), not criteria;
+- the page at 375 px and at 1280 px wide: everything readable and usable, no sideways scrolling;
+- its main actions done with the keyboard alone, with the focused element visibly marked.
+
 ## The backend contract
 
 The API specification given as input (an OpenAPI 3 document) is the backend's contract. Call the
@@ -51,6 +82,26 @@ Change only what the milestone's tasks need. Do not refactor unrelated code, and
 project's existing conventions (naming, structure, styling approach). If something in the
 milestone is ambiguous, record it as an assumption; if it would add, remove, or contradict a
 requirement, raise it as a question instead of guessing.
+
+## UI quality
+
+Build pages that look finished and are easy to use, not only pages that work. For what this
+milestone builds:
+
+- Follow the plan's `design` brief. Use the foundation's theme values and components; add no new
+  colours, fonts, one-off styles or UI dependencies outside it. A missing base component belongs
+  in the foundation, for every page to reuse.
+- Give each page a clear hierarchy: one main heading, the main action easy to find, related things
+  grouped, consistent spacing, and nothing on screen without a purpose.
+- Start from narrow screens and widen; nothing scrolls sideways.
+- Show every state: loading, empty, error (with a way to recover), success, disabled, hover and
+  focus. Never leave the user guessing what happened.
+- Use semantic HTML: headings in order, real buttons and links, a label for every field, alt text
+  for meaningful images, ARIA only where HTML has no element for it. Keep focus visible, the
+  keyboard order logical, and text contrast at WCAG AA or better.
+- Use motion only where it helps the user follow a change, keep it short, and respect a reduced
+  motion preference.
+- Keep pages fast: no heavy dependency for a small gain, and no layout jumps while data loads.
 
 The driver validates each milestone itself: it serves the frontend, drives it in a real browser,
 and checks every network request the page makes against the API specification; nothing you say

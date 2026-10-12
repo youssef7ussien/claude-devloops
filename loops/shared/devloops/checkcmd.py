@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 from . import config as config_mod
-from . import orchestrator, workspace
+from . import engine, inputs, orchestrator, workspace
 from .state import DevloopsError
 from .preflight import MIN_CLAUDE_VERSION, VERSION_TIMEOUT_SECONDS, claude_bin, parse_version
 
@@ -164,6 +164,26 @@ def _shared_visible_browser(project):
                  needed_for=(FRONTEND,))
 
 
+def _design_references(cfg, project, kit, loops):
+    """The files `design.references` names, as `devloops run` checks them before a loop that
+    uses them first starts (spec 007 FR-011). A loop that has started reads its own copies, so
+    the originals no longer matter to it."""
+    if project is None:
+        return None
+    ws_path, _ = workspace.resolve_path(project.default_workspace, project)
+    for loop in loops:
+        loop_def = engine.load_loop_def(kit, loop)
+        paths = inputs.design_references(loop_def, cfg, project)
+        if not paths or os.path.exists(os.path.join(ws_path, loop, "state", "run.json")):
+            continue
+        problem = inputs.design_reference_problem(paths, ws_path)
+        if problem:
+            return _item("design-references", "missing", problem,
+                         "fix or remove it in design.references", needed_for=(loop,))
+        return _item("design-references", "ready", f"{len(paths)} found", needed_for=(loop,))
+    return None
+
+
 def effective_config(project, kit):
     """The configuration the checks follow: the project's layers over the packaged defaults."""
     layers = project.run_config_layers() if project is not None else ()
@@ -207,6 +227,7 @@ def run_checks(project, kit, env=None, platform=None, browser_paths=BROWSER_PATH
              _browser(cfg, env, browser_paths), _git(cfg, env), _display(cfg, env, platform),
              _shared_visible_browser(project)]
     loops = project_loops(project, kit)
+    items.append(_design_references(cfg, project, kit, loops))
     items = [_unused(i, loops) for i in items if i is not None]
     if not loops:  # `devloops run` stops here too (no-loop, exit 30)
         items.insert(0, _no_loop())

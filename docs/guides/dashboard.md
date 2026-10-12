@@ -21,6 +21,7 @@ sources:
   - spec 005 FR-021a
   - spec 005 FR-022
   - spec 005 FR-033
+  - spec 007 FR-013
 ---
 
 # The dashboard
@@ -123,7 +124,8 @@ A loop's view answers "what did this loop build, and what did it cost?":
 - its numbers, with the cost per achieved milestone and the cache hit rate;
 - links to its outputs (progress, plan summary, final report, the OpenAPI document), its
   questions and assumptions, its calls and its files;
-- the stack and the [runtime](../glossary.md#runtime) the [plan](../glossary.md#plan) chose, and
+- the stack and the [runtime](../glossary.md#runtime) the [plan](../glossary.md#plan) chose (for the
+  frontend, the [design brief](frontend-loop.md#the-design) under the stack), and
   the loop's [target](../glossary.md#target);
 - **Steps**: the calls, time, cost and tokens of each [step](../glossary.md#step), and its
   share of the loop's cost. Each planning attempt has a row of its own; a step opens the loop's

@@ -135,6 +135,21 @@ class RunCommandTest(unittest.TestCase):
 
     # --- tests ---------------------------------------------------------------------------------------
 
+    def test_a_missing_design_reference_stops_the_run_before_the_backend(self):
+        """spec 007 FR-011: the frontend's design references are checked with its tools, before
+        the backend spends anything."""
+        self.t.write_file(os.path.join("frontend-dev", "loop.json"), json.dumps({
+            "name": "frontend-dev", "required_inputs": ["requirements", "api_spec"],
+            "required_tools": [], "validator": STUB_NAME, "requires_openapi_path": False,
+            "requires_design": True}), base=os.path.join(self.t.root, "loops"))
+        self.t.make_project(self.t.root, {"workspaces_dir": "workspaces", "targets": {
+            "backend-dev": "backend", "frontend-dev": "frontend"},
+            "config": {"design": {"references": ["design/brand.md"]}}})
+        self.assertEqual(self.run_cmd(), 30, self.last_output)
+        self.assertIn("design/brand.md does not exist", self.last_output)
+        self.assertEqual(self.steps_called(), [])
+        self.assertIsNone(self.run_state("backend-dev"))
+
     def test_backend_awaiting_approval_pauses_before_the_frontend(self):
         self.assertEqual(self.run_cmd(), 10, self.last_output)
         self.assertEqual(self.run_state("backend-dev")["status"], "awaiting-approval")

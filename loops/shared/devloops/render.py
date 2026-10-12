@@ -181,14 +181,19 @@ def render_progress(loop, workspace_name, run, plan, events, invocations, trials
 # --- plan-summary.md ----------------------------------------------------------------------------
 
 def render_plan_summary(plan, speckit_phases=None, story_id=None):
-    stack, runtime = plan["stack"], plan["runtime"]
-    lines = ["# Plan summary", "", "## Stack", "", f"- **Summary**: {stack['summary']}",
-             f"- **Source**: {stack['source']}"]
-    if stack["conflicts"]:
-        lines.append("- **Conflicts**:")
-        lines += [f"  - {c}" for c in stack["conflicts"]]
-    else:
-        lines.append("- **Conflicts**: none")
+    runtime = plan["runtime"]
+    lines = ["# Plan summary"]
+    for key, title in (("stack", "Stack"), ("design", "Design")):  # design: spec 007 FR-013
+        part = plan.get(key)
+        if not part:
+            continue
+        lines += ["", f"## {title}", "", f"- **Summary**: {part['summary']}",
+                  f"- **Source**: {part['source']}"]
+        if part["conflicts"]:
+            lines.append("- **Conflicts**:")
+            lines += [f"  - {c}" for c in part["conflicts"]]
+        else:
+            lines.append("- **Conflicts**: none")
     lines += ["", "## Runtime", ""]
     for key in ("install_command", "start_command", "cwd", "base_url", "ready_url",
                 "unit_test_command", "openapi_path"):

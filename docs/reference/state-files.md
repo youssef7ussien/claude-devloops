@@ -100,6 +100,7 @@ Everything devloops knows about a run is in files in the workspace, so a run can
 |---|---|---|
 | `requirements_inventory` | list of objects |  |
 | `stack` | object |  |
+| `design` | object | 007 FR-001: the frontend's visual direction (design system or component library, colours, typography, spacing, layout shell, base components). Required for frontend-dev (checked by driver). |
 | `runtime` | object |  |
 | `milestones` | list of objects |  |
 | `open_questions` | list of objects |  |

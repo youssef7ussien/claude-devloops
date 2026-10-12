@@ -122,6 +122,7 @@ To use new settings for a whole run, start it in a new workspace, for example
 | [`unit_tests.enabled`](../reference/configuration.md#unit_tests.enabled) | `false` | You want the application's own unit tests to pass too before a milestone passes; see [validation](../how-it-works/validation.md) |
 | [`runtime`](../reference/configuration.md#runtime) keys | the plan's | The plan starts the application in a way that does not work on your machine, such as the wrong port |
 | [`backend`](../reference/configuration.md#backend) keys | from the backend loop | Usually never: in a run, devloops sets these keys from the backend loop's [handoff](../glossary.md#handoff), which replaces any value you set |
+| [`design.references`](../reference/configuration.md#design.references) | none | You have screenshots or a brand guide the frontend should look like; see [the frontend loop](frontend-loop.md#the-design) |
 | [`git.commit_per_milestone`](../reference/configuration.md#git.commit_per_milestone) | `false` | You want a git commit of the target folder after each milestone passes |
 | [`secrets`](../reference/configuration.md#secrets) | none | Values must never be written to devloops' records; see [security](security.md) |
 

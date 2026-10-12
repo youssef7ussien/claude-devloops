@@ -242,6 +242,19 @@ The full command that starts the Playwright MCP server, used exactly as written.
 - **Type:** list of strings or null
 - **Default:** `null`
 
+### `design` {#design}
+
+For the frontend loop only: what its pages should look like.
+
+- **Type:** object
+
+### `design.references` {#design.references}
+
+Files or folders that show the look you want, such as screenshots or a brand guide, relative to the project root. The frontend loop copies them into its state when it first starts, and its plan, implement and fix steps read those copies. A path that does not exist stops devloops run before anything runs.
+
+- **Type:** list of strings
+- **Default:** `[]`
+
 ### `git` {#git}
 
 Git commits devloops makes in the target.

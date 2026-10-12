@@ -39,12 +39,15 @@ workspaces: [name], running: [loop]}`
 
 `{loop, status, status_reason, next_action, approval, grants (each shown on its milestone,
 FR-020j), inputs, ui_url, openapi_artifact,
-target_dir, stack, runtime, totals (with cache_hit_rate, cost_per_achieved), stats, milestones:
+target_dir, stack, design, runtime, totals (with cache_hit_rate, cost_per_achieved), stats, milestones:
 [MilestoneSummary], steps: [StepRow], refs: {<id>:
 text}, questions: {open, unanswered, assumptions, route}, outputs: [FileRef]}`
 
 *Revised 2026-10-10 (FR-020–FR-020e): the plan view and its data request (`api/loops/<loop>/plan`)
 are removed; the loop data holds what only the plan data had.*
+
+*Changed by spec 007 (FR-013): `design` is the plan's design brief (`null` when the plan has none),
+shown beside the stack.*
 
 - **MilestoneSummary**: `{id, title, goal, status, depends_on: [id], tasks: [{id, title,
   description, requirement_refs, status}], criteria: [{id, text, requirement_refs, result:
