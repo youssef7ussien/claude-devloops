@@ -33,6 +33,20 @@ Some criteria need more than a click:
   control in a sensible order and is visibly marked.
 - **An error for invalid input**: bring it about through the page itself, by submitting the form
   with the invalid input the criterion names, and check the message the user sees.
+- **Long text** (a value over about 100 characters, such as one past a length limit): never write
+  it out in a tool call, and never set the field's `value` from a script, which skips the field's
+  own limit and the page's handlers. Have the browser type it, replacing what the field holds:
+  call `browser_evaluate` on the field's ref with
+  `(el) => { el.focus(); el.select ? el.select() : getSelection().selectAllChildren(el); document.execCommand('insertText', false, TEXT); return (el.value ?? el.textContent).length; }`.
+  TEXT builds a value of the length the criterion names (one past a limit, exactly the limit to
+  check that it is accepted, or the length it states) that suits the field: `'a'.repeat(N)` for
+  plain text, `'a'.repeat(N - 12) + '@example.com'` for an email address. Check the length it
+  returns, which is what the field now holds, rather than counting characters on the page. A field
+  that stops at the limit has refused the extra text itself: say so in `observed`, and judge the
+  criterion by what it asks for. Use
+  `browser_evaluate` only to enter text this way, never to send a request: the driver checks every
+  request in the browser's network log as the page's own. Entering text uses the browser, so call
+  `browser_network_requests` again after the last one.
 - **Labels and structure**: read them from `browser_snapshot`, which shows the page's roles, names
   and headings.
 

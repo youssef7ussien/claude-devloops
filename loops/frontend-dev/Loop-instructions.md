@@ -58,7 +58,9 @@ Each milestone that adds or changes a page also has criteria, where they apply, 
 - the error a user sees for invalid input, in each form. Other states (loading, empty, a backend
   failure) depend on timing or on data the browser does not control, since the backend may
   already hold data from its own checks or from an earlier trial, so they are rules (see "UI
-  quality"), not criteria;
+  quality"), not criteria. A length limit is said as what the user meets, not how the page
+  enforces it ("a name has at most 100 characters: the field takes no more, or saving shows an
+  error under it"), so a field that stops at the limit meets it as well as an error does;
 - the page at 375 px and at 1280 px wide: everything readable and usable, no sideways scrolling;
 - its main actions done with the keyboard alone, with the focused element visibly marked.
 

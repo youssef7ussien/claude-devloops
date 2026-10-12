@@ -362,6 +362,11 @@ class PlaywrightValidatorTest(unittest.TestCase):
         # A screenshot or a snapshot sends nothing.
         self.assertIsNone(self.contract_problem(PLAYWRIGHT_TOOLS + [
             read, "mcp__playwright__browser_take_screenshot", "mcp__playwright__browser_snapshot"]))
+        # Script in the page can send requests: entering long text through it uses the browser
+        # (validate-ui.md, "Long text").
+        self.assertIn("used the browser (browser_evaluate) after its last read",
+                      self.contract_problem(PLAYWRIGHT_TOOLS + [
+                          read, "mcp__playwright__browser_evaluate"]))
 
     def test_each_outcome_of_a_request_is_kept(self):
         self.use_backend("start")
