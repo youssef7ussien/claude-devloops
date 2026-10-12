@@ -80,6 +80,24 @@ today. The version walk stays at most once a second per workspace.
 **Alternatives**: per-view versions (more server state for little gain: one view request is
 cheap once cached).
 
+**Revised 2026-10-12** (FR-003 revised): during a run the workspace changes on almost every
+poll (transcripts and logs grow), so redrawing the open view made it jump every few seconds and
+it could not be read. Only a view registered `live` (the overview), or one that failed to load,
+is still redrawn in place. Any other view keeps what it shows; its data is loaded quietly and
+its answers' content hashes (`X-Devloops-Content`, worked out by the server once per version
+without each answer's `generated_at` and `version`; a test guards every view's answer) are
+compared with those it was drawn from, and only a difference marks it stale. A change while a
+view loads is checked once it is drawn, a check that ends after a newer drawing is ignored, and
+a stale view is not asked again. **Show updates** in the top bar, or opening any view, draws it
+again with `keep`/`restore`; the mark clears only once the new data is on screen. Rejected:
+comparing the answers in the browser (it keeps a copy of each and must know the volatile keys);
+skipping a redraw when the view's data is unchanged, as the only fix (the views read during a
+run, a running trial or its conversation, do change on every poll); patching the DOM in place
+instead of redrawing (the views bind handlers over the data they were drawn from, so kept nodes
+would act on old data); a framework (against the no-build, strict-CSP design); the open view's
+own sidebar link drawing it again (on a trial, call, file or filtered view that link leads to a
+different view).
+
 ## R-4 Routing by hash, one address per view and item
 
 **Decision**: Hash routes, so the same addresses work served and from `file://` [ER: FR-024; RC]:

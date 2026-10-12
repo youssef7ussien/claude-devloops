@@ -11,6 +11,7 @@
 
   var cache = {};     /* path -> promise of the parsed answer */
   var versions = {};  /* path -> the X-Devloops-Version it was answered with */
+  var contents = new WeakMap();  /* answer -> its X-Devloops-Content (what it says, FR-003 revised) */
   var state = { version: null, paused: false, offline: false, busy: false, timer: null };
 
   function root() { return document.documentElement; }
@@ -30,6 +31,7 @@
         try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
         if (!r.ok) throw failure(r.status, (body && body.error) || r.statusText);
         if (body === null) throw failure(r.status, 'not JSON');
+        if (typeof body === 'object') contents.set(body, r.headers.get('X-Devloops-Content'));
         return body;
       });
     });
@@ -127,6 +129,8 @@
     file: file,
     invalidate: invalidate,
     versionOf: function (path) { return versions[path] || null; },
+    /* The content hash an answer was served with (null in a snapshot) */
+    contentOf: function (answer) { return (answer && typeof answer === 'object' && contents.get(answer)) || null; },
     version: function () { return state.version || root().dataset.version || null; },
     follow: follow,
     tick: tick,

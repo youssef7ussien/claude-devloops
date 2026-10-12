@@ -1,12 +1,17 @@
 /* router.js: one address per view and item (research R-4), and each view's life.
 
    A view is registered once: `DL.router.register(name, {title(params, data), data(params, query)
-   -> [api paths], render(data, params, el, query, refresh)})`; `refresh` is true when the same
+   -> [api paths], render(data, params, el, query, refresh), live})`; `refresh` is true when the same
    address is drawn again after a change, so what the address asks for (a filter, a file to open)
    is applied the first time only and the reader's own changes stay. Mounting a route asks for the view's paths only,
    renders into a new element, and swaps it in once its data arrived, so the old view stays until
-   then. When the workspace changes (DL.bus 'changed'), only the mounted view is loaded again,
-   keeping the reader's place: open sections, typed filters, pressed chips, scroll, and focus. */
+   then. When the workspace changes (DL.bus 'changed'), a view registered with `live: true` (one
+   that is watched, not read), or one that failed to load, is loaded again in place; any other
+   view keeps what it shows, so it never moves under the reader: its data is loaded quietly and,
+   when its content hash (X-Devloops-Content) differs from what is shown, the view is marked stale (DL.bus 'stale') until it is
+   drawn again, by opening any view or by `update()` (FR-003 revised). Drawing the same view
+   again keeps the reader's place: open sections, typed filters, pressed chips, scroll, and
+   focus. */
 (function (DL) {
   'use strict';
 
@@ -74,6 +79,11 @@
   var R = {
     ROUTES: ROUTES, parse: parse, href: href,
     current: null,  /* the mounted route */
+    stale: false,   /* what the mounted view shows changed since it was drawn */
+    drawn: null,    /* content hashes of the answers the mounted view was drawn from */
+    failed: false,  /* the mounted view could not be loaded (it shows an error) */
+    loading: false, /* a mount is waiting for its data */
+    missed: false,  /* the workspace changed while it waited */
     host: null,
     seq: 0
   };
@@ -171,7 +181,10 @@
   };
 
   function fail(route, refresh, err) {
-    if (refresh) return; /* keep what is shown; the top bar says Offline */
+    if (refresh) return; /* keep what is shown, and whether it is stale; the top bar says Offline */
+    R.failed = true;
+    R.drawn = null;
+    setStale(false);
     if (err && err.status === 404) {
       swap(message('empty', 'Not found: ' + (err.message || 'this item is not in the workspace') + '.'), false);
     } else {
@@ -186,16 +199,67 @@
     route = route || parse(location.hash);
     var my = ++R.seq;
     R.current = route;
+    R.loading = true;
+    if (!refresh) {  /* a new address: what was said of the previous view no longer holds */
+      R.failed = false;
+      setStale(false);
+    }
     if (!refresh && R.host && !R.host.firstElementChild) R.host.appendChild(message('loading', 'Loading…'));
     return R.load(route).then(function (loaded) {
-      if (my === R.seq) R._show(loaded, refresh);
+      if (my !== R.seq) return;
+      R.loading = false;
+      R._show(loaded, refresh);
+      R.failed = false;
+      R.drawn = fingerprint(loaded.data);
+      setStale(false);  /* only once the latest data is on screen */
+      checkMissed();
     }, function (err) {
-      if (my === R.seq) fail(route, refresh, err);
+      if (my !== R.seq) return;
+      R.loading = false;
+      fail(route, refresh, err);
+      checkMissed();
     });
   };
 
-  /* After the workspace changed: the mounted view only, in place. */
+  /* A change that came while the view was loading is checked once it is drawn. */
+  function checkMissed() {
+    if (!R.missed) return;
+    R.missed = false;
+    R.refresh();
+  }
+
+  function setStale(stale) {
+    if (R.stale === stale) return;
+    R.stale = stale;
+    DL.bus.emit('stale', stale);
+  }
+
+  /* What a view's answers say, for comparing two loads: the content hash each was served with
+     (serve.content_hash, which leaves out what changes with every version). */
+  function fingerprint(data) {
+    return (data || []).map(function (d) { return DL.api.contentOf(d) || ''; }).join('\n');
+  }
+
+  /* After the workspace changed: a live view, or one that failed to load, is drawn again in
+     place; any other view is loaded quietly and marked stale only when what it shows changed.
+     A change while a view loads waits until it is drawn (it may have been loaded from before
+     the change), and a view already stale is not asked again. */
   R.refresh = function () {
+    var route = R.current;
+    if (!route) return Promise.resolve();
+    if (R.loading) { R.missed = true; return Promise.resolve(); }
+    var def = views[route.view];
+    if (!def || def.live || R.failed) return R.update();
+    if (R.stale) return Promise.resolve();
+    var my = R.seq;
+    return R.load(route).then(function (loaded) {
+      /* only while the drawing it is compared with is still the one on screen */
+      if (my === R.seq && !R.loading && fingerprint(loaded.data) !== R.drawn) setStale(true);
+    }, function () { /* keep what is shown; the top bar says Offline */ });
+  };
+
+  /* The mounted view drawn again with the latest data, keeping the reader's place. */
+  R.update = function () {
     if (R.current) return R.mount(R.current, true);
     return Promise.resolve();
   };

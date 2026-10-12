@@ -36,8 +36,9 @@ In the browser (SC-001–SC-003), with the developer tools' network panel open:
 2. Open a loop, a trial, the calls, a conversation, the files: each requests only its
    own data and shows within 1 s.
 3. Start a run (`devloops run` in another terminal): the now panel shows the call and its tools as
-   they happen; when a trial ends, the open view updates in place, keeping scroll and open
-   sections. Views not on screen make no requests.
+   they happen; when a trial ends, the overview updates in place, while a loop or trial view
+   stays still and the top bar shows **Show updates**, which draws it again keeping scroll and
+   open sections (FR-003 revised 2026-10-12). Views not on screen make no requests.
 4. Stop the server: the page shows **Offline** and keeps its data.
 
 ## 3. Views

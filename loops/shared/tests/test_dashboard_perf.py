@@ -57,7 +57,7 @@ class SummaryPerfTest(StubLoopMixin, unittest.TestCase):
         ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
         site = serve.Site(self.t.project(), self.t.kit(), self.t.env)
         start = time.perf_counter()
-        status, body, _ = site.answer(ws, "summary")
+        status, body, _, _ = site.answer(ws, "summary")
         cold = time.perf_counter() - start
         self.assertEqual(status, 200, body)
         self.assertGreaterEqual(json.loads(body)["counts"]["calls"], CALLS)

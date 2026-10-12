@@ -178,14 +178,25 @@ Markdown file also shows only its first line.
   only through `Prism.tokenize` so text is still never inserted as markup; code inside diffs is
   highlighted too; the export holds no syntax highlighting (FR-033, research R-16).
 
+### Session 2026-10-12
+
+- Q: During a run the workspace changes every few seconds, so the open view was redrawn every
+  few seconds and could not be read. Should every view still update in place? → A: No. Only the
+  overview, which is watched rather than read, updates in place (with the navigation and the now
+  panel). Any other view keeps what it shows; when its data changed, a **Show updates** button in
+  the top bar says so and draws the view again, keeping the reader's place. Opening any view shows
+  the latest data, and a view that failed to load is tried again by itself (FR-003, FR-004 and
+  SC-003 revised).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A dashboard that opens fast and follows the run (Priority: P1)
 
 A developer runs `devloops dashboard`. The browser opens on the overview, which shows within a
 moment. Moving to a loop, the calls, or the files shows that view without first loading everything
-else. While the run goes on, the open view updates in place; views not on screen are not touched
-until they are opened.
+else. While the run goes on, the overview updates in place; any other open view stays still and
+says it has updates to show; views not on screen are not touched until they are opened.
+*(Revised 2026-10-12: only the overview updates in place.)*
 
 **Why this priority**: The slow refresh is the problem that started this feature, and every other
 view is built on this.
@@ -200,9 +211,10 @@ view updates.
    page, **Then** the overview is usable within 1 second, and no other view's data has been loaded.
 2. **Given** the overview is open, **When** the developer opens a loop, **Then** only that loop's
    data is loaded, and the view shows within 1 second.
-3. **Given** a run is in progress and the loop view is open, **When** a trial ends, **Then** the
-   loop view shows the new trial without a page reload, keeping its scroll position, open sections,
-   and filters.
+3. *(Revised 2026-10-12)* **Given** a run is in progress and the loop view is open, **When** a
+   trial ends, **Then** the loop view does not change and the top bar shows **Show updates**;
+   **When** the developer selects it, **Then** the loop view shows the new trial without a page
+   reload, keeping its scroll position, open sections, and filters.
 4. **Given** a server is already running for the project, **When** the developer runs
    `devloops dashboard` again, **Then** no second server starts, and the browser opens the running
    one's address.
@@ -508,10 +520,15 @@ shows a readable row.
 - **FR-002**: The server MUST send the browser the app once and then only data: each view
   requests the data it shows when it is opened. Opening a view MUST NOT load the data of other
   views.
-- **FR-003**: While following a run, the page MUST check for changes at a fixed interval (as today)
-  and, when the workspace changed, reload only the data of the view on screen, plus the navigation
-  and the now panel. Views not on screen MUST be reloaded when they are next opened.
-- **FR-004**: An update MUST keep the view's scroll position, open sections, filters, and focus, and
+- **FR-003** (revised 2026-10-12): While following a run, the page MUST check for changes at a
+  fixed interval (as today) and, when the workspace changed, reload the navigation and the now
+  panel, and the overview, or a view that failed to load, when it is on screen. Any other view on
+  screen MUST keep what it shows; when its data changed, the page MUST show a **Show updates**
+  button that draws that view again with the latest data, and MUST keep showing it until the new
+  data is on screen. Opening any view MUST show the latest data. Views not on screen MUST be
+  reloaded when they are next opened.
+- **FR-004**: An update (of the overview, or a view drawn again by **Show updates**) MUST keep
+  the view's scroll position, open sections, filters, and focus, and
   a file open in the viewer MUST be reloaded at the same position, or at its end when it was
   scrolled to the end.
 - **FR-005**: The page MUST show when it is offline (the server does not answer) and when following
@@ -770,8 +787,10 @@ shows a readable row.
   workspace so far: 85 calls, 2,322 files, 46 MB), the first view is usable within
   1 second of a page refresh on the developer's machine, compared with several seconds today.
 - **SC-002**: Opening any other view on that workspace shows it within 1 second.
-- **SC-003**: While a run goes on, a change appears in the open view within the refresh interval
-  plus 1 second, and views not on screen request no data.
+- **SC-003** (revised 2026-10-12): While a run goes on, a change appears in the overview, or as
+  **Show updates** on any other open view, within the refresh interval plus 1 second; a view other
+  than the overview never changes without the developer asking; views not on screen request no
+  data.
 - **SC-004**: For every loop, milestone, trial, and step, the tokens and cost shown equal the sum of
   the recorded calls (checked by tests on recorded workspaces).
 - **SC-005**: For every failed trial in the test workspaces (backend and frontend), the trial view

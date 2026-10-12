@@ -146,6 +146,29 @@ class ServeTest(StubLoopMixin, unittest.TestCase):
         self.assertEqual(headers["x-devloops-version"], version)
         self.assertEqual(headers["cache-control"], "no-store")
 
+    def test_the_content_hash_changes_only_with_what_an_answer_says(self):
+        """An open view compares `X-Devloops-Content` to know whether what it shows changed
+        (FR-003 revised): a new workspace version alone, or an answer's `generated_at` and
+        `version`, must not change it. This also guards every view's answer against a field that
+        would change on every version."""
+        self.completed()
+        self.start()
+        paths = ("summary", "loops/backend-dev", "calls", "events", "questions")
+
+        def hashes():
+            return {p: self.api(p)[1]["x-devloops-content"] for p in paths + ("files",)}
+        before = hashes()
+        self.assertTrue(all(before.values()), before)
+        version = json.loads(self.get(f"/w/{WS}/version")[2])["version"]
+        self.write("notes.txt", "a file only the file list shows\n")
+        self.assertNotEqual(json.loads(self.get(f"/w/{WS}/version")[2])["version"], version)
+        after = hashes()
+        self.assertEqual({p: after[p] for p in paths}, {p: before[p] for p in paths})
+        self.assertNotEqual(after["files"], before["files"])  # the file list shows the change
+        self.assertEqual(serve.content_hash({"a": 1, "generated_at": "t1", "version": "v1"}),
+                         serve.content_hash({"version": "v2", "a": 1, "generated_at": "t2"}))
+        self.assertNotEqual(serve.content_hash({"a": 1}), serve.content_hash({"a": 2}))
+
     def test_summary_and_loop_are_redacted(self):
         self.completed()
         plan = self.path(os.path.join("state", "plan.json"))

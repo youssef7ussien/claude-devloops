@@ -73,7 +73,7 @@ plain HTTP. Read [security](security.md#who-can-reach-the-dashboard) before you 
   a menu at its top switches between them.
 - **The status** in the top bar shows how the run stands, and **Live** says the page follows the
   run. Press it to pause following (it then shows **Paused**); it shows **Offline** when the server
-  stopped.
+  stopped. **Show updates** appears beside it when the run changed what the open view shows.
 - **The "now" panel**, above every view, shows the call to Claude Code running at this moment:
   its loop, milestone, trial, step and model, how long it has run, and the tools it used so far.
   When nothing runs, it shows the run's status and the next thing to do, or what it waits for.
@@ -213,10 +213,15 @@ event, and shows each match in its line.
 
 ## Following a live run
 
-While a run goes on, the page updates by itself. It checks for changes every 3 seconds and
-redraws only the view you are on: open folders, filters and the file in the viewer stay where
-they are, and a log that grows shows its new lines. The "now" panel follows the call that is
-running. [Following a run](../how-it-works/dashboard-data.md#following-a-run) explains how.
+While a run goes on, the page checks for changes every 3 seconds. The overview, the sidebar
+and the "now" panel follow the run by themselves. Any other view stays still while you read
+it: when the run changed what it shows, **Show updates** appears in the top bar. Press it to
+see the changes; open folders, filters and your scroll position stay where they are. Any view you open shows the latest data, and a file open in the
+viewer shows a growing log's new lines.
+[Following a run](../how-it-works/dashboard-data.md#following-a-run) explains how.
+
+> **Changed by spec 005 (FR-003 revised 2026-10-12)**: the open view used to be redrawn on
+> every change, which made it hard to read during a run.
 
 ## The numbers
 

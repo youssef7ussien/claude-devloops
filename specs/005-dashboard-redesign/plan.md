@@ -27,7 +27,9 @@ view, and that the export carries with its data inside.
 - **The app:** `assets/app/` holds the shell, the stylesheet, and one script per concern and per
   view, joined in a fixed order; a hash router; an API layer that fetches (served) or reads
   embedded data (export); following a run refreshes only the open view [ER: FR-003, FR-004,
-  FR-024, FR-028, FR-029; RC: R-1, R-3, R-4].
+  FR-024, FR-028, FR-029; RC: R-1, R-3, R-4]. *(Revised 2026-10-12, FR-003 revised: only the
+  overview refreshes in place; any other open view shows **Show updates** when its data changed,
+  research R-3.)*
 - **Serving modes:** foreground by default, `--daemon`, `--stop`; `--serve`/`--open` removed
   [ER: FR-001, FR-001a; RC: R-11].
 - **Summary page and full dashboards removed:** commands write no dashboard file and print the

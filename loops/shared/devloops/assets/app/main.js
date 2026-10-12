@@ -1,5 +1,5 @@
 /* main.js: starts the app once the page is parsed. Binds the shell (theme, menu, workspace
-   switcher, Live button), builds the navigation and the status from `summary`, starts following
+   switcher, Live and Show updates buttons), builds the navigation and the status from `summary`, starts following
    the run (served) or says what the snapshot is (an export, contracts/export.md), and mounts the
    address's view. Listed last in scripts.txt. */
 (function (DL) {
@@ -129,10 +129,24 @@
     DL.$$('[data-workspace-name]').forEach(function (n) { n.textContent = root.dataset.workspace || ''; });
     var sw = DL.$('select[data-action="workspace"]');
     if (sw) sw.addEventListener('change', function () { location.assign('../' + encodeURIComponent(sw.value) + '/'); });
-    var live = DL.$('[data-action="live"]');
+    var live = DL.$('[data-action="live"]'), update = DL.$('[data-action="update"]');
     if (DL.api.source() === 'api') {
       if (live) live.addEventListener('click', function () { DL.api.setPaused(!DL.api.paused()); });
       ['live', 'offline', 'online'].forEach(function (name) { DL.bus.on(name, setLive); });
+      /* the open view keeps what it shows while the run goes on; this button draws it again
+         (FR-003 revised), and hands its focus to the view it drew */
+      if (update) {
+        update.addEventListener('click', function () {
+          var focused = document.activeElement === update;
+          DL.router.update().then(function () {
+            var host = DL.router.host;
+            if (!focused || !update.hidden || !host) return;
+            host.tabIndex = -1;
+            host.focus({ preventScroll: true });
+          });
+        });
+        DL.bus.on('stale', function (stale) { update.hidden = !stale; });
+      }
     } else {
       if (live) live.hidden = true;
       showSnapshot();

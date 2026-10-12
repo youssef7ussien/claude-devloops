@@ -125,7 +125,7 @@ class ExportTest(StubLoopMixin, unittest.TestCase):
             self.assertIn(path, data, route)
             if path.startswith("files/"):
                 continue
-            status, body, _ = site.answer(ws, path)
+            status, body, _, _ = site.answer(ws, path)
             self.assertEqual(status, 200, path)
             served, embedded = json.loads(body), dict(data[path])
             if path == "summary":  # the server's own: its workspaces, version, and time

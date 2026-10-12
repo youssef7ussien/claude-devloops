@@ -57,6 +57,9 @@ STREAM_BYTES = 16 * 1024 * 1024      # larger text files are streamed, not read 
 STREAM_BLOCK = 1024 * 1024
 VERSION_TTL = 1.0                    # seconds a computed version serves every page
 ANCHOR = re.compile(r"^f-[a-z0-9-]+$")
+# Top-level keys of an answer that change with every workspace version whatever else it says:
+# its content hash leaves them out (FR-003 revised).
+VOLATILE_KEYS = ("generated_at", "version")
 PAGE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
             "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 FILE_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
@@ -240,26 +243,28 @@ class Site:
         return version, entry
 
     def answer(self, ws, path, query=""):
-        """`(status, JSON text, version)` of API path `path` with query string `query`: built by
-        its builder once per version, redacted. A builder that takes `query` gets the query's
-        values (`{name: value}`); for one that does not, the query does not change the answer.
-        An unknown path, or a builder's `NotFound`, is a 404."""
+        """`(status, JSON text, version, content hash)` of API path `path` with query string
+        `query`: built by its builder once per version, redacted. A builder that takes `query`
+        gets the query's values (`{name: value}`); for one that does not, the query does not
+        change the answer. An unknown path, or a builder's `NotFound`, is a 404."""
         version, entry = self.current(ws)
         found = route_api(path, query)
         if found is None:
-            return 404, json.dumps({"error": "not found"}), version
+            data = {"error": "not found"}
+            return 404, json.dumps(data), version, content_hash(data)
         build, args, key = found
         cached = getattr(build, "cached", True)  # False: worked out on every request (api/now)
         with self._lock:
             hit = entry["answers"].get(key) if cached else None
         if hit:
-            return hit + (version,)
+            status, body, content = hit
+            return status, body, version, content
         status, data = build_answer(entry["ctx"], build, args)
-        body = json.dumps(data, ensure_ascii=False)
+        body, content = json.dumps(data, ensure_ascii=False), content_hash(data)
         if cached:
             with self._lock:
-                entry["answers"][key] = (status, body)
-        return status, body, version
+                entry["answers"][key] = (status, body, content)
+        return status, body, version, content
 
     def redactor(self, ws):
         return self.current(ws)[1]["ctx"].redactor
@@ -320,6 +325,16 @@ def build_answer(ctx, build, args):
     except dashboard.NotFound as e:
         status, data = 404, {"error": str(e)}
     return status, ctx.redactor.redact_obj(data)[0]
+
+
+def content_hash(data):
+    """A short hash of what an answer says, without its `VOLATILE_KEYS`: the same while the
+    answer's content is, across workspace versions, so an open view knows whether it changed
+    (the `X-Devloops-Content` header; FR-003 revised)."""
+    if isinstance(data, dict):
+        data = {k: v for k, v in data.items() if k not in VOLATILE_KEYS}
+    text = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _sendable(index, root, file_id):
@@ -590,9 +605,11 @@ class Handler(BaseHTTPRequestHandler):
     def _redirect(self, location, headers=None, head=False):
         self._send(303, "", headers=dict(headers or {}, Location=location), head=head)
 
-    def _json(self, obj, head=False, code=200, version=None):
+    def _json(self, obj, head=False, code=200, version=None, content=None):
         body = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
-        headers = {"X-Devloops-Version": version} if version else None
+        headers = {"X-Devloops-Version": version} if version else {}
+        if content:
+            headers["X-Devloops-Content"] = content
         self._send(code, body, "application/json; charset=utf-8", headers=headers, head=head)
 
     # --- checks ---
@@ -711,8 +728,8 @@ class Handler(BaseHTTPRequestHandler):
             query = (urllib.parse.parse_qs(url.query).get("q") or [""])[0]
             self._json({"results": site.search(ws, query)}, head, version=site.version(ws))
         else:
-            code, body, version = site.answer(ws, "/".join(rest), url.query)
-            self._json(body, head, code, version)
+            code, body, version, content = site.answer(ws, "/".join(rest), url.query)
+            self._json(body, head, code, version, content)
 
     def _file(self, ws, file_id, head):
         site = self.server.site

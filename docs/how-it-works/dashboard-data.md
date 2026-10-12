@@ -77,13 +77,21 @@ While a run goes on, the dashboard updates by itself:
    ask.
 2. Every 3 seconds, while the page is visible and not paused, the browser asks for that version.
 3. When the version is the same, nothing happens.
-4. When it changed, the browser forgets the answers it kept, and asks again only for what is on
-   the screen: the view you are on, the navigation, and the "now" panel. Other views ask for
-   fresh data when you next open them.
+4. When it changed, the browser forgets the answers it kept, and asks again for the navigation
+   and the "now" panel, and for the overview when it is on screen.
+5. Any other view on screen stays as it is, so it never moves while you read it. The browser
+   asks for its data quietly and compares it with what the view shows: each answer comes with a
+   short hash of what it says (leaving out the time it was made), so the comparison does not
+   depend on the version. When the hashes differ, the top bar shows **Show updates**; pressing
+   it draws the view again with the latest data. Any view you open shows the latest data, and a
+   view that could not be loaded (it shows an error) is tried again by itself.
 
-An update keeps your place: the scroll position, open sections and filters stay as they were.
-A file open in the viewer is reloaded only when that file changed, at the same position, or at
-its end when you were reading its end, so a growing log shows its new lines.
+> **Changed by spec 005 (FR-003 revised 2026-10-12)**: every open view used to be drawn again
+> on each change, which during a run meant every few seconds.
+
+Drawing a view again keeps your place: the scroll position, open sections and filters stay as
+they were. A file open in the viewer is reloaded only when that file changed, at the same
+position, or at its end when you were reading its end, so a growing log shows its new lines.
 
 Pressing **Live**, in the top bar, pauses following; it then says **Paused**. When the server stops answering, the page says
 **Offline** and keeps showing what it has.
@@ -101,9 +109,15 @@ sequenceDiagram
     B->>S: version?
     S->>W: size and time of each file
     S-->>B: version
-    alt the version changed
-      B->>S: the data of the view on screen again
-      S-->>B: a new answer
+    alt the version changed, on the overview or a view that could not be loaded
+      B->>S: the view's data again
+      S-->>B: a new answer, drawn in place
+    else the version changed, on any other view
+      B->>S: the view's data again, quietly
+      S-->>B: a new answer and its content hash
+      opt the hash differs from the view's
+        B->>B: show "Show updates", keep the view
+      end
     end
   end
 ```

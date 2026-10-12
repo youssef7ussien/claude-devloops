@@ -250,7 +250,7 @@ dialog.viewer::backdrop{background:rgba(10,10,10,.55);backdrop-filter:blur(2px)}
 flex-wrap:wrap;background:var(--page)}
 .v-tools .spacer{flex:1}
 .v-body{flex:1;overflow:auto;background:var(--raised)}
-.v-body:focus{outline:none}
+.v-body:focus,.view-host:focus{outline:none}
 .v-pane{padding:18px 22px}
 .v-status{position:absolute;right:18px;bottom:16px;background:var(--ink);color:var(--page);font-size:12px;
 border-radius:6px;padding:4px 10px;opacity:0;transition:opacity .15s;pointer-events:none}
@@ -353,6 +353,7 @@ code.cmd{white-space:pre-wrap}
 .btn.live{gap:7px}.btn.live .pulse{width:8px;height:8px;border-radius:50%;background:var(--good)}
 .btn.live[aria-pressed="true"] .pulse{animation:pulse 1.6s ease-in-out infinite}
 .btn.live[aria-pressed="false"] .pulse{background:var(--muted)}
+.btn.update{gap:7px;background:var(--accent-soft);border-color:var(--accent)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .palette li.group{font-size:11px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
 cursor:default;padding:10px 10px 4px}

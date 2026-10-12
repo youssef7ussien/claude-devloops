@@ -96,6 +96,7 @@
   }
 
   DL.router.register('overview', {
+    live: true,  /* watched, not read: it follows the run in place (FR-003 revised) */
     title: function () { return 'Overview'; },
     data: function () { return ['summary']; },
     render: function (data, params, el) {

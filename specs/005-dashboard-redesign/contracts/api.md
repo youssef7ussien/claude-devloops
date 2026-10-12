@@ -35,6 +35,10 @@ of the loops the run includes.
   redactor (`artifacts.workspace_redactor`) before it is sent (FR-006, SC-008).
 - JSON responses carry `X-Devloops-Version: <workspace version>`, so the page can tell data from an
   older version apart.
+- *(Added 2026-10-12, FR-003 revised)* The answers of the data API also carry
+  `X-Devloops-Content: <hash>`, a short hash of what the answer says without its top-level
+  `generated_at` and `version` (`serve.content_hash`): it stays the same across versions while
+  the answer's content does, so an open view knows whether to offer **Show updates**.
 - The server caches each response per workspace, path, and version; the cache of a workspace is
   dropped when its version changes (FR-007). The version is computed at most once a second per
   workspace (as today).
