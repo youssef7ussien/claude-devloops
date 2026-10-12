@@ -1,0 +1,90 @@
+/* The Mermaid diagram viewer (diagram-zoom.js). */
+.dl-diagram {
+  position: relative;
+  margin: 1em 0;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background-color: var(--md-default-bg-color);
+}
+
+.dl-diagram__viewport {
+  overflow: hidden;
+  padding: 0.8rem;
+}
+
+.dl-diagram__canvas {
+  transform-origin: 0 0;
+}
+
+.dl-diagram .mermaid {
+  margin: 0;
+}
+
+/* On a touch screen a vertical swipe still scrolls the page; a sideways one pans. */
+.dl-diagram--zoomed .dl-diagram__viewport,
+.dl-diagram:fullscreen .dl-diagram__viewport {
+  cursor: grab;
+  touch-action: pan-y pinch-zoom;
+}
+
+.dl-diagram--dragging .dl-diagram__viewport {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.dl-diagram__tools {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  gap: 0.2rem;
+}
+
+.dl-diagram__button {
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.2rem;
+  background-color: var(--md-default-bg-color);
+  color: var(--md-default-fg-color--light);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dl-diagram__button:hover,
+.dl-diagram__button:focus-visible {
+  color: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+}
+
+/* With a mouse, the buttons show when the pointer is over the diagram, as on GitHub. */
+@media (hover: hover) {
+  .dl-diagram__tools {
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .dl-diagram:hover .dl-diagram__tools,
+  .dl-diagram:focus-within .dl-diagram__tools {
+    opacity: 1;
+  }
+}
+
+.dl-diagram:fullscreen {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/* The drawing is fitted to the screen and centred by diagram-zoom.js. */
+.dl-diagram:fullscreen .dl-diagram__viewport {
+  flex: 1;
+  touch-action: none;
+}
+
+.dl-diagram:fullscreen .dl-diagram__tools {
+  opacity: 1;
+}

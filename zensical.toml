@@ -12,6 +12,9 @@ repo_name = "youssef7ussien/claude-devloops"
 docs_dir = "docs"
 site_dir = "site"
 strict = true
+# Zoom, pan and full screen for Mermaid diagrams.
+extra_css = ["assets/diagram-zoom.css"]
+extra_javascript = ["assets/diagram-zoom.js"]
 
 nav = [
   { "Home" = "index.md" },

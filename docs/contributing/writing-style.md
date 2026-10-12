@@ -94,7 +94,11 @@ schemas do not define, or a path in a workspace that a run never writes.
 ## Diagrams
 
 Draw a flow, a sequence or a set of statuses as a [Mermaid](https://mermaid.js.org/) diagram,
-in a `mermaid` code block. Keep labels short; explain the details in the text around it.
+in a `mermaid` code block. Keep labels short; explain the details in the text around it. Readers
+can zoom, pan and open each diagram full screen (`docs/assets/diagram-zoom.js`), but a diagram
+should still read at its normal size. Never name a node with a word Mermaid reserves, such as
+`call`, `click`, `end`, `class`, `style`, `subgraph`, `graph`, `flowchart` or `direction`: the
+diagram does not draw.
 
 ```mermaid
 flowchart LR

@@ -46,8 +46,8 @@ Every step runs the same way:
 
 ```mermaid
 flowchart LR
-  parts["Prompt: shared rules + loop instructions + step instructions + context"] --> call[Call Claude Code]
-  call --> answer[Answer]
+  parts["Prompt: shared rules + loop instructions + step instructions + context"] --> callClaude[Call Claude Code]
+  callClaude --> answer[Answer]
   answer --> check{Matches the step's form?}
   check -- yes --> rules{Passes the step's own rules?}
   check -- no --> failed[Call failed]
