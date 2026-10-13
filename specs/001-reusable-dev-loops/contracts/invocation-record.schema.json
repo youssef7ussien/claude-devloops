@@ -148,6 +148,11 @@
       "type": "boolean",
       "default": false
     },
+    "interrupted": {
+      "type": "boolean",
+      "default": false,
+      "description": "The run was interrupted (Ctrl+C) during the call: it has no result, and its end is when the driver stopped it (added 2026-10-13)"
+    },
     "api_error_status": {
       "type": [
         "integer",

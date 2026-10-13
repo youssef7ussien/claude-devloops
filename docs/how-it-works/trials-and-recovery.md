@@ -222,13 +222,19 @@ A run keeps everything it does in files, written so that a crash never leaves on
 ([state and files](state-and-files.md)). That is why a run can always continue where it stopped.
 
 - **You press Ctrl+C.** devloops stops the call and the servers it started, and records the trial
-  in progress as failed, with the reason `interrupted`. It counts toward the limit. The command
-  ends with [exit code 130](../reference/exit-codes.md#exit-130). Run `devloops run` to continue:
-  the next trial is a `fix`, with the interruption as its last failure. If that was the
-  milestone's last trial, `devloops run` stops with `trials-exhausted` instead.
+  in progress as failed, with the reason `interrupted`. It counts toward the limit. The call it
+  stopped is recorded too, marked `interrupted`, with its conversation as far as Claude Code had
+  written it, so the trial's steps in the dashboard list it. Its cost and tokens are unknown
+  (only a call that finishes reports them), so the milestone's usage in `progress.md` is the
+  other calls' sum, marked `(partial)`. A second Ctrl+C stops at once without recording the
+  call, and a Ctrl+C after Claude finished, while devloops reads its result, records none. The
+  command ends with [exit code 130](../reference/exit-codes.md#exit-130). Run `devloops run` to
+  continue: the next trial is a `fix`, with the interruption as its last failure. If that was
+  the milestone's last trial, `devloops run` stops with `trials-exhausted` instead.
 - **devloops was killed, or the machine stopped.** Run `devloops run` again. devloops finds the
-  unfinished trial, records it as `interrupted`, and continues. If the kill left the workspace
-  locked, add [`--force-unlock`](../reference/commands.md#run--force-unlock).
+  unfinished trial, records it as `interrupted`, and continues. The call that was running is not
+  recorded: a killed process gets no chance to. If the kill left the workspace locked, add
+  [`--force-unlock`](../reference/commands.md#run--force-unlock).
 - **Another devloops command holds the lock** ([exit code 40](../reference/exit-codes.md#exit-40)).
   Only one command works on a loop of a workspace at a time. If the other command is still
   running, wait for it. If its process is gone (a stale lock, which the message says), run the

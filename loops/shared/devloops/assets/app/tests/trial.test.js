@@ -54,7 +54,17 @@ test('result: ok, or the failure with its detail', () => {
     { ok: false, label: 'service error', detail: 'api_error_status=503' });
   assert.deepEqual(R({ failure_class: 'work' }, { reason: 'interrupted', detail: 'stopped by the developer' }),
     { ok: false, label: 'interrupted', detail: 'stopped by the developer' });
+  assert.deepEqual(R({ failure_class: 'work', interrupted: true, is_error: true, subtype: null }, { reason: 'interrupted' }),
+    { ok: false, label: 'interrupted', detail: 'the run was stopped (Ctrl+C) during this call' }, 'the call Ctrl+C cut short');
   assert.deepEqual(R({ failure_class: 'work' }), { ok: false, label: 'failed', detail: null });
+  assert.equal(DL.callResult, V.result, 'the calls list and the call view say it the same way');
+});
+
+test('cost: a call that never reported one shows –, not $0.00', () => {
+  assert.equal(V.cost(tot(0.5, 10)), '$0.50');
+  assert.equal(V.cost(tot(0, 0, true)), '–', 'e.g. the call Ctrl+C cut short');
+  assert.equal(V.cost(Object.assign(tot(1.25, 10, true), { calls: 2 })), '$1.25', 'a sum of calls is a lower bound');
+  assert.equal(DL.callCost, V.cost);
 });
 
 test('checks: HTTP checks, contract, unit tests, boundary, in that order', () => {

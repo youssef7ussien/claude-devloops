@@ -20,7 +20,7 @@ from . import (boundary, config, inputs, preflight, prompts, render, schema, sel
                state)
 from . import plan as plan_mod
 from . import progress as progress_mod
-from .claude import CallFailed, ClaudeRunner
+from .claude import CallFailed, CallInterrupted, ClaudeRunner
 from .kit import Kit
 from .redact import Redactor
 from .runtime import RuntimeStartFailed
@@ -685,8 +685,15 @@ class Engine:
             planning["status"] = "in-progress"
             self._save()
             self._event("trial-started", f"planning trial {n} ({kind})", trial=n)
-            out = self._runner().call(kind, self._plan_context(kind, counted),
-                                      self.rs["target_dir"], trial=n, add_dirs=self._input_dirs())
+            try:
+                out = self._runner().call(kind, self._plan_context(kind, counted),
+                                          self.rs["target_dir"], trial=n,
+                                          add_dirs=self._input_dirs())
+            except CallInterrupted as e:
+                if e.record:  # the trial lists the call Ctrl+C cut short (specs/005 FR-018a)
+                    trial["invocations"].append(e.record["session_id"])
+                    self._save()
+                raise
             trial["invocations"].append(out.record["session_id"])
             if not out.ok and out.failure_class == "service":
                 trial.update(status="void", failure={"reason": out.failure_reason,
@@ -827,12 +834,18 @@ class Engine:
                 phase = "invalid-output"
                 adapter.prepare(self._adapter_context(milestone, n, trial_dir))
                 phase = "claude-error"
-            out = self._runner().call(kind, self._milestone_context(milestone, n),
-                                      self.rs["target_dir"], milestone_id=mid, trial=n,
-                                      trial_dir=trial_dir, snapshot=self._snapshot,
-                                      add_dirs=self._input_dirs(mid, n),
-                                      last_trial=(kind == "fix"
-                                                  and n >= selector.trial_limit(self.rs, mid)))
+            try:
+                out = self._runner().call(kind, self._milestone_context(milestone, n),
+                                          self.rs["target_dir"], milestone_id=mid, trial=n,
+                                          trial_dir=trial_dir, snapshot=self._snapshot,
+                                          add_dirs=self._input_dirs(mid, n),
+                                          last_trial=(kind == "fix"
+                                                      and n >= selector.trial_limit(self.rs, mid)))
+            except CallInterrupted as e:
+                if e.record:  # the trial lists the call Ctrl+C cut short (specs/005 FR-018a)
+                    trial["invocations"].append(e.record["session_id"])
+                    state.write_json_atomic(os.path.join(trial_dir, "trial.json"), trial)
+                raise
             trial["invocations"].append(out.record["session_id"])
             if out.ok:
                 self._record_implementation(milestone, trial, out.structured_output)

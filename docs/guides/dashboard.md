@@ -101,7 +101,8 @@ The first page answers "how is the run going?":
 - **Needs attention**: what to look at first, most urgent first. A loop that stopped, was
   interrupted or waits for you, with the next thing to do; criteria failing on a milestone's
   latest trial; questions without an answer, and suggested answers not yet accepted; suggested
-  answers accepted automatically, to review like assumptions; failed calls;
+  answers accepted automatically, to review like assumptions; failed calls (but not a call
+  Ctrl+C cut short: its loop's item already says it was interrupted);
   [evidence](../glossary.md#evidence) files over 1 MB (the likeliest place for a secret to hide); and
   milestones that passed only after failed or voided trials. Each item links to its detail. When
   only notes are left, the box is titled **Worth knowing**; when there is nothing, it says so.

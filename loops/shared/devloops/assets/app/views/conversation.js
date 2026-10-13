@@ -325,16 +325,18 @@
   /* --- header ------------------------------------------------------------------------------------- */
 
   function header(d) {
-    var t = d.totals, facts = DL.el('dl', 'facts');
+    var t = d.totals, facts = DL.el('dl', 'facts'), ended = DL.callResult(d);
     [['Loop', DL.link(d.routes.loop, d.loop)], ['Step', d.step], ['Milestone', d.milestone_id || 'planning'],
       ['Trial', d.routes.trial ? DL.link(d.routes.trial, String(d.trial)) : (d.trial == null ? '–' : String(d.trial))],
       ['Model', d.model || '–'], ['Session', DL.el('code', null, d.session_id || '–')],
       ['Started', DL.when(d.started_at)], ['Turns', d.num_turns == null ? '–' : String(d.num_turns)],
-      ['Result', d.failure_class && d.failure_class !== 'none' ? DL.pill('failed', 'trial') : (d.subtype || '–')]
+      ['Result', ended.ok ? (d.subtype || '–')
+        : DL.add(DL.el('span'), DL.pill('failed', 'trial'), DL.el('span', 'muted small', ' ' + ended.label +
+            (ended.detail ? ': ' + ended.detail : '')))]
     ].forEach(function (f) { DL.add(facts, DL.el('dt', null, f[0]), DL.add(DL.el('dd'), f[1])); });
     return [facts, DL.kpis([
       DL.kpi('Duration', DL.fmt.duration(d.duration_ms == null ? null : d.duration_ms / 1000)),
-      DL.kpi('Cost', DL.fmt.money(t.cost)),
+      DL.kpi('Cost', DL.callCost(t)),
       DL.kpi('Tokens', DL.tokens(t))
     ], true, 'Call totals')];
   }

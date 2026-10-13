@@ -107,9 +107,11 @@ whose folder holds the later attempt's files).
 ## Call list and call (`api/calls`, `api/calls/<loop>/<seq>`)
 
 - **CallRef**: `{loop, seq, step, milestone_id, trial, model, started_at, duration_ms, totals,
-  failure_class, timed_out, is_error, subtype, api_error_status, conversation:
-  "copied"|"history"|"unavailable", route}` (the four fields after `failure_class` added
-  2026-10-10: how a failed call ended, for the trial's Result column, FR-018b).
+  failure_class, timed_out, interrupted, is_error, subtype, api_error_status, conversation:
+  "copied"|"history"|"unavailable", route}` (`timed_out`, `is_error`, `subtype` and
+  `api_error_status` added 2026-10-10: how a failed call ended, for the trial's Result column,
+  FR-018b; `interrupted` added 2026-10-14: the call Ctrl+C cut short, recorded with no result, so
+  its cost is unknown).
 - **Call**: `CallRef` + `{ended_at, num_turns, permission_denials, prompt: FileRef|null, settings: FileRef|null, prompt_sources, refs, routes:
   {loop, trial|null}, records: [Record], errors: [record index], files_changed: [{path, tool,
   block, added, removed}], unavailable_reason?}`. `refs` is the loop's (FR-020d), for the call's

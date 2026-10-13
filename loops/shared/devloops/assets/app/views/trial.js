@@ -51,13 +51,14 @@
 
   /* How a call ended (FR-018a): `{ok: true}`, or `{ok: false, label, detail}`. The call's
      `failure_class` (none | work | service) says whether it failed; its label comes from the
-     call's own fields when they are there (`failure_reason`, `timed_out`, `api_error_status`,
-     `is_error`, `subtype`), else from `hint` (`{reason, detail}`: the trial's failure, given for
-     the trial's last failed call); a service failure without one is "service error", a work
-     failure "failed". */
+     call's own fields when they are there (`failure_reason`, `timed_out`, `interrupted`,
+     `api_error_status`, `is_error`, `subtype`), else from `hint` (`{reason, detail}`: the trial's
+     failure, given for the trial's last failed call); a service failure without one is "service
+     error", a work failure "failed". */
   function result(call, hint) {
     var fc = call.failure_class;
     if (!fc || fc === 'none') return { ok: true };
+    if (call.interrupted) return { ok: false, label: 'interrupted', detail: 'the run was stopped (Ctrl+C) during this call' };
     var reason = call.failure_reason || (call.timed_out ? 'timeout' : null), detail = call.failure_detail || null;
     if (!reason && hint && hint.reason) { reason = hint.reason; detail = detail || hint.detail || null; }
     if (!reason && fc === 'work' && call.subtype !== undefined) {
@@ -69,6 +70,12 @@
     if (!detail && call.api_error_status != null) detail = 'api_error_status=' + call.api_error_status;
     if (!detail && call.subtype) detail = 'subtype=' + call.subtype;
     return { ok: false, label: label, detail: detail };
+  }
+
+  /* A call's cost (`totals` of that one call): '–' when it never reported one (e.g. the call
+     Ctrl+C cut short), not $0.00. */
+  function cost(totals) {
+    return DL.fmt.money(totals.calls === 1 && totals.partial ? null : totals.cost);
   }
 
   /* The Checks table's rows (FR-018c), in order: each HTTP check, the API contract, the unit
@@ -234,7 +241,7 @@
       var tr = DL.add(DL.el('tr', 'call-row'), DL.td(r.step), DL.td(DL.link(c.route, '#' + c.seq), 'num'),
         DL.td(c.model || '–', 'small'), DL.td(r.at == null ? '–' : DL.conversation.since(r.at), 'num'),
         DL.td(c.duration_ms == null ? '–' : DL.conversation.ms(c.duration_ms), 'num'),
-        DL.td(DL.fmt.money(c.totals.cost), 'num'), DL.td(DL.tokens(c.totals), 'num'),
+        DL.td(cost(c.totals), 'num'), DL.td(DL.tokens(c.totals), 'num'),
         DL.td([resultCell(result(c, c === last ? hint : null)),
                c.conversation === 'copied' ? null : DL.el('span', 'muted small', ' · conversation ' + c.conversation)]));
       return DL.rowLink(tr, c.route);
@@ -417,7 +424,10 @@
     return box;
   }
 
-  DL.trialView = { rows: rows, result: result, checks: checks, changeIndex: changeIndex };
+  DL.trialView = { rows: rows, result: result, cost: cost, checks: checks, changeIndex: changeIndex };
+  /* how a call ended and what it cost, said the same way in the calls list and the call view */
+  DL.callResult = result;
+  DL.callCost = cost;
 
   DL.router.register('trial', {
     title: function (params) { return params.milestone + ' · trial ' + params.key; },

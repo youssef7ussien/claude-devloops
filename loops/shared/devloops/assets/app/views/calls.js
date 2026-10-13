@@ -25,15 +25,16 @@
     render: function (data, params, el, query, refresh) {
       var d = data[0];
       var rows = d.calls.map(function (c) {
-        var failed = c.failure_class && c.failure_class !== 'none', result;
-        if (failed) {
-          result = DL.add(DL.el('span', 'pill tone-critical'), DL.el('span', null, '✕'), ' ' + c.failure_class);
+        var ended = DL.callResult(c), result;
+        if (!ended.ok) {
+          result = DL.add(DL.el('span', 'pill tone-critical'), DL.el('span', null, '✕'), ' ' + ended.label);
           result.firstChild.setAttribute('aria-hidden', 'true');
+          if (ended.detail) result.dataset.tip = ended.detail;
         } else result = DL.el('span', 'muted small', 'ok');
         var tr = DL.add(DL.el('tr'), DL.td(c.loop), DL.td(String(c.seq), 'num'), DL.td(DL.el('strong', null, c.step || '?')),
           DL.td(c.milestone_id || 'planning'), DL.td(c.trial == null ? '' : String(c.trial), 'num'),
           DL.td(DL.el('code', 'small', (c.session_id || '').slice(0, 8))), DL.td(c.model || MODEL_DEFAULT, 'muted small'),
-          DL.td(DL.tokens(c.totals), 'num'), DL.td(DL.fmt.money(c.totals.cost), 'num'),
+          DL.td(DL.tokens(c.totals), 'num'), DL.td(DL.callCost(c.totals), 'num'),
           DL.td(DL.fmt.duration((c.duration_ms || 0) / 1000), 'num'), DL.td(result));
         tr.setAttribute('data-loop', c.loop);
         tr.setAttribute('data-step', c.step || '?'); /* as the loop view's Steps card names it */

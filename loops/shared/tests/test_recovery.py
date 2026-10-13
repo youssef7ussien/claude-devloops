@@ -10,7 +10,7 @@ import signal
 import unittest
 
 import helpers  # noqa: F401 - first: it puts the devloops package on the path
-from devloops import schema
+from devloops import schema, state
 from stub_loop import StubLoopMixin, implemented
 
 FAIL = {"DEVLOOPS_STUB": "fail"}
@@ -102,6 +102,36 @@ class InterruptedTrialTest(StubLoopMixin, unittest.TestCase):
 
     def test_sigint_mid_trial_fails_it_as_interrupted_and_the_next_trial_starts(self):
         self.assert_recovered(self.interrupt_during_implement(signal.SIGINT))
+
+    def test_the_call_ctrl_c_cut_short_is_recorded_and_its_trial_lists_it(self):
+        """specs/005 FR-018a: an interrupted call is one of its trial's calls, ended
+        "interrupted"; 002 FR-042: a conversation not written yet is unavailable, as interrupted."""
+        from devloops import dashboard, workspace
+        from stub_loop import WS
+        self.interrupt_during_implement(signal.SIGINT)
+        [cut] = [r for r in state.read_jsonl(self.path("state/invocations.jsonl"))
+                 if r.get("interrupted")]
+        self.assertEqual((cut["step"], cut["milestone_id"], cut["trial"], cut["failure_class"]),
+                         ("implement", "M02", 1, "work"))
+        self.assertEqual((cut["conversation"], cut["conversation_reason"]),
+                         ("unavailable", "interrupted"))
+        self.assertIsNone(cut["cost_usd"])
+        self.assertGreaterEqual(cut["duration_ms"], 0)
+        self.assertEqual(schema.validate(cut, "invocation-record.schema.json"), [])
+        self.assertEqual(self.trial("M02", 1)["invocations"], [cut["session_id"]])
+        ws = workspace.open_workspace(WS, self.t.project(), self.t.kit(), create=False)
+        ctx = dashboard.Context(ws, self.t.env)
+        trial = dashboard.trial(ctx, "backend-dev", "M02", "1")
+        [call] = [c for s in trial["steps"] for c in s["calls"]]
+        self.assertEqual((call["seq"], call["interrupted"]), (cut["seq"], True))
+        # Not a failure to look into: the loop's own item says it was interrupted.
+        self.assertNotIn(cut["seq"], [i.get("call") for i in dashboard.summary(ctx)["attention"]
+                                      if i["kind"] == "failed-call"])
+        # The milestone's usage is the other calls' sum, marked partial, not hidden.
+        with open(self.path("progress.md"), encoding="utf-8") as f:
+            row = next(line for line in f if line.startswith("| M02 "))  # the Milestones table
+        self.assertIn("(partial)", row)
+        self.assertNotIn("unavailable", row)
 
     def test_a_killed_driver_is_recovered_after_clearing_its_stale_lock(self):
         # SIGKILL leaves the lock behind; --force-unlock clears it (FR-065), then recovery runs.

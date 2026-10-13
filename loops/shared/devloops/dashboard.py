@@ -510,7 +510,9 @@ def attention_items(data, file_route=None, records=False):
                               "route": route("questions")})
         for r in d["invocations"]:
             failure = r.get("failure_class")
-            if failure not in (None, "none"):
+            # A call Ctrl+C cut short is no failure to look into: its trial says it was
+            # interrupted, and the run says what to run next.
+            if failure not in (None, "none") and not r.get("interrupted"):
                 items.append({"kind": "failed-call", "tone": "warning", "loop": loop,
                               "call": r.get("seq"), "step": r.get("step"), "failure": failure,
                               "message": f"{loop} call #{r.get('seq')} {r.get('step')} failed "
@@ -954,7 +956,8 @@ def call_ref(loop, r):
             "started_at": r.get("started_at"), "duration_ms": r.get("duration_ms"),
             "totals": totals([r]), "failure_class": r.get("failure_class"),
             # how a failed call ended, for its Result (FR-018b)
-            "timed_out": r.get("timed_out"), "is_error": r.get("is_error"),
+            "timed_out": r.get("timed_out"), "interrupted": r.get("interrupted"),
+            "is_error": r.get("is_error"),
             "subtype": r.get("subtype"), "api_error_status": r.get("api_error_status"),
             "conversation": conversation, "route": route("call", loop=loop, seq=r.get("seq"))}
 

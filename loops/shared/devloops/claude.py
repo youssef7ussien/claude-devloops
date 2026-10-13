@@ -130,6 +130,16 @@ class CallFailed(Exception):
         self.reason, self.detail, self.failure_class = reason, detail, failure_class
 
 
+class CallInterrupted(KeyboardInterrupt):
+    """Ctrl+C while Claude was running: a `KeyboardInterrupt` that says when the call was stopped
+    (`stopped`, a `time.monotonic()`, before the cleanup after it) and, once the call is recorded,
+    its invocation record (`record`, else None), so the trial can list it (specs/005 FR-018a)."""
+
+    def __init__(self, stopped):
+        super().__init__()
+        self.stopped, self.record = stopped, None
+
+
 @dataclass
 class CallResult:
     record: dict
@@ -321,6 +331,20 @@ class ClaudeRunner:
                 self.progress.call_ended(step, time.monotonic() - t0, failure=(
                     "interrupted" if isinstance(e, KeyboardInterrupt)
                     else self.redactor.redact(f"{type(e).__name__}: {e}"[:300])[0]))
+            if isinstance(e, CallInterrupted):
+                # Ctrl+C while Claude ran (not after it finished): still record the call, so its
+                # trial lists it (specs/005 FR-018a) with its conversation as far as Claude Code
+                # wrote it (002 FR-042). Best effort: a second Ctrl+C or a failing disk leaves it
+                # out, and the stop goes on at once.
+                try:
+                    record = self._record(seq, session_id, step, milestone_id, trial, prompt_path,
+                                          started_at, state.now_iso(),
+                                          int((e.stopped - t0) * 1000), None, False, "work",
+                                          model, interrupted=True)
+                    e.record = self._write_record(record, target_dir, True, prompt_sources,
+                                                  prompt_redacted)
+                except BaseException:  # noqa: BLE001
+                    pass
             raise
         finally:
             live.end()
@@ -334,26 +358,32 @@ class ClaudeRunner:
 
         record = self._record(seq, session_id, step, milestone_id, trial, prompt_path, started_at,
                               ended_at, elapsed_ms, result, timed_out, out.failure_class, model)
+        out.record = self._write_record(record, target_dir, timed_out, prompt_sources,
+                                        prompt_redacted)
+        return out
+
+    def _write_record(self, record, cwd, cut_short, prompt_sources, prompt_redacted):
+        """Copy the call's conversation, hide secrets in its record, append the record to
+        `invocations.jsonl`, and return it."""
         conversation, conversation_redacted = self._copy_conversation(
-            seq, step, record["session_id"], target_dir, timed_out)
+            record["seq"], record["step"], record["session_id"], cwd, cut_short)
         record.update(conversation, prompt_sources=prompt_sources)
         record, record_redacted = self.redactor.redact_obj(record)
         record["redacted"] = bool(prompt_redacted or record_redacted or conversation_redacted)
         state.append_jsonl(os.path.join(self.state_dir, "invocations.jsonl"), record)
-        out.record = record
-        return out
+        return record
 
-    def _copy_conversation(self, seq, step, session_id, cwd, timed_out):
+    def _copy_conversation(self, seq, step, session_id, cwd, cut_short):
         """Copy the call's Claude Code transcript, redacted, into `state/conversations/` (FR-042).
 
         Returns the invocation record's conversation fields and whether a secret was replaced.
         A transcript that cannot be found or read is recorded as unavailable; it never fails the
-        call.
+        call. A call `cut_short` (timed out, or interrupted) may have none yet.
         """
         source = find_transcript(session_id, cwd, self.env)
         if source is None:
             return {"conversation": "unavailable",
-                    "conversation_reason": "interrupted" if timed_out else "not-found"}, False
+                    "conversation_reason": "interrupted" if cut_short else "not-found"}, False
         try:
             with open(source, encoding="utf-8", errors="replace") as f:
                 text = f.read()
@@ -429,9 +459,12 @@ class ClaudeRunner:
             exited = time.monotonic()
         except subprocess.TimeoutExpired:
             exited, timed_out = time.monotonic(), True
-        except BaseException:
+        except BaseException as e:
+            stopped = time.monotonic()
             _stop_group(proc)  # e.g. KeyboardInterrupt: never leave the call running
             _close_pipes(proc)
+            if isinstance(e, KeyboardInterrupt):
+                raise CallInterrupted(stopped) from e
             raise
         # The call has ended (or timed out): stop it and whatever it left running in its process
         # group (a server started with `&`, a watcher), which would hold the port or the pipes.
@@ -479,7 +512,8 @@ class ClaudeRunner:
         out.ok = True
 
     def _record(self, seq, session_id, step, milestone_id, trial, prompt_path, started_at,
-                ended_at, elapsed_ms, result, timed_out, failure_class, model=None):
+                ended_at, elapsed_ms, result, timed_out, failure_class, model=None,
+                interrupted=False):
         result = result or {}
         usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
         return {
@@ -507,6 +541,7 @@ class ClaudeRunner:
             "subtype": result.get("subtype"),
             "permission_denials": list(result.get("permission_denials") or []),
             "timed_out": timed_out,
+            "interrupted": interrupted,
             "api_error_status": _int_or_none(result.get("api_error_status")),
             "failure_class": failure_class,
         }

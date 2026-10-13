@@ -81,13 +81,22 @@ def render_milestone(milestone, ms_state, trials):
 # --- progress.md ------------------------------------------------------------------------------
 
 def _sum_tokens(records):
-    """Sum each counter; a counter missing from any record is `unavailable`."""
-    sums = {}
-    for key, _ in TOKEN_FIELDS:
-        values = [(r.get("tokens") or {}).get(key) for r in records]
-        sums[key] = "unavailable" if any(v is None for v in values) else sum(values)
-    costs = [r.get("cost_usd") for r in records]
-    sums["cost"] = "unavailable" if any(c is None for c in costs) else f"{sum(costs):.4f}"
+    """Sum each counter; a counter missing from any record is `unavailable`.
+
+    A call Ctrl+C cut short never reported its usage: the others' sum is shown, marked
+    `(partial)`, rather than hiding it (specs/005 FR-018a)."""
+    cut = any(r.get("interrupted") for r in records)
+    measured = [r for r in records if not r.get("interrupted")]
+    mark = " (partial)" if cut else ""
+
+    def total(values, fmt=str):
+        if not measured or any(v is None for v in values):
+            return "unavailable"
+        return fmt(sum(values)) + mark
+
+    sums = {key: total([(r.get("tokens") or {}).get(key) for r in measured])
+            for key, _ in TOKEN_FIELDS}
+    sums["cost"] = total([r.get("cost_usd") for r in measured], lambda c: f"{c:.4f}")
     return sums
 
 

@@ -176,6 +176,16 @@ class RenderUnitTest(unittest.TestCase):
         self.assertEqual(render.milestone_filename({"id": "M07", "title": "Log in"}),
                          "milestone-07-log-in.md")
 
+    def test_usage_with_a_call_ctrl_c_cut_short_is_the_others_sum_marked_partial(self):
+        used = {"tokens": {"input": 10, "output": 2, "cache_creation": 0, "cache_read": 5},
+                "cost_usd": 0.5}
+        cut = {"tokens": dict.fromkeys(used["tokens"]), "cost_usd": None, "interrupted": True}
+        sums = render._sum_tokens([used, cut, used])
+        self.assertEqual((sums["input"], sums["cost"]), ("20 (partial)", "1.0000 (partial)"))
+        self.assertEqual(render._sum_tokens([cut])["cost"], "unavailable")
+        self.assertEqual(render._sum_tokens([used, {"cost_usd": None}])["cost"], "unavailable")
+        self.assertEqual(render._sum_tokens([used])["input"], "10")
+
     def test_task_placeholders(self):
         self.assertEqual(render.render_task("{{a}} {{b}} {{unknown}}", {"a": "x", "b": None}),
                          "x none {{unknown}}")

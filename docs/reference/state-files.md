@@ -65,6 +65,7 @@ Everything devloops knows about a run is in files in the workspace, so a run can
 | `subtype` | string or null |  |
 | `permission_denials` | array |  |
 | `timed_out` | boolean |  |
+| `interrupted` | boolean | The run was interrupted (Ctrl+C) during the call: it has no result, and its end is when the driver stopped it (added 2026-10-13). |
 | `api_error_status` | integer or null |  |
 | `failure_class` | one of `"none"`, `"work"`, `"service"` | Research R-19; service failures void the trial (FR-067). |
 | `redacted` | boolean | true if any secret values were replaced (FR-070). |
